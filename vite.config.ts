@@ -1,14 +1,10 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
-  server: {
-    host: true,
-    allowedHosts: true,
-  },
-  plugins: [react(), tailwindcss(), VitePWA({
+function pwaPlugins(): Plugin[] {
+  return VitePWA({
     registerType: 'autoUpdate',
     includeAssets: ['favicon.svg', 'logo.svg', 'apple-touch-icon.png'],
     manifest: {
@@ -40,5 +36,35 @@ export default defineConfig({
         },
       ],
     },
-  })],
-})
+  })
+}
+
+/**
+ * Builds Android/iOS without a PWA service worker. Older AABs registered one
+ * inside the Capacitor WebView, so this tiny replacement removes that legacy
+ * worker and its caches when an existing installation is upgraded.
+ */
+function nativeServiceWorkerCleanup(): Plugin {
+  return {
+    name: 'alvoprompter-native-service-worker-cleanup',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'sw.js',
+        source: `self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.map(key=>caches.delete(key)))).then(()=>self.registration.unregister())));`,
+      })
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => ({
+  server: {
+    host: true,
+    allowedHosts: true,
+  },
+  plugins: [
+    react(),
+    tailwindcss(),
+    ...(mode === 'capacitor' ? [nativeServiceWorkerCleanup()] : pwaPlugins()),
+  ],
+}))

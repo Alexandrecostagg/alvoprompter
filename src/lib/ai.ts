@@ -9,6 +9,7 @@ interface StreamOptions {
   onToken?: (fullText: string) => void
   temperature?: number
   maxTokens?: number
+  jsonMode?: boolean
   signal?: AbortSignal
 }
 
@@ -24,6 +25,7 @@ export async function chatStream(messages: ChatMessage[], opts: StreamOptions = 
       messages,
       temperature: opts.temperature ?? 0.7,
       ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      ...(opts.jsonMode ? { response_format: { type: 'json_object' } } : {}),
     }),
     signal: opts.signal,
   })
@@ -32,8 +34,9 @@ export async function chatStream(messages: ChatMessage[], opts: StreamOptions = 
     const detail = await response.text().catch(() => '')
     let message = `Erro na API (${response.status}).`
     try {
-      const json = JSON.parse(detail)
-      if (json?.error?.message) message = `Erro na API: ${json.error.message}`
+      const json = JSON.parse(detail) as { error?: string | { message?: string } }
+      const apiMessage = typeof json.error === 'string' ? json.error : json.error?.message
+      if (apiMessage) message = apiMessage
     } catch {
       if (detail) message += ` ${detail.slice(0, 200)}`
     }
@@ -98,43 +101,87 @@ export interface ScriptGenerationInput {
   notes?: string
 }
 
+const DURATION_GUIDANCE: Record<string, string> = {
+  '~30 segundos': '65 a 85 palavras',
+  '~1 minuto': '125 a 155 palavras',
+  '~2 minutos': '250 a 310 palavras',
+  '~5 minutos': '625 a 760 palavras',
+  '~10 minutos': '1.250 a 1.500 palavras',
+}
+
+const FORMAT_GUIDANCE: Record<string, string> = {
+  'TikTok / Reels (até 1 min)':
+    'Comece direto no conflito, benefício ou curiosidade; não use saudação; crie progressão rápida e finalize com CTA de uma frase.',
+  'YouTube Shorts (até 60s)':
+    'Entregue o gancho nos primeiros 2 segundos, abra uma curiosidade, desenvolva sem enrolação e feche a promessa antes do CTA.',
+  'YouTube (5+ min)':
+    'Abra com promessa e contexto, organize a progressão em blocos falados com transições naturais e renove a atenção sem anunciar seções.',
+  'Vídeo de vendas':
+    'Estruture problema, impacto, mecanismo da solução, benefício e CTA; não invente prova, depoimento, número ou garantia.',
+  Vlog: 'Soa pessoal e espontâneo, com observações concretas e transições que pareçam conversa, não redação.',
+  'Pregação / Culto':
+    'Mantenha tom pastoral e respeitoso; preserve literalmente referências bíblicas fornecidas e não invente citações, capítulos ou versículos.',
+  'Curso / Treinamento':
+    'Explique uma ideia por vez, antecipe dúvidas e use exemplos concretos sem transformar o texto em lista lida.',
+  'Anúncio / Apresentação':
+    'Priorize uma promessa verificável, um benefício central e um CTA específico; evite superlativos sem prova.',
+  Testemunho:
+    'Preserve a voz pessoal e a ordem real dos acontecimentos; não acrescente experiências, resultados ou emoções não fornecidos.',
+}
+
+function generationBudget(duration: string): number {
+  if (duration.includes('10')) return 3_200
+  if (duration.includes('5')) return 1_800
+  if (duration.includes('2')) return 900
+  return 600
+}
+
 export function generateScript(
   input: ScriptGenerationInput,
   opts: StreamOptions = {},
 ): Promise<string> {
-  const system =
-    'Você é um roteirista profissional especialista em vídeos para a internet, apresentações e teleprompter. ' +
-    'Escreva sempre em português do Brasil, em linguagem falada e natural (nada de tom escrito/formal), ' +
-    'com frases curtas, ritmo dinâmico, um gancho forte nos primeiros segundos e uma chamada final clara. ' +
-    'Responda APENAS com o texto do roteiro pronto para ler, sem títulos, sem markdown, sem comentários.'
+  const system = [
+    'Você é o motor de roteiro do AlvoPrompter, especialista em texto falado para câmera e retenção de audiência.',
+    'Escreva em português brasileiro natural, como uma pessoa competente realmente falaria — nunca como artigo, redação ou anúncio genérico.',
+    'Use frases curtas, uma ideia por frase, pontuação que ajude a respirar e transições fáceis de pronunciar na primeira leitura.',
+    'Crie um gancho específico, desenvolva uma linha de raciocínio clara e termine com um CTA coerente com o objetivo.',
+    'Evite saudações vazias, clichês corporativos, repetição, excesso de adjetivos, instruções de cena e frases como “no vídeo de hoje”.',
+    'Nunca invente estatísticas, pesquisas, testemunhos, resultados, credenciais, preços, citações ou fatos. Quando faltarem dados, escreva sem fabricar prova.',
+    'Entregue somente as palavras que o apresentador deve falar. Não use título, cabeçalho, lista, markdown, aspas externas nem comentários.',
+  ].join(' ')
   const user = [
-    `Crie um roteiro para ser lido em um teleprompter.`,
+    'Crie um roteiro pronto para leitura em teleprompter com base neste briefing:',
     `Formato: ${input.format}`,
     `Tema: ${input.topic}`,
     `Tom: ${input.tone}`,
-    `Duração alvo: ${input.duration}`,
+    `Duração alvo: ${input.duration} (${DURATION_GUIDANCE[input.duration] ?? 'respeite o tempo solicitado'})`,
+    `Direção do formato: ${FORMAT_GUIDANCE[input.format] ?? 'adapte a estrutura ao formato informado sem perder naturalidade'}`,
     input.audience ? `Público-alvo: ${input.audience}` : null,
-    input.notes ? `Observações adicionais: ${input.notes}` : null,
+    input.notes ? `Observações e fatos fornecidos pelo usuário: ${input.notes}` : null,
+    'Antes de responder, confira silenciosamente: naturalidade oral, duração, fidelidade aos fatos, força do gancho e clareza do CTA.',
   ]
     .filter(Boolean)
     .join('\n')
-  return chatStream([
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ], opts)
+  return chatStream(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    { temperature: 0.65, maxTokens: generationBudget(input.duration), ...opts },
+  )
 }
 
 export type ImproveAction = 'fluencia' | 'encurtar' | 'gancho' | 'tom'
 
 const IMPROVE_PROMPTS: Record<ImproveAction, string> = {
   fluencia:
-    'Reescreva este roteiro para ficar mais fluido e natural ao ser lido em voz alta. Mantenha a mensagem, o tom e a duração aproximada. Responda APENAS com o roteiro reescrito, sem comentários.',
+    'Reescreva para leitura confortável na primeira tentativa: frases curtas, uma ideia por frase, pontuação para respirar, transições faladas e palavras fáceis de pronunciar. Preserve mensagem, fatos, tom e duração aproximada.',
   encurtar:
-    'Encurte este roteiro para cerca de metade do tamanho, mantendo o gancho inicial, os pontos principais e a chamada final. Responda APENAS com o roteiro encurtado, sem comentários.',
+    'Reduza para aproximadamente metade das palavras. Corte repetição, contexto dispensável e frases fracas, preservando fatos, promessa central, melhor argumento e CTA.',
   gancho:
-    'Reescreva apenas o início deste roteiro (primeiras 2-3 frases) com um gancho muito mais forte e impactante, mantendo o restante do roteiro intacto. Responda APENAS com o roteiro completo, sem comentários.',
+    'Troque somente as primeiras 2 ou 3 frases por um gancho específico que gere curiosidade ou prometa um benefício verificável. Não use clickbait enganoso e mantenha todo o restante intacto.',
   tom:
-    'Ajuste o tom deste roteiro conforme instruído abaixo, mantendo a mensagem e a estrutura. Responda APENAS com o roteiro ajustado, sem comentários.',
+    'Ajuste escolha de palavras, ritmo e intensidade ao tom solicitado, mantendo mensagem, fatos, estrutura e duração aproximada.',
 }
 
 export function improveScript(
@@ -151,8 +198,9 @@ export function improveScript(
       {
         role: 'system',
         content:
-          'Você é um editor profissional de roteiros para vídeo em português do Brasil. ' +
-          'Preserva sempre a intenção original do texto e escreve em linguagem falada.',
+          'Você é o editor de roteiro falado do AlvoPrompter. Escreva em português brasileiro natural para leitura diante da câmera. ' +
+          'Preserve a intenção e todos os fatos do original; não invente números, provas, citações, resultados ou promessas. ' +
+          'Entregue somente o roteiro final, sem título, markdown, diagnóstico, prefácio ou comentário.',
       },
       { role: 'user', content: `${prompt}\n\nRoteiro:\n${content}` },
     ],
@@ -166,34 +214,45 @@ export interface TitlesAndHooks {
   hashtags: string[]
 }
 
-export async function suggestTitlesAndHooks(content: string): Promise<TitlesAndHooks> {
+function uniqueClean(items: unknown, limit: number, maxLength: number): string[] {
+  if (!Array.isArray(items)) return []
+  return [...new Set(items.map(String).map((item) => item.trim()).filter(Boolean))]
+    .map((item) => item.slice(0, maxLength))
+    .slice(0, limit)
+}
+
+export async function suggestTitlesAndHooks(
+  content: string,
+  opts: Pick<StreamOptions, 'signal'> = {},
+): Promise<TitlesAndHooks> {
   const raw = await chatStream(
     [
       {
         role: 'system',
         content:
-          'Você é um estrategista de conteúdo para vídeos. Responda SEMPRE em português do Brasil ' +
-          'e SOMENTE com JSON válido, sem markdown, no formato: ' +
+          'Você é estrategista de conteúdo do AlvoPrompter, especializado em descoberta e retenção sem clickbait enganoso. ' +
+          'Baseie tudo somente no conteúdo do roteiro; não invente números, tendências, resultados ou promessas. ' +
+          'Responda em português do Brasil e somente com JSON válido, sem markdown, no formato: ' +
           '{"titulos": ["..."], "ganchos": ["..."], "hashtags": ["..."]}',
       },
       {
         role: 'user',
         content:
-          'Com base neste roteiro, sugira 5 títulos de vídeo (curtos, com curiosidade ou benefício claro), ' +
-          '5 ganchos de abertura (frases de até 15 palavras para os primeiros 3 segundos) e ' +
-          '12 hashtags para o vídeo (mix de amplas, de nicho e de plataforma, todas com #, sem espaços). ' +
+          'Crie exatamente 5 títulos distintos de até 70 caracteres, com benefício ou curiosidade específica; ' +
+          '5 ganchos distintos de até 15 palavras, faláveis nos primeiros 3 segundos; e ' +
+          '12 hashtags relevantes, misturando 3 amplas, 6 de nicho e 3 específicas do tema, todas com # e sem espaços. ' +
+          'Evite CAIXA ALTA, promessa falsa, clichê e repetição entre opções. ' +
           'JSON no formato {"titulos": [...], "ganchos": [...], "hashtags": [...]}. Roteiro:\n\n' +
           content.slice(0, 6000),
       },
     ],
-    { temperature: 0.8, maxTokens: 1400 },
+    { temperature: 0.75, maxTokens: 1400, jsonMode: true, signal: opts.signal },
   )
   const data = extractJson(raw) as { titulos?: unknown; ganchos?: unknown; hashtags?: unknown }
-  const titles = Array.isArray(data.titulos) ? data.titulos.map(String) : []
-  const hooks = Array.isArray(data.ganchos) ? data.ganchos.map(String) : []
+  const titles = uniqueClean(data.titulos, 5, 70)
+  const hooks = uniqueClean(data.ganchos, 5, 140)
   const hashtags = Array.isArray(data.hashtags)
-    ? data.hashtags
-        .map(String)
+    ? uniqueClean(data.hashtags, 12, 80)
         .map((h) => `#${h.replace(/^#/, '').replace(/\s+/g, '').trim()}`)
         .filter((h) => h.length > 1)
     : []

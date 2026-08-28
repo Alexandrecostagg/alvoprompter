@@ -21,9 +21,9 @@ id = "7f2df53777804be2aefce83dd26e3945"
 # Publicar: npx wrangler deploy
 # Origens autorizadas. Adicione o domínio público real antes do deploy.
 [vars]
-CORS_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost,https://localhost"
+CORS_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost,https://localhost,https://alvoprompter.com.br,https://www.alvoprompter.com.br"
 FIREBASE_PROJECT_ID = "configure-o-id-do-projeto"
-APP_URL = "http://localhost:5173"
+APP_URL = "https://www.alvoprompter.com.br"
 ASAAS_API_BASE = "https://api-sandbox.asaas.com/v3"
 
 # Banco de contas, assinaturas e RBAC.

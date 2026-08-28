@@ -14,6 +14,7 @@ export function usePrompterEngine({ mode, wordCount, wpm, onFrame }: EngineOptio
   const fractionRef = useRef(0)
   const rafRef = useRef(0)
   const lastTsRef = useRef(0)
+  const lastPaintTsRef = useRef(0)
   const optsRef = useRef({ mode, wordCount, wpm, onFrame })
   optsRef.current = { mode, wordCount, wpm, onFrame }
 
@@ -32,7 +33,10 @@ export function usePrompterEngine({ mode, wordCount, wpm, onFrame }: EngineOptio
       if (wordCount > 1) {
         const perSecond = wpm / (wordCount * 60)
         fractionRef.current = Math.min(1, fractionRef.current + perSecond * dt)
-        onFrame(fractionRef.current)
+        if (ts - lastPaintTsRef.current >= 1000 / 30 || fractionRef.current >= 1) {
+          lastPaintTsRef.current = ts
+          onFrame(fractionRef.current)
+        }
         if (fractionRef.current >= 1) {
           setEngineState('done')
           return
@@ -46,6 +50,7 @@ export function usePrompterEngine({ mode, wordCount, wpm, onFrame }: EngineOptio
   const startFixed = useCallback(() => {
     cancelAnimationFrame(rafRef.current)
     lastTsRef.current = 0
+    lastPaintTsRef.current = 0
     rafRef.current = requestAnimationFrame(tick)
   }, [tick])
 

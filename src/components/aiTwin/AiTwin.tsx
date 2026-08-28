@@ -19,9 +19,10 @@ import type { AvatarTwin, VoiceProfile, VoiceSample } from '../../lib/types'
 type Aspect = '9:16' | '1:1' | '16:9'
 
 const ASPECTS: Record<Aspect, { w: number; h: number }> = {
-  '9:16': { w: 720, h: 1280 },
-  '1:1': { w: 720, h: 720 },
-  '16:9': { w: 1280, h: 720 },
+  // 540p mantém boa definição e reduz a carga da GPU durante animação/gravação.
+  '9:16': { w: 540, h: 960 },
+  '1:1': { w: 540, h: 540 },
+  '16:9': { w: 960, h: 540 },
 }
 
 export default function AiTwin() {
@@ -51,6 +52,7 @@ export default function AiTwin() {
   const [voiceName, setVoiceName] = useState('')
   const [avatarPreview, setAvatarPreview] = useState<AvatarTwin | null>(null)
   const deviceSpeechRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const canvasGenerationRef = useRef(0)
 
   const avatar = avatars.find((a) => a.id === avatarId) ?? null
   const voice = voices.find((v) => v.id === voiceId) ?? null
@@ -75,33 +77,65 @@ export default function AiTwin() {
     }
   }, [])
 
-  const setupCanvas = (w: number, h: number) => {
+  useEffect(() => () => recorder?.cancel(), [recorder])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (!document.hidden) return
+      window.speechSynthesis?.cancel()
+      deviceSpeechRef.current = null
+      talk.current?.pause()
+      setPlayer((current) => ({ ...current, state: 'paused' }))
+      if (isRecording) {
+        void talk.current?.stopRecording().finally(() => setIsRecording(false))
+      }
+      if (recorder) {
+        recorder.cancel()
+        setRecorder(null)
+        setRecSeconds(0)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [isRecording, recorder])
+
+  useEffect(() => {
+    return () => {
+      if (outUrl) URL.revokeObjectURL(outUrl)
+    }
+  }, [outUrl])
+
+  useEffect(() => {
+    const generation = ++canvasGenerationRef.current
+    talk.current?.destroy()
+    talk.current = null
     if (!avatar) return
     const canvas = canvasRef.current
     if (!canvas) return
-    talk.current?.destroy()
+    const { w, h } = ASPECTS[aspect]
     void (async () => {
-      const img = await loadImage(avatar.imageDataUrl)
-      if (!canvasRef.current) return
-      talk.current = new TalkingAvatar(canvasRef.current, {
-        image: img,
-        width: w,
-        height: h,
-        zoom: 1.15,
-        focusY: 0.3,
-        motion,
-        onProgress: (cur, dur) => {
-          setProgress(dur ? cur / dur : 0)
-          setPlayer((p) => ({ ...p, at: cur }))
-        },
-        onEnded: () => setPlayer((p) => ({ ...p, state: 'done' })),
-      })
+      try {
+        const img = await loadImage(avatar.imageDataUrl)
+        if (canvasGenerationRef.current !== generation || canvasRef.current !== canvas) return
+        talk.current = new TalkingAvatar(canvas, {
+          image: img,
+          width: w,
+          height: h,
+          zoom: 1.15,
+          focusY: 0.3,
+          motion,
+          onProgress: (cur, dur) => {
+            setProgress(dur ? cur / dur : 0)
+            setPlayer((current) => ({ ...current, at: cur }))
+          },
+          onEnded: () => setPlayer((current) => ({ ...current, state: 'done' })),
+        })
+      } catch (error) {
+        if (canvasGenerationRef.current === generation) {
+          setMsg({ type: 'err', text: (error as Error).message })
+        }
+      }
     })()
-  }
-
-  useEffect(() => {
-    if (avatar) setupCanvas(ASPECTS[aspect].w, ASPECTS[aspect].h)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [avatar, aspect, motion])
 
   useEffect(() => {
@@ -167,9 +201,10 @@ export default function AiTwin() {
     }
     setBusy(true)
     setMsg(null)
+    let url: string | null = null
     try {
       const blob = await generateAvatar(fluxPrompt.trim())
-      const url = URL.createObjectURL(blob)
+      url = URL.createObjectURL(blob)
       const canvas = document.createElement('canvas')
       const img = await loadImage(url)
       canvas.width = img.naturalWidth
@@ -183,6 +218,7 @@ export default function AiTwin() {
     } catch (err) {
       setMsg({ type: 'err', text: (err as Error).message })
     } finally {
+      if (url) URL.revokeObjectURL(url)
       setBusy(false)
     }
   }
@@ -322,6 +358,7 @@ export default function AiTwin() {
     if (!t) return
     if (isRecording) {
       const blob = await t.stopRecording()
+      t.stop()
       setIsRecording(false)
       setPlayer({ state: 'idle', at: 0 })
       if (blob) {
@@ -340,7 +377,7 @@ export default function AiTwin() {
       }
       t.stop()
       await t.loadAudio(blob)
-      t.startRecording()
+      await t.startRecording()
       await t.start()
       setIsRecording(true)
       setPlayer({ state: 'playing', at: 0 })

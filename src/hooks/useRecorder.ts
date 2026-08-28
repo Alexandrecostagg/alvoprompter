@@ -36,8 +36,9 @@ export function useRecorder() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30, max: 30 },
         },
         audio: { echoCancellation: true, noiseSuppression: true },
       })
@@ -58,9 +59,16 @@ export function useRecorder() {
     const stream = streamRef.current
     if (!stream || recorderRef.current) return
     const mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m))
-    const recorder = mime
-      ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 })
-      : new MediaRecorder(stream)
+    let recorder: MediaRecorder
+    try {
+      recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 })
+        : new MediaRecorder(stream)
+    } catch {
+      setStatus('error')
+      setError('Este aparelho não conseguiu iniciar a gravação com a câmera selecionada.')
+      return
+    }
     chunksRef.current = []
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data)
@@ -74,7 +82,7 @@ export function useRecorder() {
       setVideoUrl(url)
       setStatus('ready')
     }
-    recorder.start(1000)
+    recorder.start(1500)
     recorderRef.current = recorder
     setElapsed(0)
     timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000)

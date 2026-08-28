@@ -12,15 +12,20 @@ export async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
 
 /** Reduz uma imagem/arquivo para dataUrl pequena (avatar). */
 export async function fileToAvatarDataUrl(file: File, maxSize = 1024): Promise<string> {
-  const img = await loadImage(URL.createObjectURL(file))
-  const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.round(img.naturalWidth * scale)
-  canvas.height = Math.round(img.naturalHeight * scale)
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas indisponível.')
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-  return canvas.toDataURL('image/jpeg', 0.85)
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    const img = await loadImage(objectUrl)
+    const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(img.naturalWidth * scale)
+    canvas.height = Math.round(img.naturalHeight * scale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas indisponível.')
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.82)
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
 }
 
 export async function decodeAudioBlob(blob: Blob): Promise<AudioBuffer> {
@@ -55,6 +60,8 @@ export interface TalkingAvatarOptions {
 }
 
 const MIME_PREFERRED = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+const AVATAR_FRAME_MS = 1000 / 24
+const PROGRESS_UPDATE_MS = 200
 
 function pickMime(): string {
   return MIME_PREFERRED.find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) ?? 'video/webm'
@@ -78,10 +85,15 @@ export class TalkingAvatar {
   private pausedAt = 0
   private recording = false
   private recorder: MediaRecorder | null = null
+  private recordingStream: MediaStream | null = null
+  private recordingDestination: MediaStreamAudioDestinationNode | null = null
   private chunks: Blob[] = []
   private ended = false
   private onProgress?: (currentTime: number, duration: number) => void
   private onEnded?: () => void
+  private analyserData = new Uint8Array(256)
+  private lastDrawAt = 0
+  private lastProgressAt = 0
 
   constructor(canvas: HTMLCanvasElement, options: TalkingAvatarOptions) {
     this.canvas = canvas
@@ -108,9 +120,12 @@ export class TalkingAvatar {
   }
 
   get currentTime(): number {
-    if (!this.audioCtx || !this.buffer) return 0
+    if (!this.audioCtx || !this.buffer || this.buffer.duration <= 0) return 0
     if (this.audioCtx.state === 'running' && !this.ended) {
-      return (this.audioCtx.currentTime - this.startTime + this.pausedAt) % this.buffer.duration
+      return Math.min(
+        this.buffer.duration,
+        Math.max(0, this.audioCtx.currentTime - this.startTime + this.pausedAt),
+      )
     }
     return this.pausedAt
   }
@@ -121,6 +136,7 @@ export class TalkingAvatar {
     this.analyser = this.audioCtx.createAnalyser()
     this.analyser.fftSize = 256
     this.analyser.smoothingTimeConstant = 0.55
+    this.analyserData = new Uint8Array(this.analyser.fftSize)
     this.analyser.connect(this.audioCtx.destination)
   }
 
@@ -133,14 +149,17 @@ export class TalkingAvatar {
   async start(): Promise<void> {
     if (!this.buffer) throw new Error('Carregue o áudio antes de iniciar.')
     await this.ensureCtx()
-    this.audioCtx!.resume()
+    if (this.source) this.pause()
+    await this.audioCtx!.resume()
     this.source = this.audioCtx!.createBufferSource()
     this.source.buffer = this.buffer
     this.source.connect(this.analyser!)
-    this.startTime = this.audioCtx!.currentTime - this.pausedAt
+    this.startTime = this.audioCtx!.currentTime
     this.source.start(0, this.pausedAt % this.buffer.duration)
     this.source.onended = () => this.handleEnded()
     this.ended = false
+    this.lastDrawAt = 0
+    this.lastProgressAt = 0
     this.tick()
   }
 
@@ -149,13 +168,17 @@ export class TalkingAvatar {
     cancelAnimationFrame(this.raf)
     this.syntheticSpeaking = true
     const startedAt = performance.now()
+    let lastDrawAt = 0
     const loop = (now: number) => {
       if (!this.syntheticSpeaking) return
-      const elapsed = now - startedAt
-      const cadence = Math.sin(elapsed * 0.018)
-      const syllables = Math.sin(elapsed * 0.041)
-      const amp = 0.08 + Math.max(0, cadence * 0.06) + Math.max(0, syllables * 0.04)
-      this.draw(now / 1000, amp)
+      if (now - lastDrawAt >= AVATAR_FRAME_MS) {
+        lastDrawAt = now
+        const elapsed = now - startedAt
+        const cadence = Math.sin(elapsed * 0.018)
+        const syllables = Math.sin(elapsed * 0.041)
+        const amp = 0.08 + Math.max(0, cadence * 0.06) + Math.max(0, syllables * 0.04)
+        this.draw(now / 1000, amp)
+      }
       this.raf = requestAnimationFrame(loop)
     }
     this.raf = requestAnimationFrame(loop)
@@ -171,6 +194,7 @@ export class TalkingAvatar {
     this.syntheticSpeaking = false
     if (this.source && this.audioCtx) {
       this.pausedAt = this.currentTime
+      this.source.onended = null
       try {
         this.source.stop()
       } catch {
@@ -193,14 +217,17 @@ export class TalkingAvatar {
 
   private handleEnded(): void {
     cancelAnimationFrame(this.raf)
+    this.source?.disconnect()
+    this.source = null
     this.ended = true
     this.pausedAt = this.duration
+    this.onProgress?.(this.duration, this.duration)
     this.onEnded?.()
   }
 
   private amp(): number {
     if (!this.analyser || !this.audioCtx || this.audioCtx.state !== 'running') return 0
-    const data = new Uint8Array(this.analyser.fftSize)
+    const data = this.analyserData
     this.analyser.getByteTimeDomainData(data)
     let sum = 0
     for (let i = 0; i < data.length; i++) {
@@ -294,34 +321,50 @@ export class TalkingAvatar {
     }
   }
 
-  private tick = (): void => {
+  private tick = (now = performance.now()): void => {
     if (this.ended) return
-    const t = performance.now() / 1000
-    const cur = this.currentTime
-    this.onProgress?.(cur, this.duration)
-    this.draw(t, this.amp())
+    if (now - this.lastProgressAt >= PROGRESS_UPDATE_MS) {
+      this.lastProgressAt = now
+      this.onProgress?.(this.currentTime, this.duration)
+    }
+    if (now - this.lastDrawAt >= AVATAR_FRAME_MS) {
+      this.lastDrawAt = now
+      this.draw(now / 1000, this.amp())
+    }
     this.raf = requestAnimationFrame(this.tick)
   }
 
   /** Começa a gravar o vídeo (imagem + áudio). */
-  startRecording(): void {
+  async startRecording(): Promise<void> {
     if (this.recording) return
+    await this.ensureCtx()
     this.recording = true
     this.chunks = []
-    const stream = this.canvas.captureStream(30)
-    if (this.audioCtx) {
-      const dest = this.audioCtx.createMediaStreamDestination()
-      this.analyser?.disconnect()
-      this.analyser?.connect(dest)
-      this.analyser?.connect(this.audioCtx.destination)
-      dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t))
-    }
+    const stream = this.canvas.captureStream(24)
+    this.recordingStream = stream
+    const dest = this.audioCtx!.createMediaStreamDestination()
+    this.recordingDestination = dest
+    this.analyser?.connect(dest)
+    dest.stream.getAudioTracks().forEach((track) => stream.addTrack(track))
     const mime = pickMime()
-    this.recorder = new MediaRecorder(stream, mime.startsWith('video/mp4') ? undefined : { mimeType: mime, videoBitsPerSecond: 6_000_000 })
+    try {
+      this.recorder = new MediaRecorder(stream, mime.startsWith('video/mp4') ? undefined : { mimeType: mime, videoBitsPerSecond: 3_500_000 })
+    } catch (error) {
+      try {
+        this.analyser?.disconnect(dest)
+      } catch {
+        /* conexão já removida */
+      }
+      stream.getTracks().forEach((track) => track.stop())
+      this.recordingStream = null
+      this.recordingDestination = null
+      this.recording = false
+      throw error
+    }
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.chunks.push(e.data)
     }
-    this.recorder.start(200)
+    this.recorder.start(1000)
   }
 
   /** Para a gravação e devolve o vídeo (WebM/MP4). */
@@ -332,25 +375,42 @@ export class TalkingAvatar {
         resolve(null)
         return
       }
-      this.recorder.onstop = () => {
+      const recorder = this.recorder
+      recorder.onstop = () => {
         this.recording = false
-        if (this.audioCtx) {
-          const dest = this.audioCtx.createMediaStreamDestination()
-          this.analyser?.disconnect()
-          this.analyser?.connect(dest)
-          this.analyser?.connect(this.audioCtx.destination)
+        if (this.recordingDestination) {
+          try {
+            this.analyser?.disconnect(this.recordingDestination)
+          } catch {
+            /* conexão já removida */
+          }
         }
-        const type = this.recorder?.mimeType || 'video/webm'
+        this.recordingDestination = null
+        this.recordingStream?.getTracks().forEach((track) => track.stop())
+        this.recordingStream = null
+        const type = recorder.mimeType || 'video/webm'
+        this.recorder = null
         resolve(new Blob(this.chunks, { type }))
       }
-      this.recorder.stop()
+      recorder.stop()
     })
   }
 
   destroy(): void {
     this.syntheticSpeaking = false
     cancelAnimationFrame(this.raf)
+    if (this.recorder && this.recorder.state !== 'inactive') {
+      this.recorder.ondataavailable = null
+      this.recorder.onstop = null
+      this.recorder.stop()
+    }
+    this.recordingStream?.getTracks().forEach((track) => track.stop())
+    this.recordingStream = null
+    this.recordingDestination = null
+    this.recorder = null
+    this.recording = false
     if (this.source) {
+      this.source.onended = null
       try {
         this.source.stop()
       } catch {

@@ -152,7 +152,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      const result = await suggestTitlesAndHooks(currentScript.content)
+      const result = await suggestTitlesAndHooks(currentScript.content, { signal: controller.signal })
       setSuggestions(result)
     } catch (err) {
       if ((err as Error).name !== 'AbortError') setError((err as Error).message)

@@ -99,18 +99,30 @@ export default function App() {
 
   useEffect(() => {
     initializeMetaPixel()
-    void useAppStore.getState().loadScripts()
-    void useAppStore.getState().refreshWorkspaces()
+    void Promise.allSettled([
+      useAppStore.getState().loadScripts(),
+      useAppStore.getState().refreshWorkspaces(),
+    ])
   }, [])
 
-  useEffect(() => observeUser((nextUser) => {
-    setUser(nextUser)
-    setAuthReady(true)
-    if (nextUser) {
-      localStorage.removeItem(LOCAL_ACCESS_KEY)
-      setLocalAccess(false)
+  useEffect(() => {
+    // O Firebase pode demorar indefinidamente em WebViews sem rede. O app local
+    // continua utilizável e o observador atualiza a sessão quando responder.
+    const fallback = window.setTimeout(() => setAuthReady(true), 5000)
+    const unsubscribe = observeUser((nextUser) => {
+      window.clearTimeout(fallback)
+      setUser(nextUser)
+      setAuthReady(true)
+      if (nextUser) {
+        localStorage.removeItem(LOCAL_ACCESS_KEY)
+        setLocalAccess(false)
+      }
+    })
+    return () => {
+      window.clearTimeout(fallback)
+      unsubscribe()
     }
-  }), [])
+  }, [])
 
   useEffect(() => {
     if (requestedPlan) setAccountOpen(true)

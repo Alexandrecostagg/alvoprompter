@@ -103,11 +103,14 @@ export async function translateSrt(
   target: SrtLanguage,
   opts: TranslateOptions = {},
 ): Promise<string> {
-  const system =
-    'Você é um tradutor profissional de legendas de vídeo. ' +
-    'Traduza APENAS o texto de cada bloco de legenda, preservando exatamente ' +
-    'a numeração, os timestamps e o formato SRT (blocos separados por linha em branco). ' +
-    'Responda SOMENTE com o SRT traduzido, sem comentários e sem markdown.'
+  const system = [
+    'Você é o tradutor audiovisual do AlvoPrompter.',
+    'Traduza o sentido, o tom e a intenção do texto para soar natural no idioma de destino, evitando tradução literal artificial.',
+    'Traduza somente as falas. Preserve exatamente a quantidade e a ordem dos blocos, os números e cada timestamp do SRT.',
+    'Preserve nomes próprios, marcas, URLs, @usuários, hashtags e termos técnicos quando não houver equivalente consagrado.',
+    'Mantenha frases concisas e legíveis no tempo disponível; não acrescente explicações nem remova informação.',
+    'Entregue somente o SRT completo, sem markdown, prefácio ou comentário.',
+  ].join(' ')
   const user = [
     `Traduza esta legenda para ${target.label} (${target.code}).`,
     'Mantenha o mesmo número de blocos e os timestamps idênticos.',
@@ -123,16 +126,26 @@ export async function translateSrt(
       ],
       {
         temperature: 0.3,
+        maxTokens: Math.min(8_000, Math.max(1_200, Math.ceil(srt.length / 2))),
         signal: opts.signal,
         onToken: (full) => opts.onToken?.(cleanSrt(full)),
       },
     ),
   )
 
-  if (!looksLikeSrt(translated)) {
+  if (!looksLikeSrt(translated) || !preservesSrtStructure(srt, translated)) {
     throw new Error('A IA retornou uma legenda inválida. Tente novamente.')
   }
   return translated
+}
+
+function preservesSrtStructure(source: string, translated: string): boolean {
+  const blockPattern = /(?:^|\n\s*\n)(\d+)\s*\n(\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3})/g
+  const signature = (value: string) =>
+    [...value.matchAll(blockPattern)].map((match) => `${match[1]}|${match[2]}`)
+  const before = signature(source.trim())
+  const after = signature(translated.trim())
+  return before.length > 0 && before.length === after.length && before.every((item, index) => item === after[index])
 }
 
 function looksLikeSrt(text: string): boolean {

@@ -42,6 +42,7 @@ const CORS_HEADERS = {
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
 const MIN_SYNC_PASS_LENGTH = 12
+const DEEPSEEK_MODEL = 'deepseek-v4-flash'
 
 function allowedOrigin(request: Request, env: Env): boolean {
   const origin = request.headers.get('Origin')
@@ -365,6 +366,15 @@ export default {
     const saasResponse = await handleSaaSRequest(request, env as Env & SaaSEnv)
     if (saasResponse) return saasResponse
 
+    if (url.pathname === '/health' && request.method === 'GET') {
+      return json({
+        status: 'ok',
+        service: 'AlvoPrompter API',
+        deepseek: { configured: Boolean(env.DEEPSEEK_API_KEY), model: DEEPSEEK_MODEL },
+        workersAi: { configured: Boolean(env.AI) },
+      })
+    }
+
     if (request.method === 'POST' && ['/chat', '/transcribe', '/tts', '/translate', '/avatar'].includes(url.pathname)) {
       const quotaResponse = await authorizeAiAction(request, env as Env & SaaSEnv)
       if (quotaResponse) return quotaResponse
@@ -379,6 +389,7 @@ export default {
         messages?: { role?: string; content?: string }[]
         temperature?: number
         max_tokens?: number
+        response_format?: { type?: string }
       } | null
       if (!input?.messages?.length || input.messages.length > 30) {
         return json({ error: 'Conversa inválida.' }, 400)
@@ -395,14 +406,31 @@ export default {
             Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
           },
           body: JSON.stringify({
-            model: 'deepseek-chat',
+            model: DEEPSEEK_MODEL,
             messages,
             stream: true,
+            thinking: { type: 'disabled' },
             temperature: Math.min(1.5, Math.max(0, input.temperature ?? 0.7)),
             max_tokens: Math.min(8_000, Math.max(1, input.max_tokens ?? 2_000)),
+            ...(input.response_format?.type === 'json_object'
+              ? { response_format: { type: 'json_object' } }
+              : {}),
           }),
+          signal: request.signal,
         })
-        if (!upstream.ok) return json({ error: 'A IA não respondeu. Tente novamente.' }, upstream.status)
+        if (!upstream.ok) {
+          const message =
+            upstream.status === 401 || upstream.status === 403
+              ? 'A chave da DeepSeek foi recusada. Gere uma nova chave e atualize o secret do Worker.'
+              : upstream.status === 402
+                ? 'A conta DeepSeek está sem saldo disponível.'
+                : upstream.status === 400 || upstream.status === 404
+                  ? 'O modelo configurado não está disponível nesta conta DeepSeek.'
+                  : upstream.status === 429
+                    ? 'A DeepSeek está limitando as solicitações. Aguarde um momento e tente novamente.'
+                    : 'A DeepSeek não respondeu corretamente. Tente novamente.'
+          return json({ error: message }, upstream.status)
+        }
         return new Response(upstream.body, {
           status: upstream.status,
           headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', ...CORS_HEADERS },

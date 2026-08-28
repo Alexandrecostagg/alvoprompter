@@ -17,6 +17,8 @@ interface VoiceTrackOptions {
 }
 
 const SILENCE_MS = 1800
+const LEVEL_SAMPLE_MS = 50
+const SILENCE_REFRESH_MS = 250
 const AHEAD_WINDOW = 8
 const BEHIND_WINDOW = 3
 
@@ -49,6 +51,7 @@ export function useVoiceTrack({
   const pointerRef = useRef(0)
   const activeRef = useRef(false)
   const silenceTimerRef = useRef<number | null>(null)
+  const lastSilenceRefreshRef = useRef(0)
   const exactMapRef = useRef<Map<string, number[]>>(new Map())
   const micStreamRef = useRef<MediaStream | null>(null)
   const micContextRef = useRef<AudioContext | null>(null)
@@ -71,12 +74,20 @@ export function useVoiceTrack({
   }, [words])
 
   const markActive = useCallback(() => {
+    const now = performance.now()
     if (!activeRef.current) {
       activeRef.current = true
       cbRef.current.onSpeechActivity(true)
     }
+    // Evita criar/limpar cerca de 60 timers por segundo durante uma fala.
+    if (
+      silenceTimerRef.current != null &&
+      now - lastSilenceRefreshRef.current < SILENCE_REFRESH_MS
+    ) return
+    lastSilenceRefreshRef.current = now
     if (silenceTimerRef.current != null) window.clearTimeout(silenceTimerRef.current)
     silenceTimerRef.current = window.setTimeout(() => {
+      silenceTimerRef.current = null
       activeRef.current = false
       cbRef.current.onSpeechActivity(false)
     }, SILENCE_MS)
@@ -155,6 +166,9 @@ export function useVoiceTrack({
     releaseAudioLevel()
     setListening(false)
     if (silenceTimerRef.current != null) window.clearTimeout(silenceTimerRef.current)
+    silenceTimerRef.current = null
+    lastSilenceRefreshRef.current = 0
+    if (activeRef.current) cbRef.current.onSpeechActivity(false)
     activeRef.current = false
   }, [releaseAudioLevel])
 
@@ -183,19 +197,23 @@ export function useVoiceTrack({
       cbRef.current.onSpeechActivity(false)
 
       const data = new Uint8Array(analyser.fftSize)
-      const sampleLevel = () => {
+      let lastSampleAt = 0
+      const sampleLevel = (now: number) => {
         if (!runningRef.current || micAnalyserRef.current !== analyser) return
-        analyser.getByteTimeDomainData(data)
-        let sum = 0
-        for (let i = 0; i < data.length; i++) {
-          const value = (data[i]! - 128) / 128
-          sum += value * value
+        if (now - lastSampleAt >= LEVEL_SAMPLE_MS) {
+          lastSampleAt = now
+          analyser.getByteTimeDomainData(data)
+          let sum = 0
+          for (let i = 0; i < data.length; i++) {
+            const value = (data[i]! - 128) / 128
+            sum += value * value
+          }
+          const rms = Math.sqrt(sum / data.length)
+          if (rms > 0.025) markActive()
         }
-        const rms = Math.sqrt(sum / data.length)
-        if (rms > 0.025) markActive()
         micFrameRef.current = requestAnimationFrame(sampleLevel)
       }
-      sampleLevel()
+      micFrameRef.current = requestAnimationFrame(sampleLevel)
     } catch (err) {
       releaseAudioLevel()
       runningRef.current = false

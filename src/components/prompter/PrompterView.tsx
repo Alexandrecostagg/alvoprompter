@@ -284,6 +284,41 @@ export default function PrompterView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.cameraOn])
 
+  const visibilityActionsRef = useRef({
+    isRecording: recorder.isRecording,
+    cameraOn: settings.cameraOn,
+    stopRecording,
+    stopVoice: voice.stop,
+    disableRecorder: recorder.disable,
+    enableRecorder: recorder.enable,
+    pauseEngine: engine.pause,
+  })
+  visibilityActionsRef.current = {
+    isRecording: recorder.isRecording,
+    cameraOn: settings.cameraOn,
+    stopRecording,
+    stopVoice: voice.stop,
+    disableRecorder: recorder.disable,
+    enableRecorder: recorder.enable,
+    pauseEngine: engine.pause,
+  }
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const actions = visibilityActionsRef.current
+      if (document.hidden) {
+        if (actions.isRecording) actions.stopRecording()
+        actions.stopVoice()
+        actions.disableRecorder()
+        actions.pauseEngine()
+        return
+      }
+      if (actions.cameraOn) void actions.enableRecorder()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
   useEffect(() => {
     if (engine.state === 'done' && !settings.openMic && recorder.isRecording) {
       stopRecording()

@@ -104,6 +104,8 @@ npx wrangler secret put DEEPSEEK_API_KEY
 
 3. Em `api/transcribe/wrangler.toml`, substitua `CORS_ORIGIN` pelos domínios públicos reais antes de publicar.
 
+Depois do deploy, `GET /health` confirma se o Worker está ativo, se o secret da DeepSeek foi encontrado e qual modelo está configurado, sem revelar a chave. A geração de roteiros usa `deepseek-v4-flash` com raciocínio desativado para priorizar baixa latência; sugestões estruturadas usam o modo JSON da API.
+
 O Worker aplica limites diários por IP, limites de payload, isolamento de mídia por frase-chave e exige frases de sincronização com pelo menos 12 caracteres. A frase-chave permanece apenas como compatibilidade do sync antigo; novos workspaces SaaS usam conta e RBAC.
 
 ## Privacidade e retenção
