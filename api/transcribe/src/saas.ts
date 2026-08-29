@@ -370,11 +370,15 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
 
 /**
  * Consome uma ação mensal de IA quando o SaaS está configurado.
- * Retorna null quando a chamada pode continuar ou uma resposta 4xx quando deve parar.
+ * Devolve { response } (4xx) quando a chamada deve parar, ou { uid } quando
+ * o uso foi reservado e a chamada pode continuar (para reembolso em falha).
  */
-export async function authorizeAiAction(request: Request, env: SaaSEnv): Promise<Response | null> {
+export async function authorizeAiAction(
+  request: Request,
+  env: SaaSEnv,
+): Promise<{ response?: Response; uid?: string }> {
   const projectId = env.FIREBASE_PROJECT_ID?.trim() ?? ''
-  if (!env.DB || !projectId || projectId.startsWith('configure-')) return null
+  if (!env.DB || !projectId || projectId.startsWith('configure-')) return {}
   try {
     const user = await authenticate(request, env)
     const db = requireDb(env)
@@ -389,10 +393,29 @@ export async function authorizeAiAction(request: Request, env: SaaSEnv): Promise
       WHERE usage_monthly.ai_actions < ?
     `).bind(user.uid, month, new Date().toISOString(), limit).run()
     if ((result.meta.changes ?? 0) === 0) {
-      return responseJson({ error: `Você atingiu os ${limit} usos de IA do plano ${plan}.` }, 429)
+      return { response: responseJson({ error: `Você atingiu os ${limit} usos de IA do plano ${plan}.` }, 429) }
     }
-    return null
+    return { uid: user.uid }
   } catch (error) {
-    return responseJson({ error: (error as Error).message }, 401)
+    return { response: responseJson({ error: (error as Error).message }, 401) }
+  }
+}
+
+/**
+ * Devolve um uso reservado quando a chamada de IA não entrega conteúdo útil.
+ */
+export async function refundAiAction(uid: string, env: SaaSEnv): Promise<void> {
+  const projectId = env.FIREBASE_PROJECT_ID?.trim() ?? ''
+  if (!env.DB || !projectId || projectId.startsWith('configure-')) return
+  try {
+    const db = requireDb(env)
+    const month = new Date().toISOString().slice(0, 7)
+    await db.prepare(`
+      UPDATE usage_monthly
+      SET ai_actions = MAX(ai_actions - 1, 0), updated_at = ?
+      WHERE user_id = ? AND month = ?
+    `).bind(new Date().toISOString(), uid, month).run()
+  } catch {
+    // reembolso é best-effort; falhas não podem derrubar a resposta do stream
   }
 }

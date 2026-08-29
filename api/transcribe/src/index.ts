@@ -15,7 +15,7 @@
  * Uso local:  npx wrangler dev --port 8787
  * Publicar:   npx wrangler deploy
  */
-import { authorizeAiAction, handleSaaSRequest, type SaaSEnv } from './saas'
+import { authorizeAiAction, refundAiAction, handleSaaSRequest, type SaaSEnv } from './saas'
 
 export interface Env {
   AI: {
@@ -405,11 +405,48 @@ function importUrlBlocked(target: string): string | null {
   return null
 }
 
+async function consumeForRefund(tap: ReadableStream<Uint8Array>, uid: string, env: Env & SaaSEnv): Promise<void> {
+  try {
+    const reader = tap.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let hasContent = false
+    while (!hasContent) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+        const data = trimmed.slice(5).trim()
+        if (data === '[DONE]') continue
+        try {
+          const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string | null } }[] }
+          if (chunk.choices?.[0]?.delta?.content) {
+            hasContent = true
+            break
+          }
+        } catch {
+          // chunk incompleto ou keep-alive; ignora
+        }
+      }
+    }
+    await reader.cancel().catch(() => undefined)
+    if (!hasContent) await refundAiAction(uid, env)
+  } catch {
+    await refundAiAction(uid, env)
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS })
     const url = new URL(request.url)
+
+    let aiActionUid = ''
 
     const saasResponse = await handleSaaSRequest(request, env as Env & SaaSEnv)
     if (saasResponse) return saasResponse
@@ -424,15 +461,25 @@ export default {
     }
 
     if (request.method === 'POST' && ['/chat', '/transcribe', '/tts', '/translate', '/avatar'].includes(url.pathname)) {
-      const quotaResponse = await authorizeAiAction(request, env as Env & SaaSEnv)
-      if (quotaResponse) return quotaResponse
+      const quota = await authorizeAiAction(request, env as Env & SaaSEnv)
+      if (quota.response) return quota.response
+      if (url.pathname === '/chat') aiActionUid = quota.uid ?? ''
     }
 
     if (url.pathname === '/chat' && request.method === 'POST') {
       const limited = await enforceRateLimit(request, env, 'chat', 100)
-      if (limited) return limited
-      if (!env.CARCARA_API_KEY) return json({ error: 'Serviço de IA não configurado.' }, 503)
-      if (requestTooLarge(request, 128 * 1024)) return json({ error: 'Solicitação muito grande.' }, 413)
+      if (limited) {
+        if (aiActionUid) await refundAiAction(aiActionUid, env as Env & SaaSEnv)
+        return limited
+      }
+      if (!env.CARCARA_API_KEY) {
+        if (aiActionUid) await refundAiAction(aiActionUid, env as Env & SaaSEnv)
+        return json({ error: 'Serviço de IA não configurado.' }, 503)
+      }
+      if (requestTooLarge(request, 128 * 1024)) {
+        if (aiActionUid) await refundAiAction(aiActionUid, env as Env & SaaSEnv)
+        return json({ error: 'Solicitação muito grande.' }, 413)
+      }
       const input = (await request.json().catch(() => null)) as {
         messages?: { role?: string; content?: string }[]
         temperature?: number
@@ -440,6 +487,7 @@ export default {
         response_format?: { type?: string }
       } | null
       if (!input?.messages?.length || input.messages.length > 30) {
+        if (aiActionUid) await refundAiAction(aiActionUid, env as Env & SaaSEnv)
         return json({ error: 'Conversa inválida.' }, 400)
       }
       const messages = input.messages.map((message) => ({
@@ -459,7 +507,7 @@ export default {
             messages,
             stream: true,
             temperature: Math.min(1.5, Math.max(0, input.temperature ?? 0.7)),
-            max_tokens: Math.min(8_000, Math.max(1, input.max_tokens ?? 2_000)),
+            max_tokens: 8_000,
             ...(input.response_format?.type === 'json_object'
               ? { response_format: { type: 'json_object' } }
               : {}),
@@ -477,13 +525,24 @@ export default {
                   : upstream.status === 429
                     ? 'O provedor de IA está limitando as solicitações. Aguarde um momento e tente novamente.'
                     : 'O provedor de IA não respondeu corretamente. Tente novamente.'
+          if (aiActionUid) await refundAiAction(aiActionUid, env as Env & SaaSEnv)
           return json({ error: message }, upstream.status)
         }
-        return new Response(upstream.body, {
+        const body = upstream.body
+        if (body && aiActionUid) {
+          const [client, tap] = body.tee()
+          void consumeForRefund(tap, aiActionUid, env as Env & SaaSEnv)
+          return new Response(client, {
+            status: upstream.status,
+            headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', ...CORS_HEADERS },
+          })
+        }
+        return new Response(body, {
           status: upstream.status,
           headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', ...CORS_HEADERS },
         })
       } catch {
+        if (aiActionUid) await refundAiAction(aiActionUid, env as Env & SaaSEnv)
         return json({ error: 'A IA está temporariamente indisponível.' }, 502)
       }
     }

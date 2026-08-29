@@ -37,3 +37,6 @@ android/*.keystore
 # estado local do Wrangler e config pessoal de agentes de IA
 api/transcribe/.wrangler/
 .claude/
+
+# Playwright (E2E local)
+.playwright-mcp/
