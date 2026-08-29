@@ -11,11 +11,13 @@
     />
     <!-- Preencha com o ID numérico do conjunto de dados/Pixel criado no Gerenciador de Eventos da Meta. -->
     <meta name="meta-pixel-id" content="" />
+    <!-- URL base do app (subdomínio). Ex.: https://app.seudominio.com — deixe vazio em desenvolvimento local. -->
+    <meta name="app-base" content="https://app.alvoprompter.com.br" />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&amp;display=swap"
+      href="https://fonts.googleapis.com/css2?family=Lexend:wght@200;400;500;600;700;800&amp;display=swap"
       rel="stylesheet"
     />
     <style>
@@ -27,6 +29,15 @@
         --violet: #7c3aed;
         --indigo: #6366f1;
         --cyan: #06b6d4;
+
+        /* Paleta Dala — usada como acento complementar à LP */
+        --void: #000000;
+        --electric-iris: #8052ff;
+        --saffron-spark: #ffb829;
+        --deep-verdant: #15846e;
+        --bone-white: #ffffff;
+        --ash-gray: #9a9a9a;
+        --silver-mist: #bdbdbd;
       }
       html { scroll-behavior: smooth; }
       body {
@@ -48,9 +59,9 @@
         box-shadow: 0 0 12px rgba(124, 58, 237, 0.6);
       }
 
-      /* Gradient text */
+      /* Gradient text — recolorido para a paleta Dala (Electric Iris → Deep Verdant) */
       .grad-text {
-        background: linear-gradient(90deg, #7c3aed 0%, #6366f1 45%, #0891b2 100%);
+        background: linear-gradient(90deg, #8052ff 0%, #6366f1 45%, #15846e 100%);
         background-size: 200% auto;
         -webkit-background-clip: text;
         background-clip: text;
@@ -62,17 +73,18 @@
         50% { background-position: 100% center; }
       }
 
-      /* Buttons */
+      /* Buttons — pílula violeta sólida (Electric Iris), sem gradiente, ao estilo Dala */
       .btn-primary {
         position: relative; overflow: hidden;
-        background: linear-gradient(90deg, #7c3aed, #6366f1);
+        background: var(--electric-iris);
         color: #fff; font-weight: 600;
-        box-shadow: 0 8px 24px -8px rgba(99, 102, 241, 0.6);
+        border-radius: 9999px;
+        box-shadow: 0 8px 24px -8px rgba(128, 82, 255, 0.6);
         transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
       }
       .btn-primary:hover {
         transform: translateY(-2px); filter: brightness(1.07);
-        box-shadow: 0 16px 34px -10px rgba(99, 102, 241, 0.75);
+        box-shadow: 0 16px 34px -10px rgba(128, 82, 255, 0.75);
       }
       .btn-primary::after {
         content: ""; position: absolute; top: 0; left: -80%; width: 50%; height: 100%;
@@ -104,6 +116,33 @@
         backdrop-filter: blur(6px);
       }
 
+      /* ---- Acentos de tipografia no estilo Dala ---- */
+
+      /* Label pequeno e maiúsculo em Saffron Spark (âmbar) acima de títulos/seções */
+      .eyebrow {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.35px;
+        text-transform: uppercase;
+        color: var(--saffron-spark);
+      }
+
+      /* Corpo arejado em peso 200 (assinatura Dala para leitura longa) */
+      .air {
+        font-weight: 200;
+        letter-spacing: 0.01em;
+      }
+
+      /* Headline escultural: peso 400 e tracking negativo, hierarquia por escala */
+      .dala-display {
+        font-weight: 400;
+        letter-spacing: -0.04em;
+        line-height: 1.05;
+      }
+
+      /* Texto de destaque em Saffron Spark */
+      .spark { color: var(--saffron-spark); }
+
       /* Browser frame */
       .frame {
         border-radius: 1.1rem;
@@ -120,6 +159,12 @@
         position: absolute; border-radius: 999px; filter: blur(90px); opacity: 0.55;
         pointer-events: none;
         animation: float 12s ease-in-out infinite;
+      }
+      /* Constelação de partículas (estilo Dala) — campo cromático de triângulos no hero */
+      #constellation { z-index: 0; opacity: 0.85; }
+      #top .relative { z-index: 10; }
+      @media (prefers-reduced-motion: reduce) {
+        #constellation { display: none; }
       }
       @keyframes float {
         0%, 100% { transform: translate(0, 0) scale(1); }
@@ -265,18 +310,19 @@
     <!-- HERO -->
     <section id="top" class="relative overflow-hidden">
       <div class="bg-grid pointer-events-none absolute inset-0" aria-hidden="true"></div>
+      <canvas id="constellation" class="dala-constellation pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"></canvas>
       <div class="orb left-[-120px] top-[-60px] h-[360px] w-[360px] bg-violet-300" aria-hidden="true"></div>
       <div class="orb right-[-80px] top-32 h-[320px] w-[320px] bg-cyan-300" aria-hidden="true" style="animation-delay:-4s"></div>
       <div class="orb bottom-[-120px] left-1/3 h-[300px] w-[300px] bg-indigo-300" aria-hidden="true" style="animation-delay:-8s"></div>
 
       <div class="relative mx-auto grid max-w-7xl items-center gap-10 px-6 pb-12 pt-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-14 lg:px-8 lg:pb-16 lg:pt-14 xl:gap-16 xl:px-10">
         <div class="max-w-xl">
-          <p class="mb-4 text-sm font-bold uppercase tracking-[.16em] text-indigo-600">Teleprompter com IA em PT-BR</p>
-          <h1 class="text-4xl font-extrabold leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
+          <p class="eyebrow mb-4">Teleprompter com IA em PT-BR</p>
+          <h1 class="dala-display text-4xl text-slate-900 sm:text-5xl lg:text-6xl">
             Grave olhando para a câmera.
             <span class="grad-text mt-2 block">O roteiro acompanha sua voz.</span>
           </h1>
-          <p class="mt-6 max-w-[62ch] text-lg leading-relaxed text-slate-600">
+          <p class="air mt-6 max-w-[62ch] text-lg leading-relaxed text-slate-600">
             Teleprompter em português com rolagem por voz, câmera e gravação na mesma tela — para você falar com naturalidade sem decorar o texto.
           </p>
           <div class="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
@@ -378,10 +424,11 @@
     <!-- O APP EM ABAS -->
     <section id="app" class="section-space mx-auto max-w-6xl px-6">
       <div class="reveal max-w-2xl text-left">
-        <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+        <p class="eyebrow mb-3">Um único fluxo</p>
+        <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
           Do roteiro ao vídeo pronto, <span class="grad-text">sem trocar de app</span>
         </h2>
-        <p class="mt-4 text-slate-500">
+        <p class="air mt-4 text-slate-500">
           Biblioteca, editor, prompter e control room em uma interface única. Roteiros e gravação continuam locais; IA e sincronização são opcionais.
         </p>
       </div>
@@ -511,10 +558,11 @@
     <!-- RECURSOS: BENTO GRID -->
     <section id="recursos" class="section-space mx-auto max-w-6xl px-6">
       <div class="reveal max-w-2xl text-left">
-        <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+        <p class="eyebrow mb-3">Recursos</p>
+        <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
           Um estúdio de vídeo <span class="grad-text">de bolso</span>
         </h2>
-        <p class="mt-4 text-slate-500">Do roteiro à exportação: ferramentas locais e serviços de nuvem claramente identificados.</p>
+        <p class="air mt-4 text-slate-500">Do roteiro à exportação: ferramentas locais e serviços de nuvem claramente identificados.</p>
       </div>
 
       <div class="reveal mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -587,7 +635,7 @@
     <section id="como-funciona" class="section-space border-y border-black/5 bg-white">
       <div class="mx-auto max-w-6xl px-6">
       <div class="reveal max-w-2xl text-left">
-          <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+          <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
             Do roteiro ao vídeo pronto em <span class="grad-text">5 passos</span>
           </h2>
         </div>
@@ -624,9 +672,9 @@
     <!-- PARA QUEM É -->
     <section id="para-quem" class="section-space mx-auto max-w-6xl px-6">
       <div class="reveal max-w-2xl text-left">
-        <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-          Feito para quem fala olhando para a câmera
-        </h2>
+          <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
+            Feito para quem fala olhando para a câmera
+          </h2>
         <p class="mt-4 text-slate-500">
           Se você precisa falar com naturalidade em frente à câmera, o AlvoPrompter foi desenhado para você.
         </p>
@@ -659,7 +707,7 @@
     <section id="inspiracao" class="section-space border-y border-black/5 bg-white">
       <div class="mx-auto max-w-6xl px-6">
       <div class="reveal max-w-2xl text-left">
-          <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+          <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
             Cada referência é forte em uma parte do fluxo
           </h2>
           <p class="mt-4 text-slate-500">
@@ -711,7 +759,7 @@
     <!-- DEPOIMENTOS (CARROSSEL AUTO) -->
     <section id="depoimentos" class="hidden" aria-hidden="true">
       <div class="reveal max-w-2xl text-left">
-        <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+        <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
           Quem testou, <span class="grad-text">não volta para o papel</span>
         </h2>
         <p class="mt-4 text-slate-500">Feedback de criadores, pregadores e vendedores na fase beta.</p>
@@ -837,7 +885,7 @@
     <section id="comparativo" class="section-space border-y border-black/5 bg-white">
       <div class="mx-auto max-w-6xl px-6">
       <div class="reveal max-w-2xl text-left">
-          <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+          <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
             Compare pelo que realmente importa
           </h2>
           <p class="mt-4 text-slate-500">
@@ -881,10 +929,11 @@
     <!-- PREÇOS -->
     <section id="precos" class="section-space mx-auto max-w-6xl px-6">
       <div class="reveal max-w-2xl text-left">
-        <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+        <p class="eyebrow mb-3">Planos</p>
+        <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">
           Comece grátis. Assine quando <span class="grad-text">a produção crescer</span>
         </h2>
-        <p class="mt-4 text-slate-500">
+        <p class="air mt-4 text-slate-500">
           Comece sem cartão. Os planos pagos são mensais, sem fidelidade, e a renovação pode ser cancelada pelo app.
         </p>
 
@@ -944,7 +993,7 @@
     <!-- FAQ -->
     <section id="faq" class="section-space mx-auto max-w-3xl px-6">
       <div class="reveal max-w-2xl text-left">
-        <h2 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Perguntas frequentes</h2>
+        <h2 class="dala-display text-3xl text-slate-900 sm:text-4xl">Perguntas frequentes</h2>
       </div>
       <div class="reveal mt-10 space-y-3">
         <details class="card rounded-xl px-5 py-4">
@@ -1001,12 +1050,13 @@
     </section>
 
     <!-- CTA FINAL -->
-    <section class="section-space-cta relative overflow-hidden bg-slate-950">
+    <section class="section-space-cta relative overflow-hidden bg-black">
       <div class="orb left-[-100px] top-[-80px] h-[340px] w-[340px] bg-violet-600/60" aria-hidden="true"></div>
       <div class="orb right-[-80px] bottom-[-100px] h-[340px] w-[340px] bg-cyan-500/50" aria-hidden="true" style="animation-delay:-5s"></div>
+      <canvas class="dala-constellation pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"></canvas>
       <div class="pointer-events-none absolute inset-0 opacity-20" style="background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px); background-size: 44px 44px;" aria-hidden="true"></div>
       <div class="relative mx-auto max-w-3xl px-6 text-center">
-        <h2 class="text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+        <h2 class="dala-display text-4xl text-white sm:text-5xl lg:text-6xl">
           Pronto para <span class="grad-text">olhar na câmera</span><br />e esquecer o texto?
         </h2>
         <p class="mx-auto mt-5 max-w-xl text-lg text-slate-400">
@@ -1139,9 +1189,12 @@
         consentPanel.hidden = false;
       }
 
-      const APP_URL = window.location.protocol === "file:"
-        ? "http://127.0.0.1:5173/"
-        : new URL("/", window.location.origin).href;
+      const APP_BASE_META = document.querySelector('meta[name="app-base"]')?.content.trim();
+      const APP_URL = APP_BASE_META
+        ? APP_BASE_META.replace(/\/$/, "") + "/"
+        : (window.location.protocol === "file:"
+          ? "http://127.0.0.1:5173/"
+          : new URL("/", window.location.origin).href);
       document.querySelectorAll(".js-app").forEach((a) => {
         const path = a.dataset.appPath || "";
         a.href = new URL(path.replace(/^\//, ""), APP_URL).href;
@@ -1281,6 +1334,100 @@
           document.querySelector('[data-panel="' + btn.dataset.tab + '"]').classList.add("active");
         });
       });
+
+      /* Constelação de partículas (estilo Dala) — campo de triângulos cromáticos */
+      (() => {
+        const canvases = document.querySelectorAll(".dala-constellation");
+        if (!canvases.length) return;
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const palette = ["#8052ff", "#ffb829", "#15846e", "#6366f1", "#c026d3", "#2563eb"];
+
+        const initCanvas = (canvas) => {
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          let w = 0, h = 0, dpr = 1, particles = [];
+
+          const build = () => {
+            particles = [];
+            const cx = w * 0.5, cy = h * 0.5;
+            // Núcleo: nuvem orgânica densa (forma de "cérebro")
+            const core = Math.round(Math.min(150, (w * h) / 7000));
+            for (let i = 0; i < core; i++) {
+              const a = Math.random() * Math.PI * 2;
+              const r = Math.pow(Math.random(), 0.6);
+              const rx = (w * 0.42) * r * Math.cos(a);
+              const ry = (h * 0.40) * r * Math.sin(a);
+              const wobble = 1 + 0.18 * Math.sin(a * 3 + r * 4);
+              particles.push({
+                x: cx + rx * wobble, y: cy + ry * wobble,
+                size: 1.5 + Math.random() * 3,
+                color: palette[(Math.random() * palette.length) | 0],
+                rot: Math.random() * Math.PI, spin: (Math.random() - 0.5) * 0.004,
+                vx: (Math.random() - 0.5) * 0.12, vy: (Math.random() - 0.5) * 0.12,
+                alpha: 0.35 + Math.random() * 0.5,
+              });
+            }
+            // Ambiente: partículas esparsas pelo canvas
+            const ambient = Math.round(Math.min(90, (w * h) / 14000));
+            for (let i = 0; i < ambient; i++) {
+              particles.push({
+                x: Math.random() * w, y: Math.random() * h,
+                size: 1 + Math.random() * 2.2,
+                color: palette[(Math.random() * palette.length) | 0],
+                rot: Math.random() * Math.PI, spin: (Math.random() - 0.5) * 0.003,
+                vx: (Math.random() - 0.5) * 0.06, vy: (Math.random() - 0.5) * 0.06,
+                alpha: 0.15 + Math.random() * 0.3,
+              });
+            }
+          };
+
+          const drawTri = (p) => {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rot);
+            ctx.globalAlpha = p.alpha;
+            ctx.strokeStyle = p.color;
+            ctx.lineWidth = 1;
+            const s = p.size;
+            ctx.beginPath();
+            ctx.moveTo(0, -s);
+            ctx.lineTo(s * 0.866, s * 0.5);
+            ctx.lineTo(-s * 0.866, s * 0.5);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+          };
+
+          const tick = () => {
+            ctx.clearRect(0, 0, w, h);
+            for (const p of particles) {
+              p.x += p.vx; p.y += p.vy; p.rot += p.spin;
+              if (p.x < -10) p.x = w + 10;
+              if (p.x > w + 10) p.x = -10;
+              if (p.y < -10) p.y = h + 10;
+              if (p.y > h + 10) p.y = -10;
+              drawTri(p);
+            }
+            if (!reduce) requestAnimationFrame(tick);
+          };
+
+          const resize = () => {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            w = rect.width; h = rect.height;
+            dpr = Math.min(window.devicePixelRatio || 1, 2);
+            canvas.width = Math.floor(w * dpr);
+            canvas.height = Math.floor(h * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            build();
+          };
+
+          resize();
+          window.addEventListener("resize", resize);
+          if (reduce) { tick(); } else { requestAnimationFrame(tick); }
+        };
+
+        canvases.forEach(initCanvas);
+      })();
 
     </script>
   </body>
