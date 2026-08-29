@@ -24,7 +24,8 @@ export interface Env {
   alvoprompt_media: R2Bucket
   ALVOPROMPT_SYNC: KVNamespace
   CORS_ORIGIN?: string
-  DEEPSEEK_API_KEY?: string
+  CARCARA_API_KEY?: string
+  CARCARA_API_BASE?: string
   DB?: D1Database
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
@@ -42,7 +43,8 @@ const CORS_HEADERS = {
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
 const MIN_SYNC_PASS_LENGTH = 12
-const DEEPSEEK_MODEL = 'deepseek-v4-flash'
+const CARCARA_BASE = 'https://tunel.harpyacore.com/v1'
+const CARCARA_MODEL = 'Carcara-3.8-27B'
 
 function allowedOrigin(request: Request, env: Env): boolean {
   const origin = request.headers.get('Origin')
@@ -416,7 +418,7 @@ export default {
       return json({
         status: 'ok',
         service: 'AlvoPrompter API',
-        deepseek: { configured: Boolean(env.DEEPSEEK_API_KEY), model: DEEPSEEK_MODEL },
+        carcara: { configured: Boolean(env.CARCARA_API_KEY), model: CARCARA_MODEL },
         workersAi: { configured: Boolean(env.AI) },
       })
     }
@@ -429,7 +431,7 @@ export default {
     if (url.pathname === '/chat' && request.method === 'POST') {
       const limited = await enforceRateLimit(request, env, 'chat', 100)
       if (limited) return limited
-      if (!env.DEEPSEEK_API_KEY) return json({ error: 'Serviço de IA não configurado.' }, 503)
+      if (!env.CARCARA_API_KEY) return json({ error: 'Serviço de IA não configurado.' }, 503)
       if (requestTooLarge(request, 128 * 1024)) return json({ error: 'Solicitação muito grande.' }, 413)
       const input = (await request.json().catch(() => null)) as {
         messages?: { role?: string; content?: string }[]
@@ -445,17 +447,17 @@ export default {
         content: String(message.content ?? '').slice(0, 20_000),
       }))
       try {
-        const upstream = await fetch('https://api.deepseek.com/chat/completions', {
+        const base = (env.CARCARA_API_BASE ?? CARCARA_BASE).replace(/\/$/, '')
+        const upstream = await fetch(`${base}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
+            Authorization: `Bearer ${env.CARCARA_API_KEY}`,
           },
           body: JSON.stringify({
-            model: DEEPSEEK_MODEL,
+            model: CARCARA_MODEL,
             messages,
             stream: true,
-            thinking: { type: 'disabled' },
             temperature: Math.min(1.5, Math.max(0, input.temperature ?? 0.7)),
             max_tokens: Math.min(8_000, Math.max(1, input.max_tokens ?? 2_000)),
             ...(input.response_format?.type === 'json_object'
@@ -467,14 +469,14 @@ export default {
         if (!upstream.ok) {
           const message =
             upstream.status === 401 || upstream.status === 403
-              ? 'A chave da DeepSeek foi recusada. Gere uma nova chave e atualize o secret do Worker.'
+              ? 'A chave do provedor de IA foi recusada. Atualize o secret do Worker.'
               : upstream.status === 402
-                ? 'A conta DeepSeek está sem saldo disponível.'
+                ? 'A conta do provedor de IA está sem saldo disponível.'
                 : upstream.status === 400 || upstream.status === 404
-                  ? 'O modelo configurado não está disponível nesta conta DeepSeek.'
+                  ? 'O modelo de IA configurado não está disponível.'
                   : upstream.status === 429
-                    ? 'A DeepSeek está limitando as solicitações. Aguarde um momento e tente novamente.'
-                    : 'A DeepSeek não respondeu corretamente. Tente novamente.'
+                    ? 'O provedor de IA está limitando as solicitações. Aguarde um momento e tente novamente.'
+                    : 'O provedor de IA não respondeu corretamente. Tente novamente.'
           return json({ error: message }, upstream.status)
         }
         return new Response(upstream.body, {
