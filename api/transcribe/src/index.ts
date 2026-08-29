@@ -357,6 +357,52 @@ function uTitle(target: string): string {
   }
 }
 
+// ---- Proteção contra SSRF no importador de URLs ----
+// Bloqueia endereços privados/loopback/metadata para que o Worker não seja
+// usado como proxy para a rede interna (10.x, 172.16/12, 192.168, 127.x,
+// link-local, CGNAT, IPv6 literal e hostnames internos comuns).
+function ipv4IsPrivate(ip: string): boolean {
+  const parts = ip.split('.').map((n) => Number(n))
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false
+  return (
+    parts[0] === 10 ||
+    parts[0] === 127 ||
+    parts[0] === 0 ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168) ||
+    (parts[0] === 169 && parts[1] === 254) ||
+    (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127)
+  )
+}
+
+function importUrlBlocked(target: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(target)
+  } catch {
+    return 'URL inválida.'
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'Somente URLs http(s) são aceitas.'
+  }
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
+  if (host.includes(':')) return 'Endereços IPv6 não são aceitos na importação.'
+  if (
+    host === 'localhost' ||
+    host === 'metadata.google.internal' ||
+    host === 'metadata' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.home.arpa')
+  ) {
+    return 'Endereço interno não pode ser importado.'
+  }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) && ipv4IsPrivate(host)) {
+    return 'Endereço privado não pode ser importado.'
+  }
+  return null
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
@@ -570,6 +616,8 @@ export default {
       const { url: target } = (await request.json()) as { url?: string }
       if (!target) return json({ error: 'Campo "url" ausente.' }, 400)
       if (target.length > 2_048) return json({ error: 'URL acima do limite permitido.' }, 413)
+      const blocked = importUrlBlocked(target)
+      if (blocked) return json({ error: blocked }, 400)
       let parsed: URL
       try {
         parsed = new URL(target)
@@ -626,6 +674,8 @@ export default {
 
     // ---- Sync de roteiros (KV, protegido por frase-chave) ----
     if (url.pathname === '/sync') {
+      const syncLimited = await enforceRateLimit(request, env, 'sync', 1000)
+      if (syncLimited) return syncLimited
       const pass = (request.headers.get('x-sync-pass') ?? '').trim()
       if (pass.length < MIN_SYNC_PASS_LENGTH) {
         return json({ error: `Frase-chave muito curta (mínimo ${MIN_SYNC_PASS_LENGTH} caracteres).` }, 400)
@@ -672,9 +722,13 @@ export default {
 
     // ---- Sync de agendamentos e workspaces (KV, mesma frase-chave) ----
     if (url.pathname === '/schedules') {
+      const limited = await enforceRateLimit(request, env, 'schedules', 500)
+      if (limited) return limited
       return handleCollection(request, env.ALVOPROMPT_SYNC, 'schedules', 'posts', sanitizePost)
     }
     if (url.pathname === '/workspaces') {
+      const limited = await enforceRateLimit(request, env, 'workspaces', 500)
+      if (limited) return limited
       return handleCollection(
         request,
         env.ALVOPROMPT_SYNC,
@@ -687,6 +741,8 @@ export default {
     // ---- Armazenamento de mídia no R2 ----
     const mediaMatch = url.pathname.match(/^\/media\/(.+)$/)
     if (mediaMatch) {
+      const mediaLimited = await enforceRateLimit(request, env, 'media', 2000)
+      if (mediaLimited) return mediaLimited
       const pass = (request.headers.get('x-sync-pass') ?? '').trim()
       if (pass.length < MIN_SYNC_PASS_LENGTH) return json({ error: 'Frase-chave obrigatória para acessar mídia.' }, 401)
       const rawKey = decodeURIComponent(mediaMatch[1]!)
