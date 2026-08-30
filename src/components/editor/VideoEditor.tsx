@@ -6,6 +6,9 @@ import { autoCutRanges, detectSpeechRanges, estimateWordTimings, totalRangesDura
 import { computeFacePath, cropCenteredOnFace, faceTrackingSupported, type FaceSample } from '../../lib/faceTrack'
 import { parseClipPrompt, type ClipPromptResult } from '../../lib/clipPrompt'
 import { generateAvatar } from '../../lib/cloudflare'
+import { MUSIC_LIBRARY, generateMusicTrack, type MusicTrack } from '../../lib/music'
+import { trackEvent } from '../../lib/stats'
+import { createVideoPage, videoPageShareUrl } from '../../lib/videopage'
 import { isShareCancelled, shareVideo } from '../../lib/share'
 import {
   CAPTION_THEMES,
@@ -58,6 +61,10 @@ export default function VideoEditor() {
   const [logoWidth, setLogoWidth] = useState(15)
   const [music, setMusic] = useState<AudioBuffer | null>(null)
   const [musicVolume, setMusicVolume] = useState(0.3)
+  const [musicTrackId, setMusicTrackId] = useState<string | null>(null)
+  const [musicBusy, setMusicBusy] = useState<string | null>(null)
+  const musicCacheRef = useRef<Map<string, AudioBuffer>>(new Map())
+  const musicPreviewRef = useRef<{ ctx: AudioContext; src: AudioBufferSourceNode } | null>(null)
   const logoFileRef = useRef<HTMLInputElement>(null)
   const musicFileRef = useRef<HTMLInputElement>(null)
 
@@ -80,6 +87,8 @@ export default function VideoEditor() {
   const [outBlob, setOutBlob] = useState<Blob | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
+  const [pageBusy, setPageBusy] = useState(false)
+  const [pageMsg, setPageMsg] = useState<string | null>(null)
   const [reframe, setReframe] = useState(false)
   const [eyeContact, setEyeContact] = useState(false)
   const facePathRef = useRef<FaceSample[] | null>(null)
@@ -90,10 +99,19 @@ export default function VideoEditor() {
   const [outroEnabled, setOutroEnabled] = useState(false)
   const [outroText, setOutroText] = useState('')
   const [outroSeconds, setOutroSeconds] = useState(3)
+  const [brandFrom, setBrandFrom] = useState(() => localStorage.getItem('ap.brandFrom') ?? '#8B5CF6')
+  const [brandTo, setBrandTo] = useState(() => localStorage.getItem('ap.brandTo') ?? '#22D3EE')
+
+  useEffect(() => {
+    localStorage.setItem('ap.brandFrom', brandFrom)
+    localStorage.setItem('ap.brandTo', brandTo)
+  }, [brandFrom, brandTo])
   const [shorts, setShorts] = useState<{ url: string; start: number; end: number }[]>([])
   const [shortsProgress, setShortsProgress] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   const metaVideoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => () => stopMusicPreview(), [])
 
   useEffect(() => {
     if (!recording) return
@@ -231,9 +249,64 @@ export default function VideoEditor() {
       const ac = new AudioContext()
       const audioBuffer = await ac.decodeAudioData(buffer)
       void ac.close()
+      stopMusicPreview()
       setMusic(audioBuffer)
+      setMusicTrackId(null)
     } catch {
       setError('Não foi possível decodificar o arquivo de áudio.')
+    }
+  }
+
+  const stopMusicPreview = () => {
+    musicPreviewRef.current?.src.stop()
+    void musicPreviewRef.current?.ctx.close()
+    musicPreviewRef.current = null
+  }
+
+  const loadTrack = async (track: MusicTrack) => {
+    let buf = musicCacheRef.current.get(track.id)
+    if (!buf) {
+      setMusicBusy(track.id)
+      try {
+        buf = await generateMusicTrack(track)
+        musicCacheRef.current.set(track.id, buf)
+      } finally {
+        setMusicBusy(null)
+      }
+    }
+    return buf
+  }
+
+  const handleUseTrack = async (track: MusicTrack) => {
+    try {
+      const buf = await loadTrack(track)
+      if (!buf) return
+      stopMusicPreview()
+      setMusic(buf)
+      setMusicTrackId(track.id)
+    } catch {
+      setError('Não foi possível gerar a trilha de fundo.')
+    }
+  }
+
+  const handlePreviewTrack = async (track: MusicTrack) => {
+    if (musicBusy) return
+    try {
+      const buf = await loadTrack(track)
+      if (!buf) return
+      stopMusicPreview()
+      const ac = new AudioContext()
+      const src = ac.createBufferSource()
+      src.buffer = buf
+      src.loop = true
+      const gain = ac.createGain()
+      gain.gain.value = 0.5
+      src.connect(gain)
+      gain.connect(ac.destination)
+      src.start()
+      musicPreviewRef.current = { ctx: ac, src }
+    } catch {
+      setError('Não foi possível gerar a trilha de fundo.')
     }
   }
 
@@ -344,6 +417,7 @@ export default function VideoEditor() {
               bgColor: chromaBg,
             }
           : undefined,
+        brandGradient: [brandFrom, brandTo],
         onProgress: (p) => setProgress(0.4 + 0.6 * p),
         signal: controller.signal,
       })
@@ -352,11 +426,35 @@ export default function VideoEditor() {
       setOutUrl(url)
       setOutBlob(blob)
       setProgress(1)
+      trackEvent('video_exported')
     } catch (err) {
       if ((err as Error).name !== 'AbortError') setError((err as Error).message)
     } finally {
       setProcessing(false)
       abortRef.current = null
+    }
+  }
+
+  const handleCreateVideoPage = async () => {
+    if (!outBlob || pageBusy) return
+    setPageBusy(true)
+    setPageMsg(null)
+    try {
+      const title =
+        introEnabled && introText.trim()
+          ? introText.trim()
+          : currentScript?.title || 'Meu vídeo no AlvoPrompter'
+      const page = await createVideoPage({
+        blob: outBlob,
+        fileName: `alvoprompter-${aspect === 'original' ? 'original' : aspect}.${outBlob.type.includes('mp4') ? 'mp4' : 'webm'}`,
+        title,
+      })
+      trackEvent('video_page_created')
+      setPageMsg(`Página criada! Compartilhe este link: ${videoPageShareUrl(page.id)}`)
+    } catch (err) {
+      setPageMsg((err as Error).message)
+    } finally {
+      setPageBusy(false)
     }
   }
 
@@ -375,6 +473,7 @@ export default function VideoEditor() {
       setShareMsg(outcome === 'shared'
         ? 'Compartilhamento aberto — escolha Instagram, YouTube, TikTok ou outro app.'
         : 'O vídeo foi baixado. Abra a rede social para publicar.')
+      trackEvent('video_shared')
     } catch (err) {
       if (!isShareCancelled(err)) setShareMsg((err as Error).message)
     } finally {
@@ -440,6 +539,7 @@ export default function VideoEditor() {
           music: musicOpt,
           motion,
           chroma: chromaOpt,
+          brandGradient: [brandFrom, brandTo],
           onProgress: (p) => setProgress(0.4 + 0.6 * ((idx + p) / clips.length)),
           signal: controller.signal,
         })
@@ -790,7 +890,11 @@ export default function VideoEditor() {
                       />
                     </label>
                     <button
-                      onClick={() => setMusic(null)}
+                      onClick={() => {
+                        stopMusicPreview()
+                        setMusic(null)
+                        setMusicTrackId(null)
+                      }}
                       className="rounded-lg border px-2 py-1.5 text-xs"
                       style={{ borderColor: 'var(--border)', color: 'var(--danger)' }}
                     >
@@ -799,8 +903,119 @@ export default function VideoEditor() {
                   </>
                 )}
               </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {MUSIC_LIBRARY.map((track) => (
+                  <div
+                    key={track.id}
+                    className="rounded-xl border p-2.5"
+                    style={{
+                      borderColor: musicTrackId === track.id ? 'var(--accent)' : 'var(--border)',
+                      background: musicTrackId === track.id ? 'rgba(99,102,241,0.12)' : 'rgba(0,0,0,0.2)',
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg" aria-hidden>
+                        {track.emoji}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                          {track.name}
+                        </p>
+                        <p className="truncate text-[10px]" style={{ color: 'var(--muted)' }}>
+                          {track.description}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={() => void handlePreviewTrack(track)}
+                        disabled={musicBusy === track.id}
+                        className="flex-1 rounded-lg border px-2 py-1 text-[11px]"
+                        style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
+                      >
+                        {musicBusy === track.id ? 'Gerando...' : '▶ Ouvir'}
+                      </button>
+                      <button
+                        onClick={() => void handleUseTrack(track)}
+                        disabled={musicBusy === track.id || musicTrackId === track.id}
+                        className="flex-1 rounded-lg border px-2 py-1 text-[11px]"
+                        style={{
+                          borderColor: musicTrackId === track.id ? 'var(--accent)' : 'var(--border)',
+                          color: musicTrackId === track.id ? 'var(--accent)' : 'var(--text)',
+                        }}
+                      >
+                        {musicTrackId === track.id ? '✓ Usando' : 'Usar'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-                A música é mixada com o áudio da gravação durante a exportação.
+                As trilhas da galeria são geradas no próprio aparelho, livres de royalties, e repetem
+                até o fim do vídeo. A música é mixada com o áudio da gravação durante a exportação.
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
+              Brand kit
+            </h3>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                  <input
+                    type="color"
+                    value={brandFrom}
+                    onChange={(e) => setBrandFrom(e.target.value)}
+                    className="h-8 w-10 cursor-pointer rounded border"
+                    style={{ borderColor: 'var(--border)' }}
+                    title="Cor 1 do gradiente da marca"
+                  />
+                  Cor 1
+                </label>
+                <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                  <input
+                    type="color"
+                    value={brandTo}
+                    onChange={(e) => setBrandTo(e.target.value)}
+                    className="h-8 w-10 cursor-pointer rounded border"
+                    style={{ borderColor: 'var(--border)' }}
+                    title="Cor 2 do gradiente da marca"
+                  />
+                  Cor 2
+                </label>
+                <button
+                  onClick={() => {
+                    setBrandFrom('#8B5CF6')
+                    setBrandTo('#22D3EE')
+                  }}
+                  className="rounded-lg border px-2 py-1 text-xs"
+                  style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+                >
+                  Restaurar padrão
+                </button>
+              </div>
+              <div
+                className="flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl"
+                style={{ background: `linear-gradient(135deg, ${brandFrom}, ${brandTo})` }}
+              >
+                {logo && (
+                  <img
+                    src={logo.src}
+                    alt=""
+                    className="h-10 w-auto max-w-[40%] rounded object-contain"
+                    style={{ background: 'rgba(255,255,255,0.25)' }}
+                  />
+                )}
+                <div className="px-6 text-center text-sm font-bold text-white" style={{ textShadow: '0 2px 6px rgba(0,0,0,0.35)' }}>
+                  {introEnabled && introText.trim() ? introText.trim() : 'Seu roteiro no alvo'}
+                </div>
+                <div className="h-1 w-1/4 rounded-full bg-white/90" />
+              </div>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
+                As cores do brand kit pintam os cards de intro e outro, o título animado do vídeo e ficam
+                salvas neste aparelho.
               </p>
             </div>
           </section>
@@ -1210,6 +1425,7 @@ export default function VideoEditor() {
               </p>
               <video src={outUrl} controls playsInline className="mb-3 max-h-48 w-full rounded-lg" />
               {shareMsg && <p className="mb-2 text-xs" style={{ color: 'var(--muted)' }}>{shareMsg}</p>}
+              {pageMsg && <p className="mb-2 break-all text-xs" style={{ color: pageMsg.startsWith('Página criada') ? 'var(--ok)' : 'var(--danger)' }}>{pageMsg}</p>}
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => void handleShare()}
@@ -1218,6 +1434,14 @@ export default function VideoEditor() {
                   style={{ background: 'var(--accent)' }}
                 >
                   {shareBusy ? 'Preparando…' : '↗ Compartilhar vídeo'}
+                </button>
+                <button
+                  onClick={() => void handleCreateVideoPage()}
+                  disabled={!outBlob || pageBusy}
+                  className="flex-1 rounded-lg border px-4 py-2 text-center text-sm font-medium disabled:opacity-50"
+                  style={{ borderColor: 'var(--accent-2)', color: 'var(--accent-2)' }}
+                >
+                  {pageBusy ? 'Enviando…' : '📄 Criar página de vídeo'}
                 </button>
                 <a
                   href={outUrl}

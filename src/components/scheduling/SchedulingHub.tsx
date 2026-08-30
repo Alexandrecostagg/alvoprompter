@@ -19,7 +19,9 @@ import {
 } from '../../lib/scheduling'
 import { clearSyncPass, saveSyncPass, savedSyncPass } from '../../lib/syncWorker'
 import { isShareCancelled, shareDataUrl, shareText } from '../../lib/share'
+import { trackEvent } from '../../lib/stats'
 import type { PostStatus, ScheduledPost, SocialChannel } from '../../lib/types'
+import CalendarView from './CalendarView'
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -50,10 +52,10 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </p>
       <button
         onClick={onCreate}
-        className="rounded-lg px-4 py-2 text-sm font-semibold text-black transition-colors"
-        style={{ background: 'var(--accent)' }}
+        className="rounded-xl px-4 py-2 text-sm font-bold text-white transition-colors"
+        style={{ background: 'var(--brand-gradient)', boxShadow: '0 5px 14px rgba(91,91,240,.35)' }}
       >
-        + Planejar publicação
+        ＋ Planejar publicação
       </button>
     </div>
   )
@@ -69,6 +71,8 @@ export default function SchedulingHub() {
   const [pass, setPass] = useState('')
   const [selected, setSelected] = useState<{ post: ScheduledPost; channel: SocialChannel } | null>(null)
   const [sharing, setSharing] = useState(false)
+  const [view, setView] = useState<'list' | 'calendar'>('list')
+  const [selectedDay, setSelectedDay] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const connected = (savedSyncPass()?.length ?? 0) >= 12
 
@@ -163,6 +167,7 @@ export default function SchedulingHub() {
 
   const mark = async (post: ScheduledPost, status: PostStatus) => {
     if (post.id != null) await setPostStatus(post.id, status)
+    if (status === 'published') trackEvent('post_published')
     await refresh()
   }
 
@@ -197,6 +202,27 @@ export default function SchedulingHub() {
     () => [...posts].sort((a, b) => a.scheduledAt - b.scheduledAt),
     [posts],
   )
+
+  const stats = useMemo(() => {
+    const total = posts.length
+    const published = posts.filter((p) => p.status === 'published').length
+    const scheduled = posts.filter((p) => p.status === 'scheduled').length
+    const overdue = posts.filter((p) => p.status === 'scheduled' && isOverdue(p)).length
+    return { total, published, scheduled, overdue }
+  }, [posts])
+
+  const filtered = useMemo(() => {
+    if (selectedDay == null) return sorted
+    return sorted.filter((p) => {
+      const a = new Date(p.scheduledAt)
+      const b = new Date(selectedDay)
+      return (
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate()
+      )
+    })
+  }, [sorted, selectedDay])
 
   const shareSelected = async () => {
     if (!selected || sharing) return
@@ -246,10 +272,10 @@ export default function SchedulingHub() {
           </button>
           <button
             onClick={openNew}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-black transition-colors"
-            style={{ background: 'var(--accent)' }}
+            className="rounded-xl px-4 py-2 text-sm font-bold text-white transition-colors"
+            style={{ background: 'var(--brand-gradient)', boxShadow: '0 5px 14px rgba(91,91,240,.35)' }}
           >
-            + Planejar publicação
+            ＋ Planejar publicação
           </button>
         </div>
       </div>
@@ -452,17 +478,99 @@ export default function SchedulingHub() {
 
       {!sorted.length && !showForm && <EmptyState onCreate={openNew} />}
 
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}>📋</span>
+          <p className="text-2xl font-bold tabular-nums" style={{ letterSpacing: '-.5px' }}>{stats.total}</p>
+          <p className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Total de planos</p>
+        </div>
+        <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: '#e5f6f1', color: 'var(--ok)' }}>✓</span>
+          <p className="text-2xl font-bold tabular-nums" style={{ letterSpacing: '-.5px' }}>{stats.published}</p>
+          <p className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Publicados</p>
+        </div>
+        <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--violet, #8052ff)' }}>📅</span>
+          <p className="text-2xl font-bold tabular-nums" style={{ letterSpacing: '-.5px' }}>{stats.scheduled}</p>
+          <p className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Planejados</p>
+        </div>
+        <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: '#fdf3dd', color: '#b97a00' }}>⏰</span>
+          <p className="text-2xl font-bold tabular-nums" style={{ letterSpacing: '-.5px' }}>{stats.overdue}</p>
+          <p className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Atrasados</p>
+        </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-base font-semibold" style={{ letterSpacing: '-.2px' }}>
+          <span className="h-2.5 w-2.5 rounded-[4px]" style={{ background: 'linear-gradient(135deg, var(--accent), var(--ok))' }} />
+          {selectedDay ? 'Publicações do dia' : 'Próximas publicações'}
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedDay != null && (
+            <button
+              onClick={() => setSelectedDay(null)}
+              className="rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+              style={{ borderColor: 'var(--accent)', color: 'var(--accent-strong)' }}
+            >
+              Limpar dia
+            </button>
+          )}
+          <span className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>
+            {filtered.length} {filtered.length === 1 ? 'plano' : 'planos'}
+          </span>
+          <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: 'var(--border)' }}>
+            <button
+              onClick={() => setView('list')}
+              className="px-3 py-1.5 text-xs font-semibold"
+              style={{ background: view === 'list' ? 'var(--accent)' : 'transparent', color: view === 'list' ? 'black' : 'var(--muted)' }}
+            >
+              Lista
+            </button>
+            <button
+              onClick={() => setView('calendar')}
+              className="px-3 py-1.5 text-xs font-semibold"
+              style={{ background: view === 'calendar' ? 'var(--accent)' : 'transparent', color: view === 'calendar' ? 'black' : 'var(--muted)' }}
+            >
+              Calendário
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {view === 'calendar' && (
+        <div className="mb-6">
+          <CalendarView posts={posts} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
+        </div>
+      )}
+
+      {filtered.length === 0 && posts.length > 0 && (
+        <p className="mb-4 rounded-xl border p-4 text-center text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)', color: 'var(--muted)' }}>
+          Nenhuma publicação neste dia. Toque em outro dia ou em “Limpar dia”.
+        </p>
+      )}
+
       <div className="space-y-3">
-        {sorted.map((post) => (
+        {filtered.map((post) => (
           <div
             key={post.id ?? post.key}
-            className="rounded-xl border p-4"
+            className="rounded-2xl border p-4 transition-shadow"
             style={{
               borderColor: isOverdue(post) ? 'var(--warn)' : 'var(--border)',
               background: 'var(--panel)',
+              boxShadow: 'var(--shadow-sm)',
             }}
           >
-            <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="hidden w-24 shrink-0 flex-col sm:flex" style={{ paddingRight: '0.9rem', borderRight: '1px solid var(--border)' }}>
+                <span className="text-sm font-bold tabular-nums" style={{ color: 'var(--accent-strong)' }}>
+                  {new Date(post.scheduledAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                </span>
+                <span className="mt-0.5 text-[11px] font-semibold tabular-nums" style={{ color: 'var(--muted)' }}>
+                  {new Date(post.scheduledAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold text-white">{post.title}</h3>
@@ -536,6 +644,7 @@ export default function SchedulingHub() {
                 >
                   🗑
                 </button>
+              </div>
               </div>
             </div>
 

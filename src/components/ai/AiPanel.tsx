@@ -185,11 +185,12 @@ export default function AiPanel({ tab }: AiPanelProps) {
     <button
       key={value}
       onClick={() => setActiveTab(value)}
-      className="flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
-      style={{
-        background: activeTab === value ? 'var(--accent)' : 'transparent',
-        color: activeTab === value ? 'black' : 'var(--muted)',
-      }}
+      className="flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors"
+      style={
+        activeTab === value
+          ? { background: 'var(--accent-soft)', color: 'var(--accent-strong)' }
+          : { color: 'var(--muted)' }
+      }
     >
       {label}
     </button>
@@ -199,8 +200,8 @@ export default function AiPanel({ tab }: AiPanelProps) {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="w-full rounded-lg py-2.5 text-sm font-semibold text-black disabled:opacity-40"
-      style={{ background: 'var(--accent)' }}
+      className="w-full rounded-xl py-2.5 text-sm font-bold text-white disabled:opacity-40"
+      style={{ background: 'var(--brand-gradient)', boxShadow: '0 5px 14px rgba(91,91,240,.35)' }}
     >
       {label}
     </button>
@@ -216,7 +217,10 @@ export default function AiPanel({ tab }: AiPanelProps) {
           className="flex items-center justify-between border-b px-5 py-4"
           style={{ borderColor: 'var(--border)' }}
         >
-          <h2 className="font-semibold text-white">✨ Assistente IA</h2>
+          <h2 className="flex items-center gap-2 font-semibold text-white">
+            <span className="grid h-6 w-6 place-items-center rounded-lg text-xs" style={{ background: 'var(--brand-gradient)', color: '#fff', boxShadow: '0 3px 8px rgba(128,82,255,.35)' }}>✦</span>
+            Assistente IA
+          </h2>
           <button
             onClick={closeAiPanel}
             className="rounded-lg border px-3 py-1 text-sm"

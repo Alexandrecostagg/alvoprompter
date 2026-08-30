@@ -15,7 +15,7 @@
  * Uso local:  npx wrangler dev --port 8787
  * Publicar:   npx wrangler deploy
  */
-import { authorizeAiAction, refundAiAction, handleSaaSRequest, type SaaSEnv } from './saas'
+import { authorizeAiAction, refundAiAction, handleSaaSRequest, requireUser, type SaaSEnv } from './saas'
 
 export interface Env {
   AI: {
@@ -106,6 +106,10 @@ async function syncKey(pass: string, prefix = 'sync'): Promise<string> {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
   return `${prefix}:${hex}`
+}
+
+function videoPageKey(id: string): string {
+  return `vpage:${id.toLowerCase()}`
 }
 
 /**
@@ -797,6 +801,108 @@ export default {
         'workspaces',
         sanitizeWorkspace,
       )
+    }
+
+    // ---- Páginas de vídeo (landing pública para compartilhamento) ----
+    const videoPageMatch = url.pathname.match(/^\/videopages\/([a-f0-9-]{36})(?:\/(play))?$/i)
+    if (videoPageMatch) {
+      const id = videoPageMatch[1]!.toLowerCase()
+      const pageKey = videoPageKey(id)
+      const isPlay = Boolean(videoPageMatch[2])
+
+      if (request.method === 'GET' && isPlay) {
+        // --- Reprodução pública (aumenta contador de visualizações) ---
+        const pageRaw = await env.ALVOPROMPT_SYNC.get(pageKey)
+        if (!pageRaw) return json({ error: 'Página de vídeo não encontrada.' }, 404)
+        let page: Record<string, unknown> | null = null
+        try {
+          page = JSON.parse(pageRaw) as Record<string, unknown>
+        } catch {
+          return json({ error: 'Página de vídeo inválida.' }, 500)
+        }
+        const mediaHash = String(page.passHash ?? '')
+        const mediaKey = String(page.mediaKey ?? '')
+        if (!mediaHash || !mediaKey) return json({ error: 'Vídeo não localizado.' }, 404)
+        const object = await env.alvoprompt_media.get(`media:${mediaHash}:${mediaKey}`)
+        if (!object) return json({ error: 'Vídeo não encontrado.' }, 404)
+        const headers = new Headers(CORS_HEADERS)
+        object.writeHttpMetadata(headers)
+        headers.set('Content-Type', object.httpMetadata?.contentType ?? 'video/webm')
+        headers.set('Accept-Ranges', 'bytes')
+        const views = Number(page.views ?? 0) + 1
+        await env.ALVOPROMPT_SYNC.put(
+          pageKey,
+          JSON.stringify({ ...page, views }),
+          { metadata: { updated: new Date().toISOString() } },
+        )
+        return new Response(object.body, { headers })
+      }
+
+      if (request.method === 'GET') {
+        // --- Metadados públicos da página ---
+        const pageRaw = await env.ALVOPROMPT_SYNC.get(pageKey)
+        if (!pageRaw) return json({ error: 'Página de vídeo não encontrada.' }, 404)
+        let page: Record<string, unknown> | null = null
+        try {
+          page = JSON.parse(pageRaw) as Record<string, unknown>
+        } catch {
+          return json({ error: 'Página de vídeo inválida.' }, 500)
+        }
+        return json({
+          id: page.id,
+          title: page.title ?? '',
+          description: page.description ?? '',
+          author: page.author ?? '',
+          createdAt: page.createdAt ?? '',
+          videoUrl: `/videopages/${page.id}/play`,
+          views: Number(page.views ?? 0),
+        })
+      }
+    }
+
+    if (url.pathname === '/videopages' && request.method === 'POST') {
+      let author = ''
+      try {
+        const user = await requireUser(request, env as Env & SaaSEnv)
+        author = user.name
+      } catch (error) {
+        return json({ error: (error as Error).message }, 401)
+      }
+      const pass = (request.headers.get('x-sync-pass') ?? '').trim()
+      if (pass.length < MIN_SYNC_PASS_LENGTH) {
+        return json({ error: 'Frase-chave obrigatória para criar páginas de vídeo.' }, 401)
+      }
+      const body = (await request.json().catch(() => null)) as {
+        title?: unknown
+        description?: unknown
+        mediaKey?: unknown
+      } | null
+      const title = String(body?.title ?? '').trim().slice(0, 200)
+      const mediaKey = String(body?.mediaKey ?? '').trim()
+      if (!title || !mediaKey || !/^[a-zA-Z0-9._-]{1,128}$/.test(mediaKey)) {
+        return json({ error: 'Título e arquivo de vídeo são obrigatórios.' }, 400)
+      }
+      const id = crypto.randomUUID()
+      const page = {
+        id,
+        title,
+        description: String(body?.description ?? '').trim().slice(0, 500),
+        author,
+        mediaKey,
+        passHash: await syncKey(pass, 'media'),
+        createdAt: new Date().toISOString(),
+        views: 0,
+      }
+      await env.ALVOPROMPT_SYNC.put(videoPageKey(id), JSON.stringify(page))
+      return json({
+        id,
+        title: page.title,
+        description: page.description,
+        author: page.author,
+        createdAt: page.createdAt,
+        videoUrl: `/videopages/${id}/play`,
+        views: 0,
+      })
     }
 
     // ---- Armazenamento de mídia no R2 ----

@@ -18,16 +18,83 @@ export function useRecorder() {
   const [elapsed, setElapsed] = useState(0)
 
   const streamRef = useRef<MediaStream | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const videoElRef = useRef<HTMLVideoElement | null>(null)
   const timerRef = useRef<number | null>(null)
   const urlRef = useRef<string | null>(null)
+  const filterRef = useRef<string | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const pipelineVideoRef = useRef<HTMLVideoElement | null>(null)
+  const pipelineTrackRef = useRef<MediaStreamTrack | null>(null)
+  const rafRef = useRef<number | null>(null)
 
   const attachVideo = useCallback((el: HTMLVideoElement | null) => {
     videoElRef.current = el
     if (el && streamRef.current) el.srcObject = streamRef.current
   }, [])
+
+  const teardownPipeline = useCallback(() => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+    rafRef.current = null
+    pipelineTrackRef.current?.stop()
+    pipelineTrackRef.current = null
+    if (pipelineVideoRef.current) {
+      pipelineVideoRef.current.removeAttribute('src')
+      pipelineVideoRef.current.load()
+      pipelineVideoRef.current = null
+    }
+    canvasRef.current = null
+  }, [])
+
+  const buildPipeline = useCallback((css: string) => {
+    const camera = cameraStreamRef.current
+    if (!camera) return
+    const videoTrack = camera.getVideoTracks()[0]
+    const audioTrack = camera.getAudioTracks()[0]
+    const s = videoTrack?.getSettings()
+    const w = s?.width || 1280
+    const h = s?.height || 720
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.filter = css
+    const src = document.createElement('video')
+    src.muted = true
+    src.playsInline = true
+    src.autoplay = true
+    src.srcObject = camera
+    const capture = canvas.captureStream(30)
+    const pipeTrack = capture.getVideoTracks()[0]
+    const draw = () => {
+      if (src.readyState >= 2) ctx.drawImage(src, 0, 0, w, h)
+      rafRef.current = requestAnimationFrame(draw)
+    }
+    rafRef.current = requestAnimationFrame(draw)
+    const combined = new MediaStream([pipeTrack, audioTrack].filter((t): t is MediaStreamTrack => !!t))
+    canvasRef.current = canvas
+    pipelineVideoRef.current = src
+    pipelineTrackRef.current = pipeTrack
+    streamRef.current = combined
+    if (videoElRef.current) videoElRef.current.srcObject = combined
+  }, [])
+
+  const setFilter = useCallback(
+    (css: string | null) => {
+      filterRef.current = css
+      if (!streamRef.current || !cameraStreamRef.current) return
+      teardownPipeline()
+      if (css) buildPipeline(css)
+      else {
+        streamRef.current = cameraStreamRef.current
+        if (videoElRef.current) videoElRef.current.srcObject = cameraStreamRef.current
+      }
+    },
+    [buildPipeline, teardownPipeline],
+  )
 
   const enable = useCallback(async () => {
     if (streamRef.current) return
@@ -42,8 +109,10 @@ export function useRecorder() {
         },
         audio: { echoCancellation: true, noiseSuppression: true },
       })
+      cameraStreamRef.current = stream
       streamRef.current = stream
-      if (videoElRef.current) videoElRef.current.srcObject = stream
+      if (filterRef.current) buildPipeline(filterRef.current)
+      if (videoElRef.current) videoElRef.current.srcObject = streamRef.current
       setStatus('ready')
     } catch (err) {
       setStatus('error')
@@ -53,7 +122,7 @@ export function useRecorder() {
           : 'Não foi possível acessar a câmera.',
       )
     }
-  }, [])
+  }, [buildPipeline])
 
   const start = useCallback(() => {
     const stream = streamRef.current
@@ -101,19 +170,22 @@ export function useRecorder() {
 
   const disable = useCallback(() => {
     stop()
-    streamRef.current?.getTracks().forEach((t) => t.stop())
+    teardownPipeline()
+    cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
+    cameraStreamRef.current = null
     streamRef.current = null
     if (videoElRef.current) videoElRef.current.srcObject = null
     setStatus('idle')
-  }, [stop])
+  }, [stop, teardownPipeline])
 
   useEffect(
     () => () => {
       stop()
-      streamRef.current?.getTracks().forEach((t) => t.stop())
+      teardownPipeline()
+      cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
     },
-    [stop],
+    [stop, teardownPipeline],
   )
 
   return {
@@ -128,6 +200,7 @@ export function useRecorder() {
     stop,
     disable,
     attachVideo,
+    setFilter,
   }
 }
 

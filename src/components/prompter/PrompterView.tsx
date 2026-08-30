@@ -6,9 +6,11 @@ import { useVoiceTrack, type VoiceTrackingMode } from '../../hooks/useVoiceTrack
 import { useGamepad } from '../../hooks/useGamepad'
 import { useRecorder, formatElapsed } from '../../hooks/useRecorder'
 import { useTranscription } from '../../hooks/useTranscription'
+import { beautyFilterCss } from '../../lib/beauty'
 import { buildSrt, type CaptionUtterance } from '../../lib/srt'
 import { SRT_LANGUAGES, translateSrt } from '../../lib/translate'
 import { isShareCancelled, shareVideo } from '../../lib/share'
+import { recordSeconds, trackEvent } from '../../lib/stats'
 import SettingsPanel from './SettingsPanel'
 import AspectGuide from './AspectGuide'
 
@@ -182,6 +184,11 @@ export default function PrompterView() {
   const transcription = useTranscription()
   voiceModeRef.current = voice.mode
 
+  const beautyCss = beautyFilterCss(settings.beauty, settings.beautyIntensity)
+  useEffect(() => {
+    recorder.setFilter(beautyCss)
+  }, [recorder, beautyCss])
+
   useEffect(() => {
     voiceFallbackRef.current = voiceFallback
   }, [voiceFallback])
@@ -214,6 +221,7 @@ export default function PrompterView() {
       setShareMsg(outcome === 'shared'
         ? 'Compartilhamento aberto — escolha Instagram, YouTube, TikTok ou outro app.'
         : 'O vídeo foi baixado. Abra a rede social para publicar.')
+      trackEvent('video_shared')
     } catch (err) {
       if (!isShareCancelled(err)) setShareMsg((err as Error).message)
     } finally {
@@ -223,6 +231,12 @@ export default function PrompterView() {
 
   const stopRecording = useCallback(() => {
     recorder.stop()
+    trackEvent('record_start')
+    const start = recStartRef.current
+    if (start) {
+      recordSeconds('record_end', (performance.now() - start) / 1000)
+      recStartRef.current = 0
+    }
     setSrtText(buildSrt(captionRef.current) || null)
     setShowResult(true)
   }, [recorder])
@@ -444,7 +458,10 @@ export default function PrompterView() {
     return 'Rolando'
   })()
 
-  const cameraBlock = settings.cameraOn && (
+  const isFullscreenCam = settings.cameraPosition === 'fullscreen'
+  const isSideCam = settings.cameraPosition === 'side'
+  const showScrim = Boolean(settings.bgImage) || Boolean(settings.bgVideo) || isFullscreenCam
+  const cameraBlock = settings.cameraOn && !isFullscreenCam && !isSideCam && (
     <div
       className="relative w-full overflow-hidden"
       style={{ height: '38%' }}
@@ -479,25 +496,158 @@ export default function PrompterView() {
     </div>
   )
 
-  return (
-    <div className="flex h-full flex-col" style={{ background: settings.bgColor }}>
+  const cameraFullscreen = settings.cameraOn && isFullscreenCam && (
+    <div className="absolute inset-0 z-0">
+      <video
+        ref={recorder.attachVideo}
+        autoPlay
+        playsInline
+        muted
+        className="h-full w-full object-cover"
+        style={{ transform: 'scaleX(-1)' }}
+      />
+      {recorder.status === 'requesting' && (
+        <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+          Solicitando câmera...
+        </div>
+      )}
+      {recorder.status === 'error' && (
+        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
+          {recorder.error}
+        </div>
+      )}
+      {settings.eyeContactDot && (
+        <div
+          className="absolute left-1/2 top-1/2 z-20 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90"
+          style={{ background: 'rgba(34,211,238,0.85)', boxShadow: '0 0 10px rgba(0,0,0,0.7)' }}
+          title="Ponto de contato visual"
+          aria-label="Ponto de contato visual próximo à câmera"
+        />
+      )}
+      <AspectGuide ratio={settings.aspectGuide} dimOutside />
+    </div>
+  )
+
+  const cameraSide = settings.cameraOn && isSideCam && (
+    <div className="relative h-full w-2/5 max-w-[40vw] shrink-0 overflow-hidden border-r" style={{ borderColor: 'rgba(255,255,255,.12)' }}>
+      <video
+        ref={recorder.attachVideo}
+        autoPlay
+        playsInline
+        muted
+        className="h-full w-full object-cover"
+        style={{ transform: 'scaleX(-1)' }}
+      />
+      {recorder.status === 'requesting' && (
+        <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+          Solicitando câmera...
+        </div>
+      )}
+      {recorder.status === 'error' && (
+        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
+          {recorder.error}
+        </div>
+      )}
+      {settings.eyeContactDot && (
+        <div
+          className="absolute left-1/2 top-1/2 z-20 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90"
+          style={{ background: 'rgba(34,211,238,0.85)', boxShadow: '0 0 10px rgba(0,0,0,0.7)' }}
+          title="Ponto de contato visual"
+          aria-label="Ponto de contato visual próximo à câmera"
+        />
+      )}
+      <AspectGuide ratio={settings.aspectGuide} dimOutside />
+    </div>
+  )
+
+  const textViewport = (
+    <div ref={viewportRef} className="relative z-10 min-h-0 flex-1 overflow-hidden">
       <div
-        className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 pb-2 pt-2 sm:px-4"
-        style={{ borderColor: 'var(--border)', background: 'rgba(10,12,18,0.94)', paddingTop: 'max(.5rem, env(safe-area-inset-top))' }}
+        className="pointer-events-none absolute left-0 right-0 top-1/2 z-10 h-px"
+        style={{ background: 'rgba(255,255,255,0.25)' }}
+      />
+      <div
+        ref={innerRef}
+        className="absolute left-0 top-0 w-full will-change-transform"
+        style={{ transform: 'translate3d(0, 50vh, 0)' }}
+      >
+        <div ref={spacerTopRef} />
+        <div
+          dir={settings.rtl ? 'rtl' : 'ltr'}
+          style={{
+            padding: '0 max(2rem, 8vw)',
+            fontSize: settings.fontSize,
+            lineHeight: settings.lineHeight,
+            letterSpacing: settings.letterSpacing,
+            fontFamily: settings.fontFamily,
+            color: settings.fontColor,
+            whiteSpace: 'pre-wrap',
+            direction: settings.rtl ? 'rtl' : 'ltr',
+            textShadow: showScrim ? '0 2px 6px rgba(0,0,0,.85), 0 0 18px rgba(0,0,0,.5)' : undefined,
+          }}
+        >
+          {segments.map((seg, i) =>
+            seg.wordIndex == null ? (
+              seg.text
+            ) : (
+              <span
+                key={i}
+                ref={(el) => {
+                  spansRef.current[seg.wordIndex!] = el
+                }}
+                className={WORD_CLASS}
+              >
+                {seg.text}
+              </span>
+            ),
+          )}
+        </div>
+        <div ref={spacerBottomRef} />
+      </div>
+      {!settings.cameraOn && <AspectGuide ratio={settings.aspectGuide} dimOutside={false} />}
+    </div>
+  )
+
+  return (
+    <div className="relative flex h-full flex-col" style={{ background: settings.bgColor }}>
+      {settings.bgVideo && !isFullscreenCam ? (
+        <>
+          <video
+            src={settings.bgVideo}
+            autoPlay
+            muted
+            loop
+            playsInline
+            className="absolute inset-0 z-0 h-full w-full object-cover"
+            aria-hidden="true"
+          />
+          <div className="absolute inset-0 z-[1]" style={{ background: 'rgba(0,0,0,0.3)' }} aria-hidden="true" />
+        </>
+      ) : settings.bgImage && !isFullscreenCam ? (
+        <>
+          <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: `url(${settings.bgImage})` }} aria-hidden="true" />
+          <div className="absolute inset-0 z-[1]" style={{ background: 'rgba(0,0,0,0.38)' }} aria-hidden="true" />
+        </>
+      ) : null}
+      {cameraFullscreen}
+      <div
+        className="relative z-10 grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 pb-2 pt-2 sm:px-4"
+        style={{ borderColor: 'var(--border)', background: showScrim ? 'rgba(0,0,0,0.45)' : 'rgba(10,12,18,0.94)', backdropFilter: showScrim ? 'blur(6px)' : undefined, paddingTop: 'max(.5rem, env(safe-area-inset-top))' }}
       >
         <button onClick={() => setView('library')} className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold" style={{ borderColor: 'rgba(255,255,255,.28)', color: '#fff', background: 'rgba(255,255,255,.08)' }} aria-label="Sair do prompter">←</button>
         <div className="min-w-0 text-center">
           <p className="truncate text-sm font-semibold text-white on-dark">{currentScript.title || 'Sem título'}</p>
           <span
-            className="mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            className={`mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${recorder.isRecording ? 'animate-pulse' : ''}`}
             style={{
               background:
-                engine.state === 'running' ? 'rgba(52,211,153,0.15)' : 'var(--panel)',
-              color: engine.state === 'running' ? 'var(--ok)' : 'var(--muted)',
+                recorder.isRecording ? 'rgba(229,72,77,.22)' : engine.state === 'running' ? 'rgba(52,211,153,0.15)' : 'var(--panel)',
+              color: recorder.isRecording ? 'var(--danger)' : engine.state === 'running' ? 'var(--ok)' : 'var(--muted)',
               border: '1px solid rgba(255,255,255,.24)',
             }}
           >
-            {statusLabel}
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />
+            {recorder.isRecording ? 'GRAVANDO' : statusLabel}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -521,7 +671,7 @@ export default function PrompterView() {
       </div>
 
       {settings.mode === 'voice' && (!voice.supported || voice.error) ? (
-        <div className="border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'var(--border)', background: 'rgba(251,191,36,.12)', color: 'var(--warn)' }} role="status">
+        <div className="relative z-10 border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'var(--border)', background: 'rgba(251,191,36,.12)', color: 'var(--warn)' }} role="status">
           {voice.error
             ? `${voice.error} A rolagem automática foi ativada.`
             : 'Rolagem por voz indisponível neste aparelho. A velocidade automática será usada.'}
@@ -529,63 +679,28 @@ export default function PrompterView() {
       ) : null}
 
       {settings.mode === 'voice' && voice.supported && !voice.error && voice.mode === 'audio-level' ? (
-        <div className="border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'rgba(34,211,238,.3)', background: 'rgba(34,211,238,.1)', color: '#a5f3fc' }} role="status">
+        <div className="relative z-10 border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'rgba(34,211,238,.3)', background: 'rgba(34,211,238,.1)', color: '#a5f3fc' }} role="status">
           Modo compatível com Android: o texto avança enquanto o microfone detecta sua fala e pausa no silêncio.
         </div>
       ) : null}
 
-      {settings.cameraPosition === 'top' && cameraBlock}
-
-      <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-hidden">
-        <div
-          className="pointer-events-none absolute left-0 right-0 top-1/2 z-10 h-px"
-          style={{ background: 'rgba(255,255,255,0.25)' }}
-        />
-        <div
-          ref={innerRef}
-          className="absolute left-0 top-0 w-full will-change-transform"
-          style={{ transform: 'translate3d(0, 50vh, 0)' }}
-        >
-          <div ref={spacerTopRef} />
-          <div
-            dir={settings.rtl ? 'rtl' : 'ltr'}
-            style={{
-              padding: '0 max(2rem, 8vw)',
-              fontSize: settings.fontSize,
-              lineHeight: settings.lineHeight,
-              letterSpacing: settings.letterSpacing,
-              fontFamily: settings.fontFamily,
-              color: settings.fontColor,
-              whiteSpace: 'pre-wrap',
-              direction: settings.rtl ? 'rtl' : 'ltr',
-            }}
-          >
-            {segments.map((seg, i) =>
-              seg.wordIndex == null ? (
-                seg.text
-              ) : (
-                <span
-                  key={i}
-                  ref={(el) => {
-                    spansRef.current[seg.wordIndex!] = el
-                  }}
-                  className={WORD_CLASS}
-                >
-                  {seg.text}
-                </span>
-              ),
-            )}
-          </div>
-          <div ref={spacerBottomRef} />
+      {settings.cameraPosition === 'side' ? (
+        <div className="relative z-10 flex min-h-0 flex-1">
+          {cameraSide}
+          {textViewport}
         </div>
-        {!settings.cameraOn && <AspectGuide ratio={settings.aspectGuide} dimOutside={false} />}
-      </div>
+      ) : (
+        <>
+          {settings.cameraPosition === 'top' && cameraBlock}
+          {textViewport}
+        </>
+      )}
 
       {settings.cameraPosition === 'bottom' && cameraBlock}
 
       <div
-        className="border-t px-3 pb-3 pt-2 sm:px-4"
-        style={{ borderColor: 'var(--border)', background: 'rgba(10,12,18,0.94)', paddingBottom: 'max(.75rem, env(safe-area-inset-bottom))' }}
+        className="relative z-10 border-t px-3 pb-3 pt-2 sm:px-4"
+        style={{ borderColor: 'var(--border)', background: showScrim ? 'rgba(0,0,0,0.45)' : 'rgba(10,12,18,0.94)', backdropFilter: showScrim ? 'blur(6px)' : undefined, paddingBottom: 'max(.75rem, env(safe-area-inset-bottom))' }}
       >
         <div className="mx-auto mb-2 flex max-w-4xl items-center gap-2">
           <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}>
@@ -604,10 +719,15 @@ export default function PrompterView() {
           </button>
           <button
             onClick={handlePrimary}
-            className="min-h-14 min-w-0 flex-1 rounded-2xl px-5 text-base font-bold sm:max-w-xs"
-            style={{ background: engine.state === 'running' ? 'var(--warn)' : 'var(--brand-gradient)', color: engine.state === 'running' ? '#151927' : '#fff' }}
+            aria-label={engine.state === 'running' ? 'Pausar rolagem' : 'Iniciar rolagem'}
+            className="grid h-16 w-16 shrink-0 place-items-center rounded-full text-2xl font-bold transition-transform hover:scale-105"
+            style={{
+              background: engine.state === 'running' ? 'var(--warn)' : 'var(--brand-gradient)',
+              color: engine.state === 'running' ? '#151927' : '#fff',
+              boxShadow: engine.state === 'running' ? 'none' : '0 8px 20px rgba(128,82,255,.45)',
+            }}
           >
-            {engine.state === 'running' ? '❚❚ Pausar' : '▶ Iniciar'}
+            {engine.state === 'running' ? '❚❚' : '▶'}
           </button>
           {gamepadConnected && (
             <span className="hidden rounded-full border px-2 py-1 text-[11px] sm:inline" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>

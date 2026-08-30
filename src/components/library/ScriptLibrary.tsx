@@ -6,7 +6,7 @@ import { IMPORTABLE_EXT, extractTextFromFile, extractTextFromUrl, fileNameFromIm
 import { transcribeAudio } from '../../lib/cloudflare'
 import type { Script } from '../../lib/types'
 
-type LibraryIconName = 'document' | 'sparkles' | 'import' | 'play' | 'search'
+type LibraryIconName = 'document' | 'sparkles' | 'import' | 'play' | 'search' | 'text' | 'clock'
 
 function LibraryIcon({ name, className = 'h-5 w-5' }: { name: LibraryIconName; className?: string }) {
   const paths = {
@@ -15,6 +15,8 @@ function LibraryIcon({ name, className = 'h-5 w-5' }: { name: LibraryIconName; c
     import: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14" /></>,
     play: <path d="m9 7 8 5-8 5V7Z" />,
     search: <><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></>,
+    text: <><path d="M4 6h16M4 10h16M4 14h10M4 18h7" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   } satisfies Record<LibraryIconName, ReactNode>
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
@@ -120,36 +122,65 @@ export default function ScriptLibrary() {
 
   const workflowStep = currentScript?.content.trim() ? 2 : 1
 
+  const totalWords = useMemo(() => scripts.reduce((sum, script) => sum + wordCount(script.content), 0), [scripts])
+  const totalMinutes = useMemo(
+    () => scripts.reduce((sum, script) => sum + estimateDurationMinutes(wordCount(script.content), settings.wpm), 0),
+    [scripts, settings.wpm],
+  )
+  const totalMinutesLabel = totalMinutes < 1 ? '< 1 min' : totalMinutes < 60 ? `~${Math.round(totalMinutes)} min` : `~${Math.round(totalMinutes / 60)} h ${Math.round(totalMinutes % 60)} min`
+
+  const scriptChip = (script: Script) => {
+    const isAi = script.title?.toLocaleLowerCase('pt-BR').includes('roteiro com ia')
+    return isAi
+      ? { label: 'IA', style: { background: 'var(--accent-soft)', color: 'var(--brand-strong)' } }
+      : { label: 'Roteiro', style: { background: '#e5f6f1', color: 'var(--ok)' } }
+  }
+
   return (
-    <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-5 sm:px-6 sm:py-8">
-      <div className="mb-5 flex items-end justify-between gap-3">
+    <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8">
+      <div className="mb-6 flex items-end justify-between gap-3">
         <div>
           <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--brand-strong)' }}>Biblioteca</p>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Seus roteiros</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{scripts.length === 0 ? 'Comece com um texto ou importe o que já tem.' : `${scripts.length} roteiro${scripts.length === 1 ? '' : 's'} neste dispositivo.`}</p>
         </div>
-        {scripts.length > 0 ? <button onClick={createNew} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl font-medium text-white shadow-lg" style={{ background: 'var(--brand-gradient)', boxShadow: '0 10px 26px rgba(99,102,241,.24)' }} aria-label="Criar novo roteiro">+</button> : null}
+        <button onClick={createNew} className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-bold text-white shadow-lg transition hover:-translate-y-px" style={{ background: 'var(--brand-gradient)', boxShadow: '0 10px 26px rgba(99,102,241,.24)' }}>＋ Novo roteiro</button>
       </div>
 
-      <section className="relative mb-4 overflow-hidden rounded-[1.75rem] border p-5 sm:p-6" style={{ borderColor: 'color-mix(in srgb, var(--brand-strong) 24%, var(--border))', background: 'linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent) 10%, var(--panel)))' }} aria-label="Fluxo de criação">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[.16em]" style={{ color: 'var(--brand-strong)' }}>Fluxo guiado · etapa {workflowStep} de 3</p>
-            <h2 className="mt-2 text-xl font-bold">{workflowStep === 1 ? 'Crie o roteiro do seu vídeo' : 'Seu roteiro está pronto para ajustar'}</h2>
-            <p className="mt-1 max-w-xl text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>{workflowStep === 1 ? 'Comece em branco, use IA ou importe um conteúdo.' : 'Revise o texto e abra o prompter quando estiver confortável.'}</p>
-          </div>
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl" style={{ background: 'var(--panel)', color: 'var(--brand-strong)' }}><LibraryIcon name={workflowStep === 1 ? 'document' : 'play'} /></span>
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border p-4 shadow-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="document" className="h-4.5 w-4.5" /></span>
+          <p className="text-2xl font-bold tracking-tight">{scripts.length}</p>
+          <p className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Roteiros criados</p>
         </div>
-        <div className="mt-5 grid grid-cols-3 gap-2" aria-hidden="true">
-          {[1, 2, 3].map((step) => <span key={step} className="h-1.5 rounded-full" style={{ background: step <= workflowStep ? 'var(--brand-strong)' : 'var(--border)' }} />)}
+        <div className="rounded-2xl border p-4 shadow-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: '#e5f6f1', color: 'var(--ok)' }}><LibraryIcon name="text" className="h-4.5 w-4.5" /></span>
+          <p className="text-2xl font-bold tracking-tight">{totalWords.toLocaleString('pt-BR')}</p>
+          <p className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Palavras escritas</p>
         </div>
-        {workflowStep === 2 ? <button onClick={() => setView('editor')} className="mt-5 min-h-12 w-full rounded-2xl text-sm font-bold text-white sm:w-auto sm:px-5" style={{ background: 'var(--brand-gradient)' }}>Continuar no editor</button> : null}
-      </section>
+        <div className="rounded-2xl border p-4 shadow-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: '#fdf3dd', color: '#b97a00' }}><LibraryIcon name="clock" className="h-4.5 w-4.5" /></span>
+          <p className="text-2xl font-bold tracking-tight">{totalMinutesLabel}</p>
+          <p className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Duração estimada a {settings.wpm} wpm</p>
+        </div>
+      </div>
 
-      <div className="mb-5 grid grid-cols-3 gap-2 sm:gap-3" aria-label="Criar ou importar roteiro">
-        <button onClick={createNew} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="document" /></span>Novo roteiro</button>
-        <button onClick={createWithAi} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="sparkles" /></span>Gerar com IA</button>
-        <button onClick={() => { setLinkError(null); setShowImportMenu(true) }} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="import" /></span>{audioBusy ? 'Importando…' : 'Importar'}</button>
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="Criar ou importar roteiro">
+        <button onClick={createWithAi} className="group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl text-white shadow-lg" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))', boxShadow: '0 8px 18px rgba(128,82,255,.32)' }}><LibraryIcon name="sparkles" /></span>
+          <strong className="block text-sm">Gerar com IA</strong>
+          <span className="mt-1 block text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Conte o tema e receba um roteiro pronto no seu tom.</span>
+        </button>
+        <button onClick={createNew} className="group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="document" /></span>
+          <strong className="block text-sm">Novo roteiro</strong>
+          <span className="mt-1 block text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Comece do zero e escreva direto no editor.</span>
+        </button>
+        <button onClick={() => { setLinkError(null); setShowImportMenu(true) }} className="group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+          <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: '#e5f6f1', color: 'var(--ok)' }}><LibraryIcon name="import" /></span>
+          <strong className="block text-sm">{audioBusy ? 'Importando…' : 'Importar'}</strong>
+          <span className="mt-1 block text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Arquivo, áudio (transcrição) ou link da web.</span>
+        </button>
         <input
           ref={fileRef}
           type="file"
@@ -173,6 +204,21 @@ export default function ScriptLibrary() {
           }}
         />
       </div>
+
+      <section className="relative mb-6 overflow-hidden rounded-[1.75rem] border p-5 sm:p-6" style={{ borderColor: 'color-mix(in srgb, var(--brand-strong) 24%, var(--border))', background: 'linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent) 10%, var(--panel)))' }} aria-label="Fluxo de criação">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[.16em]" style={{ color: 'var(--brand-strong)' }}>Fluxo guiado · etapa {workflowStep} de 3</p>
+            <h2 className="mt-2 text-xl font-bold">{workflowStep === 1 ? 'Crie o roteiro do seu vídeo' : 'Seu roteiro está pronto para ajustar'}</h2>
+            <p className="mt-1 max-w-xl text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>{workflowStep === 1 ? 'Comece em branco, use IA ou importe um conteúdo.' : 'Revise o texto e abra o prompter quando estiver confortável.'}</p>
+          </div>
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl" style={{ background: 'var(--panel)', color: 'var(--brand-strong)' }}><LibraryIcon name={workflowStep === 1 ? 'document' : 'play'} /></span>
+        </div>
+        <div className="mt-5 grid grid-cols-3 gap-2" aria-hidden="true">
+          {[1, 2, 3].map((step) => <span key={step} className="h-1.5 rounded-full" style={{ background: step <= workflowStep ? 'var(--brand-strong)' : 'var(--border)' }} />)}
+        </div>
+        {workflowStep === 2 ? <button onClick={() => setView('editor')} className="mt-5 min-h-12 w-full rounded-2xl text-sm font-bold text-white sm:w-auto sm:px-5" style={{ background: 'var(--brand-gradient)' }}>Continuar no editor</button> : null}
+      </section>
 
       {scripts.length > 0 ? (
         <label className="mb-4 flex min-h-12 items-center gap-3 rounded-2xl border px-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
@@ -224,8 +270,9 @@ export default function ScriptLibrary() {
               <li
                 key={script.id}
                 className="group relative flex items-center gap-3 rounded-3xl border p-3.5 transition-colors sm:p-4"
-                style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+                style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}
               >
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl" style={{ background: 'linear-gradient(135deg, var(--accent-soft), #ffecc9)', color: 'var(--brand-strong)' }} aria-hidden="true"><LibraryIcon name="document" className="h-5 w-5" /></span>
                 <button
                   onClick={() => {
                     selectScript(script)
@@ -233,13 +280,14 @@ export default function ScriptLibrary() {
                   }}
                   className="min-w-0 flex-1 rounded-2xl px-1 py-1 text-left"
                 >
-                  <p className="truncate font-semibold text-white">{script.title || 'Sem título'}</p>
+                  <p className="truncate font-semibold">{script.title || 'Sem título'}</p>
                   <p className="mt-1 truncate text-xs" style={{ color: 'var(--muted)' }}>
                     {words} palavras · ~{formatElapsed(minutes * 60)} a {settings.wpm} wpm ·{' '}
                     {relativeTime(script.updatedAt)}
                   </p>
                 </button>
-                <button onClick={() => openPrompter(script)} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white shadow-lg" style={{ background: 'var(--brand-gradient)', boxShadow: '0 10px 24px rgba(99,102,241,.22)' }} aria-label={`Abrir “${script.title || 'Sem título'}” no prompter`}>▶</button>
+                <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold" style={scriptChip(script).style}>{scriptChip(script).label}</span>
+                <button onClick={() => openPrompter(script)} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-white shadow-lg" style={{ background: 'var(--brand-gradient)', boxShadow: '0 10px 24px rgba(99,102,241,.22)' }} aria-label={`Abrir “${script.title || 'Sem título'}” no prompter`}>▶</button>
                 <details className="relative shrink-0">
                   <summary className="grid h-11 w-9 cursor-pointer list-none place-items-center rounded-xl text-xl" style={{ color: 'var(--muted)' }} aria-label={`Mais opções para “${script.title || 'Sem título'}”`}>⋮</summary>
                   <div className="absolute right-0 top-12 z-20 w-40 rounded-2xl border p-1.5 shadow-2xl" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>

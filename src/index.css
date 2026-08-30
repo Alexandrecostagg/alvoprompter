@@ -2,12 +2,14 @@
 
 :root {
   color-scheme: light;
-  --bg: #f6f7fb;
+  --bg: #f7f8fb;
   --panel: #ffffff;
-  --border: #e2e6ef;
-  --text: #151927;
-  --muted: #626b7f;
+  --border: #e8ebf2;
+  --text: #1c2540;
+  --ink-soft: #5b6478;
+  --muted: #8a93a6;
   --accent: #8052ff;
+  --accent-strong: #4537e8;
   --accent-2: #ffb829;
   --accent-soft: #f1ecff;
   --brand-strong: #6b3df0;
@@ -15,6 +17,8 @@
   --ok: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;
+  --shadow-sm: 0 1px 2px rgba(20, 24, 40, .05), 0 1px 3px rgba(20, 24, 40, .06);
+  --shadow-md: 0 4px 16px rgba(20, 24, 40, .08);
 }
 
 [data-theme="dark"] {
@@ -23,8 +27,10 @@
   --panel: #12151d;
   --border: #232837;
   --text: #e5e7eb;
+  --ink-soft: #b4bcd0;
   --muted: #8b93a7;
   --accent: #a58bff;
+  --accent-strong: #c3b5ff;
   --accent-2: #ffc94d;
   --accent-soft: #252342;
   --brand-strong: #b3a4ff;
@@ -32,6 +38,8 @@
   --ok: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, .45);
 }
 
 html,
@@ -44,7 +52,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Lexend", system-ui, "Segoe UI", sans-serif;
+  font-family: "Inter", "Lexend", system-ui, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }

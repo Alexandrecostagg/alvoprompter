@@ -373,6 +373,27 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
  * Devolve { response } (4xx) quando a chamada deve parar, ou { uid } quando
  * o uso foi reservado e a chamada pode continuar (para reembolso em falha).
  */
+/**
+ * Autentica o usuário (Firebase) e garante o registro nas tabelas locais.
+ * Lança erro com a mensagem apropriada em caso de falha.
+ */
+export async function requireUser(
+  request: Request,
+  env: SaaSEnv,
+): Promise<AuthUser> {
+  const projectId = env.FIREBASE_PROJECT_ID?.trim() ?? ''
+  if (!env.DB || !projectId || projectId.startsWith('configure-')) {
+    throw new Error('Login não configurado no servidor.')
+  }
+  const user = await authenticate(request, env)
+  await syncUser(requireDb(env), user)
+  return user
+}
+
+/**
+ * Autoriza uma ação de IA: valida o usuário, confere o plano e reserva um uso.
+ * Se tudo estiver OK retorna `{ uid }`; caso contrário devolve uma `Response`.
+ */
 export async function authorizeAiAction(
   request: Request,
   env: SaaSEnv,

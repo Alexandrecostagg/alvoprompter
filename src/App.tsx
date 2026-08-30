@@ -15,13 +15,15 @@ const ControlRoom = lazy(() => import('./components/control/ControlRoom'))
 const SchedulingHub = lazy(() => import('./components/scheduling/SchedulingHub'))
 const WorkspacesPanel = lazy(() => import('./components/workspace/WorkspacesPanel'))
 const AiTwin = lazy(() => import('./components/aiTwin/AiTwin'))
+const VideoPageView = lazy(() => import('./components/video/VideoPageView'))
+const MetricsPanel = lazy(() => import('./components/metrics/MetricsPanel'))
 const AccountPanel = lazy(() => import('./components/account/AccountPanel'))
 const WelcomeFlow = lazy(() => import('./components/account/WelcomeFlow'))
 
 // A chave versionada faz o novo onboarding aparecer uma vez também para quem atualizar o app.
 const LOCAL_ACCESS_KEY = 'alvoprompter-local-access-v2'
 
-type IconName = 'scripts' | 'edit' | 'record' | 'calendar' | 'more' | 'control' | 'team' | 'twin' | 'theme' | 'account'
+type IconName = 'scripts' | 'edit' | 'record' | 'calendar' | 'more' | 'control' | 'team' | 'twin' | 'theme' | 'account' | 'chart'
 
 function Icon({ name, className = 'h-5 w-5' }: { name: IconName; className?: string }) {
   const paths: Record<IconName, ReactNode> = {
@@ -35,6 +37,7 @@ function Icon({ name, className = 'h-5 w-5' }: { name: IconName; className?: str
     twin: <><path d="m12 3 1.3 3.7L17 8l-3.7 1.3L12 13l-1.3-3.7L7 8l3.7-1.3L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14ZM18 13l1 2.8 3 1.2-3 1.2L18 21l-1-2.8-3-1.2 3-1.2 1-2.8Z" /></>,
     theme: <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.7 6.7 0 0 0 21 12.8Z" />,
     account: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+    chart: <><path d="M4 20h16M6 16v-4M10 16V8M14 16v-6M18 16v-2" /></>,
   }
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
@@ -69,10 +72,30 @@ function DesktopNavButton({ active, disabled, onClick, children }: { active?: bo
   )
 }
 
+function UserAvatar({ name, email, size = 34 }: { name?: string | null; email?: string | null; size?: number }) {
+  const source = (name || email || '?').trim()
+  const initials = source
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toLocaleUpperCase('pt-BR')
+  return (
+    <span
+      className="grid shrink-0 place-items-center rounded-full font-bold text-white shadow-md"
+      style={{ width: size, height: size, fontSize: size * 0.38, background: 'linear-gradient(135deg, #ffb829, #ff7a59)', boxShadow: '0 3px 10px rgba(255,122,89,.35)' }}
+      aria-hidden="true"
+    >
+      {initials || '?'}
+    </span>
+  )
+}
+
 function MobileNavButton({ active, disabled, icon, label, primary, onClick }: { active?: boolean; disabled?: boolean; icon: IconName; label: string; primary?: boolean; onClick: () => void }) {
   return (
     <button onClick={onClick} disabled={disabled} aria-current={active ? 'page' : undefined} className={`relative flex min-h-14 flex-1 flex-col items-center justify-center gap-1 rounded-2xl text-[11px] font-semibold transition disabled:opacity-35 ${primary ? '-mt-5' : ''}`} style={{ color: active || primary ? 'var(--brand-strong)' : 'var(--muted)' }}>
-      <span className={`grid place-items-center ${primary ? 'h-12 w-12 rounded-2xl text-white shadow-lg' : 'h-6 w-8'}`} style={primary ? { background: 'var(--brand-gradient)', boxShadow: '0 10px 25px rgba(99,102,241,.32)' } : undefined}>
+      <span className={`grid place-items-center ${primary ? 'h-12 w-12 rounded-2xl text-white shadow-lg' : 'h-7 w-9 rounded-xl'} ${active && !primary ? 'shadow-sm' : ''}`} style={primary ? { background: 'var(--brand-gradient)', boxShadow: '0 10px 25px rgba(99,102,241,.32)' } : active ? { background: 'var(--accent-soft)', color: 'var(--brand-strong)' } : undefined}>
         <Icon name={icon} className={primary ? 'h-6 w-6' : 'h-5 w-5'} />
       </span>
       <span>{label}</span>
@@ -133,6 +156,12 @@ export default function App() {
     setView(next)
   }
 
+  useEffect(() => {
+    const videoId = new URLSearchParams(window.location.search).get('v')
+    if (videoId) setView('video-page')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const openPrompterFlow = () => {
     if (currentScript?.content.trim()) {
       navigate('prompter')
@@ -174,7 +203,12 @@ export default function App() {
     <div className="flex h-full flex-col">
       <header className="sticky top-0 z-40 flex items-center justify-between border-b px-4 pb-2.5 pt-2.5 backdrop-blur-xl lg:hidden" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 90%, transparent)', paddingTop: 'max(.625rem, env(safe-area-inset-top))' }}>
         <button onClick={() => navigate('library')} aria-label="Ir para meus roteiros"><BrandMark compact /></button>
-        <div className="flex items-center gap-2"><button onClick={() => setAccountOpen(true)} className="grid h-11 w-11 place-items-center rounded-2xl border" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }} aria-label="Abrir conta e planos"><Icon name="account" /></button><button onClick={() => setMoreOpen(true)} className="grid h-11 w-11 place-items-center rounded-2xl border" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }} aria-label="Abrir menu"><Icon name="more" /></button></div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setAccountOpen(true)} aria-label="Abrir conta e planos" className="grid h-11 w-11 place-items-center rounded-2xl border transition hover:shadow-sm" style={{ borderColor: 'var(--border)' }}>
+            <UserAvatar name={user?.displayName} email={user?.email} size={30} />
+          </button>
+          <button onClick={() => setMoreOpen(true)} className="grid h-11 w-11 place-items-center rounded-2xl border" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }} aria-label="Abrir menu"><Icon name="more" /></button>
+        </div>
       </header>
 
       <header className="hidden min-h-16 items-center justify-between border-b px-6 lg:flex" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
@@ -184,11 +218,12 @@ export default function App() {
           <DesktopNavButton active={view === 'editor'} disabled={!currentScript} onClick={() => navigate('editor')}>Editor</DesktopNavButton>
           <DesktopNavButton onClick={() => navigate('control')}>Control Room</DesktopNavButton>
           <DesktopNavButton active={view === 'scheduling'} onClick={() => navigate('scheduling')}>Agenda</DesktopNavButton>
+          <DesktopNavButton active={view === 'metrics'} onClick={() => navigate('metrics')}>Métricas</DesktopNavButton>
           <DesktopNavButton active={view === 'workspaces'} onClick={() => navigate('workspaces')}>Equipe</DesktopNavButton>
           <DesktopNavButton active={view === 'ai-twin'} onClick={() => navigate('ai-twin')}>Avatar IA</DesktopNavButton>
         </nav>
         <div className="flex items-center gap-2">
-          <button onClick={() => setAccountOpen(true)} className="flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}><Icon name="account" />Conta</button>
+          <button onClick={() => setAccountOpen(true)} className="flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}><UserAvatar name={user?.displayName} email={user?.email} size={24} /><span className="hidden sm:inline">Conta</span></button>
           <button onClick={toggleTheme} className="grid h-10 w-10 place-items-center rounded-xl border" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }} aria-label={theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'}><Icon name="theme" /></button>
           <SyncControl />
         </div>
@@ -201,6 +236,8 @@ export default function App() {
           {view === 'scheduling' ? <SchedulingHub /> : null}
           {view === 'workspaces' ? <WorkspacesPanel /> : null}
           {view === 'ai-twin' ? <AiTwin /> : null}
+          {view === 'metrics' ? <MetricsPanel /> : null}
+          {view === 'video-page' ? <VideoPageView /> : null}
         </Suspense>
       </main>
 
@@ -213,8 +250,8 @@ export default function App() {
               <div><p className="font-bold">Mais ferramentas</p><p className="text-xs" style={{ color: 'var(--muted)' }}>Produção, equipe e preferências</p></div>
               <button onClick={() => setMoreOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl" style={{ background: 'var(--bg)', color: 'var(--muted)' }} aria-label="Fechar">×</button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {([['control', 'Control Room', 'control'], ['team', 'Equipe', 'workspaces'], ['twin', 'Avatar IA', 'ai-twin']] as const).map(([icon, label, target]) => (
+            <div className="grid grid-cols-2 gap-2">
+              {([['control', 'Control Room', 'control'], ['chart', 'Métricas', 'metrics'], ['team', 'Equipe', 'workspaces'], ['twin', 'Avatar IA', 'ai-twin']] as const).map(([icon, label, target]) => (
                 <button key={target} onClick={() => navigate(target)} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-xs font-semibold" style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text)' }}>
                   <Icon name={icon} className="h-6 w-6" />{label}
                 </button>

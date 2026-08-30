@@ -120,6 +120,8 @@ export interface RenderConfig {
   music?: BackgroundMusic
   motion?: MotionPreset
   chroma?: ChromaKeyConfig
+  /** Cores [início, fim] do gradiente usado nos cards de intro/outro (brand kit). */
+  brandGradient?: [string, string]
   fps?: number
   onProgress?: (fraction: number) => void
   signal?: AbortSignal
@@ -305,16 +307,44 @@ function drawBrandCard(
   w: number,
   h: number,
   mode: 'intro' | 'outro',
+  progress = 1,
+  colors?: [string, string],
+  logo?: HTMLImageElement,
 ) {
+  const p = Math.max(0, Math.min(1, progress))
+  const appear = Math.min(1, p * 4)
+  const ease = 1 - Math.pow(1 - p, 3)
+  const dy = (1 - ease) * h * 0.06
+  const scale = 1.14 - 0.14 * ease
+
+  const [from, to] = colors ?? ['#8B5CF6', '#22D3EE']
   const grad = ctx.createLinearGradient(0, 0, w, h)
-  grad.addColorStop(0, '#8B5CF6')
-  grad.addColorStop(1, '#22D3EE')
+  grad.addColorStop(0, from)
+  grad.addColorStop(1, to)
+  ctx.save()
+  ctx.globalAlpha = appear
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, w, h)
+  ctx.restore()
+
+  ctx.save()
+  ctx.globalAlpha = appear
+  ctx.translate(w / 2, h / 2 + dy)
+  ctx.scale(scale, scale)
+  ctx.translate(-w / 2, -h / 2)
+
+  const fontSize = Math.min(Math.round(h * 0.07), Math.round(w / 12))
+  let blockTop = h / 2
+
+  if (logo) {
+    const lw = Math.min(w * 0.16, logo.naturalWidth)
+    const lh = lw * (logo.naturalHeight / logo.naturalWidth)
+    ctx.drawImage(logo, w / 2 - lw / 2, h / 2 - fontSize * 1.6 - lh, lw, lh)
+    blockTop = h / 2 - fontSize * 1.4
+  }
 
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  const fontSize = Math.min(Math.round(h * 0.07), Math.round(w / 12))
   ctx.font = `700 ${fontSize}px system-ui, -apple-system, sans-serif`
   ctx.fillStyle = '#ffffff'
   ctx.lineJoin = 'round'
@@ -334,7 +364,7 @@ function drawBrandCard(
   }
   if (cur) lines.push(cur)
   const lh = fontSize * 1.2
-  const startY = h / 2 - ((lines.length - 1) * lh) / 2
+  const startY = blockTop - ((lines.length - 1) * lh) / 2
   for (let i = 0; i < lines.length; i++) {
     const y = startY + i * lh
     ctx.strokeText(lines[i]!, w / 2, y)
@@ -347,6 +377,11 @@ function drawBrandCard(
   ctx.lineWidth = 1
   ctx.strokeText(sub, w / 2, startY + lines.length * lh + fontSize * 0.9)
   ctx.fillText(sub, w / 2, startY + lines.length * lh + fontSize * 0.9)
+
+  const barW = w * 0.24 * ease
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'
+  ctx.fillRect(w / 2 - barW / 2, h / 2 + fontSize * 2.1, barW, Math.max(3, Math.round(fontSize * 0.07)))
+  ctx.restore()
 }
 
 const MIME_PREFERRED = [
@@ -411,6 +446,7 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
     if (cfg.music) {
       musicNode = actx.createBufferSource()
       musicNode.buffer = cfg.music.buffer
+      musicNode.loop = true
       const gain = actx.createGain()
       gain.gain.value = Math.max(0, Math.min(1, cfg.music.volume))
       musicNode.connect(gain)
@@ -534,10 +570,29 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
       const first = cfg.keepRanges[0]
       const last = cfg.keepRanges[cfg.keepRanges.length - 1]
       if (cfg.intro && first && t >= first.start && t - first.start <= cfg.intro.seconds) {
-        drawBrandCard(ctx, cfg.intro.text, canvas.width, canvas.height, 'intro')
+        drawBrandCard(
+          ctx,
+          cfg.intro.text,
+          canvas.width,
+          canvas.height,
+          'intro',
+          (t - first.start) / cfg.intro.seconds,
+          cfg.brandGradient,
+          cfg.logo?.image,
+        )
       }
       if (cfg.outro && last && last.end - t >= 0 && last.end - t <= cfg.outro.seconds) {
-        drawBrandCard(ctx, cfg.outro.text, canvas.width, canvas.height, 'outro')
+        const elapsed = cfg.outro.seconds - (last.end - t)
+        drawBrandCard(
+          ctx,
+          cfg.outro.text,
+          canvas.width,
+          canvas.height,
+          'outro',
+          elapsed / cfg.outro.seconds,
+          cfg.brandGradient,
+          cfg.logo?.image,
+        )
       }
       if (cfg.theme.key !== 'none') {
         const cue = findCue(cfg.captions, t)
