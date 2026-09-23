@@ -1,0 +1,2 @@
+Este arquivo de teste verifica a importação de roteiros em português.
+Olá, câmera! Acentos, pontuação e quebras de linha devem ser preservados.

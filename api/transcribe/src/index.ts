@@ -15,16 +15,21 @@
  * Uso local:  npx wrangler dev --port 8787
  * Publicar:   npx wrangler deploy
  */
-import { authorizeAiAction, handleSaaSRequest, type SaaSEnv } from './saas'
+import { authorizeAiAction, refundAiAction, handleSaaSRequest, type SaaSEnv, type AiCharge } from './saas'
 
 export interface Env {
   AI: {
-    run(model: string, input: unknown): Promise<unknown>
+    run(model: string, input: unknown, options?: { returnRawResponse?: boolean }): Promise<unknown>
   }
   alvoprompt_media: R2Bucket
   ALVOPROMPT_SYNC: KVNamespace
   CORS_ORIGIN?: string
   DEEPSEEK_API_KEY?: string
+  CARCARA_API_KEY?: string
+  CARCARA_API_BASE?: string
+  AI_PROVIDER?: string
+  AI_MODEL?: string
+  RELEASE?: string
   DB?: D1Database
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
@@ -43,6 +48,10 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
 const MIN_SYNC_PASS_LENGTH = 12
 const DEEPSEEK_MODEL = 'deepseek-v4-flash'
+function chatProvider(env: Env) {
+  const carcara = env.AI_PROVIDER === 'carcara' || (!env.AI_PROVIDER && Boolean(env.CARCARA_API_KEY))
+  return { name: carcara ? 'carcara' : 'deepseek', key: carcara ? env.CARCARA_API_KEY : env.DEEPSEEK_API_KEY, base: carcara ? (env.CARCARA_API_BASE || 'https://tunel.harpyacore.com/v1') : 'https://api.deepseek.com', model: env.AI_MODEL || (carcara ? 'Carcara-3.8-27B' : DEEPSEEK_MODEL) }
+}
 
 function allowedOrigin(request: Request, env: Env): boolean {
   const origin = request.headers.get('Origin')
@@ -357,7 +366,7 @@ function uTitle(target: string): string {
   }
 }
 
-export default {
+const api = {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS })
@@ -370,20 +379,21 @@ export default {
       return json({
         status: 'ok',
         service: 'AlvoPrompter API',
-        deepseek: { configured: Boolean(env.DEEPSEEK_API_KEY), model: DEEPSEEK_MODEL },
+        release: env.RELEASE || 'development',
+        protocol: 2,
+        ai: { provider: chatProvider(env).name, configured: Boolean(chatProvider(env).key), model: chatProvider(env).model },
+        auth: { projectId: env.FIREBASE_PROJECT_ID || null, configured: Boolean(env.FIREBASE_PROJECT_ID && !env.FIREBASE_PROJECT_ID.startsWith('configure-')) },
+        billing: { configured: Boolean(env.ASAAS_API_KEY && env.ASAAS_WEBHOOK_TOKEN), sandbox: !(env.ASAAS_API_BASE || '').includes('api.asaas.com') },
         workersAi: { configured: Boolean(env.AI) },
       })
     }
 
-    if (request.method === 'POST' && ['/chat', '/transcribe', '/tts', '/translate', '/avatar'].includes(url.pathname)) {
-      const quotaResponse = await authorizeAiAction(request, env as Env & SaaSEnv)
-      if (quotaResponse) return quotaResponse
-    }
 
     if (url.pathname === '/chat' && request.method === 'POST') {
       const limited = await enforceRateLimit(request, env, 'chat', 100)
       if (limited) return limited
-      if (!env.DEEPSEEK_API_KEY) return json({ error: 'Serviço de IA não configurado.' }, 503)
+      const provider = chatProvider(env)
+      if (!provider.key) return json({ error: 'Serviço de IA não configurado.' }, 503)
       if (requestTooLarge(request, 128 * 1024)) return json({ error: 'Solicitação muito grande.' }, 413)
       const input = (await request.json().catch(() => null)) as {
         messages?: { role?: string; content?: string }[]
@@ -399,17 +409,17 @@ export default {
         content: String(message.content ?? '').slice(0, 20_000),
       }))
       try {
-        const upstream = await fetch('https://api.deepseek.com/chat/completions', {
+        const upstream = await fetch(`${provider.base.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
+            Authorization: `Bearer ${provider.key}`,
           },
           body: JSON.stringify({
-            model: DEEPSEEK_MODEL,
+            model: provider.model,
             messages,
             stream: true,
-            thinking: { type: 'disabled' },
+            ...(provider.name === 'deepseek' ? { thinking: { type: 'disabled' } } : {}),
             temperature: Math.min(1.5, Math.max(0, input.temperature ?? 0.7)),
             max_tokens: Math.min(8_000, Math.max(1, input.max_tokens ?? 2_000)),
             ...(input.response_format?.type === 'json_object'
@@ -421,14 +431,14 @@ export default {
         if (!upstream.ok) {
           const message =
             upstream.status === 401 || upstream.status === 403
-              ? 'A chave da DeepSeek foi recusada. Gere uma nova chave e atualize o secret do Worker.'
+              ? 'O provedor de IA recusou a autenticação. Verifique a configuração do serviço.'
               : upstream.status === 402
-                ? 'A conta DeepSeek está sem saldo disponível.'
+                ? 'A conta do provedor de IA está sem saldo disponível.'
                 : upstream.status === 400 || upstream.status === 404
-                  ? 'O modelo configurado não está disponível nesta conta DeepSeek.'
+                  ? 'O modelo configurado não está disponível neste provedor de IA.'
                   : upstream.status === 429
-                    ? 'A DeepSeek está limitando as solicitações. Aguarde um momento e tente novamente.'
-                    : 'A DeepSeek não respondeu corretamente. Tente novamente.'
+                    ? 'O provedor de IA está limitando as solicitações. Aguarde um momento e tente novamente.'
+                    : 'O provedor de IA não respondeu corretamente. Tente novamente.'
           return json({ error: message }, upstream.status)
         }
         return new Response(upstream.body, {
@@ -716,5 +726,58 @@ export default {
     return new Response('AlvoPrompter API — use /transcribe | /tts | /translate | /media/:key', {
       headers: { 'Content-Type': 'text/plain', ...CORS_HEADERS },
     })
+  },
+}
+
+
+/** Preserve the monthly allowance when a provider fails or returns an empty stream. */
+async function checkChatOutput(stream: ReadableStream<Uint8Array>, charge: AiCharge, env: SaaSEnv) {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let content = false
+  const inspect = (line: string) => {
+    if (!line.trim().startsWith('data:')) return
+    try {
+      const event = JSON.parse(line.trim().slice(5).trim())
+      if (event.choices?.some((choice: { delta?: { content?: string } }) => choice.delta?.content)) content = true
+    } catch { /* SSE comments and [DONE] carry no content. */ }
+  }
+  try {
+    while (!content) {
+      const chunk = await reader.read()
+      if (chunk.done) { inspect(buffer + decoder.decode()); break }
+      buffer += decoder.decode(chunk.value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) inspect(line)
+      if (buffer.length > 128_000) break
+    }
+  } finally {
+    void reader.cancel().catch(() => undefined)
+    if (!content) await refundAiAction(charge, env)
+  }
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+    if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
+    const path = new URL(request.url).pathname
+    let charge: AiCharge | undefined
+    if (request.method === 'POST' && ['/chat', '/transcribe', '/tts', '/translate', '/avatar'].includes(path)) {
+      const blocked = await authorizeAiAction(request, env, (value) => { charge = value })
+      if (blocked) return blocked
+    }
+    let response: Response
+    try { response = await api.fetch(request, env) }
+    catch { response = json({ error: 'Não foi possível concluir a solicitação. Tente novamente.' }, 502) }
+    if (charge && (!response.ok || !response.body)) await refundAiAction(charge, env)
+    else if (charge && path === '/chat' && response.body) {
+      const [client, audit] = response.body.tee()
+      const verification = checkChatOutput(audit, charge, env).catch(() => undefined)
+      ctx?.waitUntil(verification)
+      return new Response(client, response)
+    }
+    return response
   },
 }

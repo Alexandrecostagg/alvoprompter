@@ -1,3 +1,4 @@
+import { workspaceContent } from './content'
 import { decodeProtectedHeader, importX509, jwtVerify } from 'jose'
 
 export type SaaSPlan = 'free' | 'creator' | 'studio'
@@ -92,7 +93,7 @@ async function syncUser(db: D1Database, user: AuthUser): Promise<void> {
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET email = excluded.email, name = excluded.name, updated_at = excluded.updated_at
   `).bind(user.uid, user.email, user.name, now, now).run()
-  await db.prepare(`
+  if (user.emailVerified) await db.prepare(`
     UPDATE workspace_members SET user_id = ?, accepted_at = ?, invited_name = COALESCE(invited_name, ?)
     WHERE user_id IS NULL AND lower(invited_email) = lower(?)
   `).bind(user.uid, now, user.name, user.email).run()
@@ -161,21 +162,25 @@ async function createWorkspace(request: Request, db: D1Database, user: AuthUser)
   if (name.length < 2) return responseJson({ error: 'Informe um nome com pelo menos 2 caracteres.' }, 400)
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
-  await db.batch([
-    db.prepare('INSERT INTO workspaces (id, name, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').bind(id, name, user.uid, now, now),
+  const created = await db.batch([
+    db.prepare(`INSERT INTO workspaces (id, name, owner_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?
+      WHERE (SELECT COUNT(*) FROM workspaces WHERE owner_id = ?) < ?`).bind(id, name, user.uid, now, now, user.uid, allowed),
     db.prepare(`INSERT INTO workspace_members (id, workspace_id, user_id, invited_email, invited_name, role, accepted_at, created_at)
-      VALUES (?, ?, ?, ?, ?, 'owner', ?, ?)`).bind(crypto.randomUUID(), id, user.uid, user.email, user.name, now, now),
+      SELECT ?, ?, ?, ?, ?, 'owner', ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)`)
+      .bind(crypto.randomUUID(), id, user.uid, user.email, user.name, now, now, id),
   ])
+  if (!created[0]?.meta.changes) return responseJson({ error: `Seu plano permite até ${allowed} workspace(s).` }, 403)
   return responseJson({ workspace: { id, name, role: 'owner', createdAt: now } }, 201)
 }
 
 async function inviteMember(request: Request, db: D1Database, user: AuthUser, workspaceId: string): Promise<Response> {
   const actor = await membership(db, workspaceId, user.uid)
   if (!actor || !['owner', 'admin'].includes(actor.role)) return responseJson({ error: 'Você não pode gerenciar membros deste workspace.' }, 403)
-  const { plan } = await effectivePlan(db, user.uid)
+  const workspace = await db.prepare('SELECT owner_id FROM workspaces WHERE id = ?').bind(workspaceId).first<{ owner_id: string }>()
+  if (!workspace) return responseJson({ error: 'Workspace não encontrado.' }, 404)
+  const { plan } = await effectivePlan(db, workspace.owner_id)
   if (plan !== 'studio') return responseJson({ error: 'Colaboração com RBAC está disponível no plano Studio.' }, 403)
   const count = await db.prepare('SELECT COUNT(*) AS total FROM workspace_members WHERE workspace_id = ?').bind(workspaceId).first<{ total: number }>()
-  if ((count?.total ?? 0) >= PLAN_CONFIG.studio.members) return responseJson({ error: `O Studio permite até ${PLAN_CONFIG.studio.members} membros.` }, 403)
   const body = (await request.json().catch(() => null)) as { email?: unknown; name?: unknown; role?: unknown } | null
   const email = cleanText(body?.email, 190).toLowerCase()
   const name = cleanText(body?.name, 80)
@@ -183,12 +188,16 @@ async function inviteMember(request: Request, db: D1Database, user: AuthUser, wo
   if (!/^\S+@\S+\.\S+$/.test(email) || !validRole(role)) return responseJson({ error: 'Informe e-mail e papel válidos.' }, 400)
   if (role === 'admin' && actor.role !== 'owner') return responseJson({ error: 'Somente o proprietário pode nomear administradores.' }, 403)
   const now = new Date().toISOString()
-  const existingUser = await db.prepare('SELECT id FROM users WHERE lower(email) = lower(?) LIMIT 1').bind(email).first<{ id: string }>()
-  await db.prepare(`
+  const existingMember = await db.prepare('SELECT role FROM workspace_members WHERE workspace_id = ? AND invited_email = ? COLLATE NOCASE').bind(workspaceId, email).first<{ role: SaaSRole }>()
+  if (existingMember?.role === 'owner' || (existingMember?.role === 'admin' && actor.role !== 'owner')) return responseJson({ error: 'Você não pode alterar este membro.' }, 403)
+  if (!existingMember && (count?.total ?? 0) >= PLAN_CONFIG.studio.members) return responseJson({ error: 'O Studio permite até 5 membros.' }, 403)
+  const invited = await db.prepare(`
     INSERT INTO workspace_members (id, workspace_id, user_id, invited_email, invited_name, role, accepted_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = ?) < ?
+      OR EXISTS (SELECT 1 FROM workspace_members WHERE workspace_id = ? AND invited_email = ?)
     ON CONFLICT(workspace_id, invited_email) DO UPDATE SET role = excluded.role, invited_name = excluded.invited_name
-  `).bind(crypto.randomUUID(), workspaceId, existingUser?.id ?? null, email, name || email.split('@')[0], role, existingUser ? now : null, now).run()
+  `).bind(crypto.randomUUID(), workspaceId, null, email, name || email.split('@')[0], role, null, now, workspaceId, PLAN_CONFIG.studio.members, workspaceId, email).run()
+  if (!invited.meta.changes) return responseJson({ error: 'O Studio permite até 5 membros.' }, 403)
   return responseJson({ ok: true }, 201)
 }
 
@@ -285,18 +294,19 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database): Pr
     payment?: { subscription?: string; checkoutSession?: string; customer?: string }
   } | null
   if (!event?.id || !event.event) return responseJson({ error: 'Evento inválido.' }, 400)
-  const inserted = await db.prepare('INSERT OR IGNORE INTO webhook_events (id, event_type, received_at) VALUES (?, ?, ?)')
-    .bind(event.id, event.event, new Date().toISOString()).run()
-  if ((inserted.meta.changes ?? 0) === 0) return responseJson({ ok: true, duplicate: true })
+  const processed = () => db.prepare('SELECT id FROM webhook_events WHERE id = ?').bind(event.id).first()
+  if (await processed()) return responseJson({ ok: true, duplicate: true })
+  const statements: D1PreparedStatement[] = []
 
   const now = new Date().toISOString()
   const checkoutAsaasId = event.checkout?.id ?? event.payment?.checkoutSession
   if (event.event === 'CHECKOUT_PAID' && checkoutAsaasId) {
     const checkout = await db.prepare('SELECT id, user_id, plan FROM checkout_sessions WHERE asaas_checkout_id = ? LIMIT 1')
       .bind(checkoutAsaasId).first<{ id: string; user_id: string; plan: SaaSPlan }>()
+    if (!checkout) return responseJson({ error: 'Checkout ainda não encontrado. Reenvie o evento.' }, 503)
     if (checkout) {
       const subscriptionId = event.checkout?.subscription?.id ?? null
-      await db.batch([
+      statements.push(
         db.prepare(`UPDATE checkout_sessions SET status = 'paid', asaas_customer_id = ?, updated_at = ? WHERE id = ?`)
           .bind(event.checkout?.customer ?? null, now, checkout.id),
         db.prepare(`
@@ -307,13 +317,13 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database): Pr
             asaas_customer_id = COALESCE(excluded.asaas_customer_id, subscriptions.asaas_customer_id),
             current_period_end = excluded.current_period_end, updated_at = excluded.updated_at
         `).bind(crypto.randomUUID(), checkout.user_id, checkout.plan, subscriptionId, event.checkout?.customer ?? null, plusDays(32), now, now),
-      ])
+      )
     }
   }
 
   if ((event.event === 'CHECKOUT_CANCELED' || event.event === 'CHECKOUT_EXPIRED') && checkoutAsaasId) {
-    await db.prepare('UPDATE checkout_sessions SET status = ?, updated_at = ? WHERE asaas_checkout_id = ?')
-      .bind(event.event === 'CHECKOUT_CANCELED' ? 'canceled' : 'expired', now, checkoutAsaasId).run()
+    statements.push(db.prepare("UPDATE checkout_sessions SET status = ?, updated_at = ? WHERE asaas_checkout_id = ? AND status <> 'paid'")
+      .bind(event.event === 'CHECKOUT_CANCELED' ? 'canceled' : 'expired', now, checkoutAsaasId))
   }
 
   const subscriptionId = event.subscription?.id ?? event.payment?.subscription
@@ -324,23 +334,40 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database): Pr
       : event.subscription.customer
         ? await db.prepare(`SELECT user_id, plan FROM checkout_sessions WHERE asaas_customer_id = ? AND status = 'paid' ORDER BY updated_at DESC LIMIT 1`).bind(event.subscription.customer).first<{ user_id: string; plan: SaaSPlan }>()
         : null
-    if (checkout) {
-      await db.prepare(`UPDATE subscriptions SET asaas_subscription_id = ?, asaas_customer_id = ?, status = 'active', updated_at = ? WHERE user_id = ?`)
-        .bind(event.subscription.id, event.subscription.customer ?? null, now, checkout.user_id).run()
-    }
+    if (!checkout) return responseJson({ error: 'Checkout ainda não encontrado. Reenvie o evento.' }, 503)
+    const activeSubscription = await db.prepare('SELECT id FROM subscriptions WHERE user_id = ?').bind(checkout.user_id).first()
+    if (!activeSubscription) return responseJson({ error: 'Pagamento ainda não processado. Reenvie o evento.' }, 503)
+    statements.push(db.prepare(`UPDATE subscriptions SET asaas_subscription_id = ?, asaas_customer_id = ?, updated_at = ? WHERE user_id = ?`)
+      .bind(event.subscription.id, event.subscription.customer ?? null, now, checkout.user_id))
+  }
+
+  if (subscriptionId && /^(PAYMENT_|SUBSCRIPTION_(INACTIVATED|DELETED))/.test(event.event)) {
+    const linked = await db.prepare('SELECT id FROM subscriptions WHERE asaas_subscription_id = ?').bind(subscriptionId).first()
+    if (!linked) return responseJson({ error: 'Assinatura ainda não vinculada. Reenvie o evento.' }, 503)
   }
 
   if (subscriptionId && ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'].includes(event.event)) {
-    await db.prepare(`UPDATE subscriptions SET status = 'active', current_period_end = ?, updated_at = ? WHERE asaas_subscription_id = ?`)
-      .bind(plusDays(32), now, subscriptionId).run()
+    statements.push(db.prepare(`UPDATE subscriptions SET status = 'active', current_period_end = ?, updated_at = ? WHERE asaas_subscription_id = ?`)
+      .bind(plusDays(32), now, subscriptionId))
   }
   if (subscriptionId && ['PAYMENT_OVERDUE', 'PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED'].includes(event.event)) {
-    await db.prepare(`UPDATE subscriptions SET status = 'past_due', updated_at = ? WHERE asaas_subscription_id = ?`)
-      .bind(now, subscriptionId).run()
+    statements.push(db.prepare(`UPDATE subscriptions SET status = 'past_due', updated_at = ? WHERE asaas_subscription_id = ?`)
+      .bind(now, subscriptionId))
   }
   if (event.subscription?.id && ['SUBSCRIPTION_INACTIVATED', 'SUBSCRIPTION_DELETED'].includes(event.event)) {
-    await db.prepare(`UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE asaas_subscription_id = ?`)
-      .bind(now, event.subscription.id).run()
+    statements.push(db.prepare(`UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE asaas_subscription_id = ?`)
+      .bind(now, event.subscription.id))
+  }
+  // D1 batch is one transaction: a failed effect also rolls back the event ID.
+  // A competing delivery fails the unique INSERT and rolls back all its effects.
+  try {
+    await db.batch([
+      db.prepare('INSERT INTO webhook_events (id, event_type, received_at) VALUES (?, ?, ?)').bind(event.id, event.event, now),
+      ...statements,
+    ])
+  } catch (error) {
+    if (await processed()) return responseJson({ ok: true, duplicate: true })
+    throw error
   }
   return responseJson({ ok: true })
 }
@@ -351,15 +378,33 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
   if (!isSaaSPath) return null
   try {
     const db = requireDb(env)
-    if (url.pathname === '/webhooks/asaas' && request.method === 'POST') return handleWebhook(request, env, db)
+    if (url.pathname === '/webhooks/asaas' && request.method === 'POST') return await handleWebhook(request, env, db)
     const user = await authenticate(request, env)
     await syncUser(db, user)
-    if (url.pathname === '/account' && request.method === 'GET') return accountSummary(db, user)
-    if (url.pathname === '/account/workspaces' && request.method === 'POST') return createWorkspace(request, db, user)
+    const contentMatch = url.pathname.match(/^\/account\/workspaces\/([a-f0-9-]+)\/content\/(scripts|schedules|brandkit)$/i)
+    if (contentMatch) {
+      const workspaceId = contentMatch[1]!
+      const actor = await membership(db, workspaceId, user.uid)
+      if (!actor) return responseJson({ error: 'Você não pertence a este workspace.' }, 403)
+      const workspace = await db.prepare('SELECT owner_id FROM workspaces WHERE id = ?').bind(workspaceId).first<{ owner_id: string }>()
+      if (!workspace) return responseJson({ error: 'Workspace não encontrado.' }, 404)
+      const ownerPlan = await effectivePlan(db, workspace.owner_id)
+      if (ownerPlan.plan === 'free' || (actor.role !== 'owner' && ownerPlan.plan !== 'studio')) return responseJson({ error: 'O proprietário precisa de um plano ativo para sincronizar este workspace.' }, 403)
+      if (contentMatch[2] === 'brandkit' && request.method === 'PUT' && ownerPlan.plan !== 'studio') return responseJson({ error: 'A identidade visual compartilhada está disponível no Studio.' }, 403)
+      return await workspaceContent(request, db, workspaceId, contentMatch[2]!, user.uid, actor.role)
+    }
+    if (url.pathname === '/account' && request.method === 'GET') return await accountSummary(db, user)
+    if (url.pathname === '/account/workspaces' && request.method === 'POST') return await createWorkspace(request, db, user)
     const memberMatch = url.pathname.match(/^\/account\/workspaces\/([a-f0-9-]+)\/members$/i)
-    if (memberMatch && request.method === 'POST') return inviteMember(request, db, user, memberMatch[1]!)
-    if (url.pathname === '/billing/checkout' && request.method === 'POST') return createCheckout(request, env, db, user)
-    if (url.pathname === '/billing/subscription' && request.method === 'DELETE') return cancelSubscription(request, env, db, user)
+    if (memberMatch && request.method === 'GET') {
+      const actor = await membership(db, memberMatch[1]!, user.uid)
+      if (!actor) return responseJson({ error: 'Você não pertence a este workspace.' }, 403)
+      const rows = await db.prepare('SELECT id, invited_name AS name, invited_email AS email, role, accepted_at AS acceptedAt FROM workspace_members WHERE workspace_id = ?').bind(memberMatch[1]).all()
+      return responseJson({ members: rows.results })
+    }
+    if (memberMatch && request.method === 'POST') return await inviteMember(request, db, user, memberMatch[1]!)
+    if (url.pathname === '/billing/checkout' && request.method === 'POST') return await createCheckout(request, env, db, user)
+    if (url.pathname === '/billing/subscription' && request.method === 'DELETE') return await cancelSubscription(request, env, db, user)
     return responseJson({ error: 'Rota não encontrada.' }, 404)
   } catch (error) {
     const message = (error as Error).message
@@ -372,9 +417,11 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
  * Consome uma ação mensal de IA quando o SaaS está configurado.
  * Retorna null quando a chamada pode continuar ou uma resposta 4xx quando deve parar.
  */
-export async function authorizeAiAction(request: Request, env: SaaSEnv): Promise<Response | null> {
+export interface AiCharge { uid: string; month: string }
+
+export async function authorizeAiAction(request: Request, env: SaaSEnv, onCharge?: (charge: AiCharge) => void): Promise<Response | null> {
   const projectId = env.FIREBASE_PROJECT_ID?.trim() ?? ''
-  if (!env.DB || !projectId || projectId.startsWith('configure-')) return null
+  if (!env.DB || !projectId || projectId.startsWith('configure-')) return responseJson({ error: 'O acesso à IA ainda não foi configurado neste ambiente.' }, 503)
   try {
     const user = await authenticate(request, env)
     const db = requireDb(env)
@@ -391,8 +438,16 @@ export async function authorizeAiAction(request: Request, env: SaaSEnv): Promise
     if ((result.meta.changes ?? 0) === 0) {
       return responseJson({ error: `Você atingiu os ${limit} usos de IA do plano ${plan}.` }, 429)
     }
+    onCharge?.({ uid: user.uid, month })
     return null
   } catch (error) {
-    return responseJson({ error: (error as Error).message }, 401)
+    const message = (error as Error).message
+    return responseJson({ error: message }, /sessão|conta|login|token/i.test(message) ? 401 : 503)
   }
+}
+
+export async function refundAiAction(charge: AiCharge, env: SaaSEnv): Promise<void> {
+  if (!env.DB) return
+  await env.DB.prepare(`UPDATE usage_monthly SET ai_actions = MAX(ai_actions - 1, 0), updated_at = ? WHERE user_id = ? AND month = ?`)
+    .bind(new Date().toISOString(), charge.uid, charge.month).run()
 }

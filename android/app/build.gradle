@@ -6,6 +6,13 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+def releaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.toLowerCase().contains("release")
+}
+if (releaseBuildRequested && !keystorePropertiesFile.exists()) {
+    throw new GradleException("Release bloqueado: configure android/keystore.properties com a chave de upload oficial.")
+}
+
 android {
     namespace = "com.alvoprompt.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -36,7 +43,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
 }

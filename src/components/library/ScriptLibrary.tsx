@@ -50,11 +50,13 @@ export default function ScriptLibrary() {
   }, [query, scripts])
 
   const createNew = () => {
+    if (useAppStore.getState().cloudWorkspace?.role === 'viewer') return
     selectScript({ title: 'Novo roteiro', content: '', createdAt: Date.now(), updatedAt: Date.now() })
     setView('editor')
   }
 
   const createWithAi = () => {
+    if (useAppStore.getState().cloudWorkspace?.role === 'viewer') return
     selectScript({
       title: 'Roteiro com IA',
       content: '',
@@ -125,10 +127,10 @@ export default function ScriptLibrary() {
       <div className="mb-5 flex items-end justify-between gap-3">
         <div>
           <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--brand-strong)' }}>Biblioteca</p>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Seus roteiros</h1>
+          <p className="mb-2 text-sm font-semibold">{useAppStore.getState().cloudWorkspace ? `${useAppStore.getState().cloudWorkspace!.name} · ${useAppStore.getState().cloudWorkspace!.role === 'viewer' ? 'Somente leitura' : 'Equipe'}` : 'Neste dispositivo'}</p><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Seus roteiros</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{scripts.length === 0 ? 'Comece com um texto ou importe o que já tem.' : `${scripts.length} roteiro${scripts.length === 1 ? '' : 's'} neste dispositivo.`}</p>
         </div>
-        {scripts.length > 0 ? <button onClick={createNew} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl font-medium text-white shadow-lg" style={{ background: 'var(--brand-gradient)', boxShadow: '0 10px 26px rgba(99,102,241,.24)' }} aria-label="Criar novo roteiro">+</button> : null}
+        {scripts.length > 0 ? <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createNew} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl font-medium text-white shadow-lg" style={{ background: 'var(--brand-gradient)', boxShadow: '0 10px 26px rgba(99,102,241,.24)' }} aria-label="Criar novo roteiro">+</button> : null}
       </div>
 
       <section className="relative mb-4 overflow-hidden rounded-[1.75rem] border p-5 sm:p-6" style={{ borderColor: 'color-mix(in srgb, var(--brand-strong) 24%, var(--border))', background: 'linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent) 10%, var(--panel)))' }} aria-label="Fluxo de criação">
@@ -147,9 +149,9 @@ export default function ScriptLibrary() {
       </section>
 
       <div className="mb-5 grid grid-cols-3 gap-2 sm:gap-3" aria-label="Criar ou importar roteiro">
-        <button onClick={createNew} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="document" /></span>Novo roteiro</button>
-        <button onClick={createWithAi} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="sparkles" /></span>Gerar com IA</button>
-        <button onClick={() => { setLinkError(null); setShowImportMenu(true) }} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="import" /></span>{audioBusy ? 'Importando…' : 'Importar'}</button>
+        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createNew} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="document" /></span>Novo roteiro</button>
+        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createWithAi} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="sparkles" /></span>Gerar com IA</button>
+        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={() => { setLinkError(null); setShowImportMenu(true) }} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-center text-xs font-bold sm:min-h-20 sm:flex-row sm:px-4 sm:text-sm" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}><span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="import" /></span>{audioBusy ? 'Importando…' : 'Importar'}</button>
         <input
           ref={fileRef}
           type="file"

@@ -98,8 +98,14 @@ export async function shareVideo(options: ShareVideoOptions): Promise<ShareOutco
     files: [file],
   }
   if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
-    await navigator.share(shareData)
-    return 'shared'
+    try {
+      await navigator.share(shareData)
+      return 'shared'
+    } catch (error) {
+      if (isShareCancelled(error)) throw error
+      // Embedded browsers can advertise sharing and still deny the share sheet.
+      // Offer the same downloadable file when the system rejects that capability.
+    }
   }
 
   downloadBlob(options.blob, fileName)

@@ -13,7 +13,7 @@ const PrompterView = lazy(() => import('./components/prompter/PrompterView'))
 const VideoEditor = lazy(() => import('./components/editor/VideoEditor'))
 const ControlRoom = lazy(() => import('./components/control/ControlRoom'))
 const SchedulingHub = lazy(() => import('./components/scheduling/SchedulingHub'))
-const WorkspacesPanel = lazy(() => import('./components/workspace/WorkspacesPanel'))
+const WorkspacesPanel = lazy(() => import('./components/workspace/CloudWorkspacesPanel'))
 const AiTwin = lazy(() => import('./components/aiTwin/AiTwin'))
 const AccountPanel = lazy(() => import('./components/account/AccountPanel'))
 const WelcomeFlow = lazy(() => import('./components/account/WelcomeFlow'))
@@ -112,6 +112,7 @@ export default function App() {
     const unsubscribe = observeUser((nextUser) => {
       window.clearTimeout(fallback)
       setUser(nextUser)
+      if (!nextUser) void useAppStore.getState().chooseCloudWorkspace(null)
       setAuthReady(true)
       if (nextUser) {
         localStorage.removeItem(LOCAL_ACCESS_KEY)
@@ -122,6 +123,12 @@ export default function App() {
       window.clearTimeout(fallback)
       unsubscribe()
     }
+  }, [])
+
+  useEffect(() => {
+    const open = () => setAccountOpen(true)
+    window.addEventListener('alvoprompter:account', open)
+    return () => window.removeEventListener('alvoprompter:account', open)
   }, [])
 
   useEffect(() => {
@@ -164,6 +171,7 @@ export default function App() {
         {view === 'prompter' ? <PrompterView /> : null}
         {view === 'video-editor' ? <VideoEditor /> : null}
         {view === 'control' ? <ControlRoom /> : null}
+        <AccountPanel open={accountOpen} initialPlan={requestedPlan} onClose={() => setAccountOpen(false)} />
       </Suspense>
     )
   }
@@ -198,7 +206,7 @@ export default function App() {
         <Suspense fallback={<LoadingView />}>
           {view === 'library' ? <ScriptLibrary /> : null}
           {view === 'editor' ? <ScriptEditor /> : null}
-          {view === 'scheduling' ? <SchedulingHub /> : null}
+          {view === 'scheduling' ? <SchedulingHub key={useAppStore.getState().cloudWorkspace?.id ?? 'local'} /> : null}
           {view === 'workspaces' ? <WorkspacesPanel /> : null}
           {view === 'ai-twin' ? <AiTwin /> : null}
         </Suspense>

@@ -100,7 +100,9 @@ export default function VideoEditor() {
     const v = metaVideoRef.current
     if (!v) return
     v.src = recording.url
+    let seekingDuration = false
     const onLoaded = () => {
+      if (!Number.isFinite(v.duration) || v.duration <= 0) { seekingDuration = true; v.currentTime = 1e9; return }
       setMeta({ w: v.videoWidth, h: v.videoHeight, dur: v.duration || 0 })
       if (recording.utterances?.length) {
         const segs = groupUtterances(recording.utterances)
@@ -108,13 +110,17 @@ export default function VideoEditor() {
         setKeepMask(segs.map(() => true))
       }
     }
+    const onDuration = () => { if (seekingDuration && Number.isFinite(v.duration) && v.duration > 0) { seekingDuration = false; v.currentTime = 0; onLoaded() } }
+    const onError = () => setError('Não foi possível abrir a gravação. Volte e grave novamente.')
     v.addEventListener('loadedmetadata', onLoaded)
-    return () => v.removeEventListener('loadedmetadata', onLoaded)
+    v.addEventListener('durationchange', onDuration)
+    v.addEventListener('error', onError)
+    v.load()
+    return () => { v.removeEventListener('loadedmetadata', onLoaded); v.removeEventListener('durationchange', onDuration); v.removeEventListener('error', onError) }
   }, [recording])
 
   useEffect(
     () => () => {
-      abortRef.current?.abort()
       if (outUrl) URL.revokeObjectURL(outUrl)
     },
     [outUrl],
@@ -129,6 +135,8 @@ export default function VideoEditor() {
     },
     [],
   )
+
+  useEffect(() => () => { abortRef.current?.abort() }, [])
 
   const promptResults = useMemo<ClipPromptResult[]>(
     () => (promptText.trim().length > 2 ? parseClipPrompt(promptText) : []),
@@ -285,6 +293,7 @@ export default function VideoEditor() {
 
   const handleProcess = async () => {
     if (!recording || !meta || processing) return
+    if (segments.length && !keptRanges.length && !autoCut) { setError('Selecione ao menos um trecho para exportar.'); return }
     setError(null)
     setOutUrl(null)
     setOutBlob(null)
@@ -299,8 +308,8 @@ export default function VideoEditor() {
         : computeCrop(meta.w, meta.h, targetW, targetH)
     const ranges = autoCut && activeRanges.length
       ? activeRanges.map((r) => ({ start: r.start, end: Math.min(r.end, meta.dur) }))
-      : keptRanges.length
-        ? keptRanges.map((s) => ({ start: s.start, end: s.end }))
+      : cutCount > 0
+        ? keptRanges.map((s) => ({ start: s.start, end: Math.min(s.end, meta.dur) })).filter((s) => s.end > s.start)
         : [{ start: 0, end: meta.dur }]
     const cues = burnCaptions
       ? (autoCut ? segments : keptRanges).map((s) => ({ start: s.start, end: s.end, text: s.text }))

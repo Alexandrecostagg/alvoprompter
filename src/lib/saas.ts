@@ -22,7 +22,12 @@ export interface AccountSummary {
   workspaces: SaaSWorkspace[]
 }
 
-async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export class AccountRequestError extends Error {
+  status: number
+  constructor(message: string, status: number) { super(message); this.status = status }
+}
+
+export async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getIdToken()
   const response = await fetch(`${apiBase()}${path}`, {
     ...init,
@@ -33,7 +38,7 @@ async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T>
     },
   })
   const body = (await response.json().catch(() => null)) as ({ error?: string } & T) | null
-  if (!response.ok) throw new Error(body?.error ?? `Erro ${response.status} na conta`)
+  if (!response.ok) throw new AccountRequestError(body?.error ?? `Erro ${response.status} na conta`, response.status)
   return body as T
 }
 

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { dataUrlToBlob, safeShareFileName } from './share'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { dataUrlToBlob, safeShareFileName, shareVideo } from './share'
+afterEach(() => vi.unstubAllGlobals())
 
 describe('social sharing', () => {
   it('creates a safe file name without losing its extension', () => {
@@ -14,5 +15,17 @@ describe('social sharing', () => {
 
   it('rejects invalid saved media', () => {
     expect(() => dataUrlToBlob('invalid')).toThrow('formato válido')
+  })
+  it('downloads the video if the browser advertises sharing but denies it', async () => {
+    const click = vi.fn()
+    vi.stubGlobal('navigator', { canShare: () => true, share: async () => { throw new DOMException('Permission denied', 'NotAllowedError') } })
+    vi.stubGlobal('document', { createElement: () => ({ click }) })
+    vi.stubGlobal('window', { setTimeout })
+    expect(await shareVideo({ blob: new Blob(['video'], {type:'video/webm'}), fileName:'video.webm' })).toBe('downloaded')
+    expect(click).toHaveBeenCalledOnce()
+  })
+  it('respects a user canceling the share sheet without downloading', async () => {
+    vi.stubGlobal('navigator', { canShare: () => true, share: async () => { throw new DOMException('Canceled', 'AbortError') } })
+    await expect(shareVideo({blob:new Blob(['video']),fileName:'video.webm'})).rejects.toMatchObject({name:'AbortError'})
   })
 })

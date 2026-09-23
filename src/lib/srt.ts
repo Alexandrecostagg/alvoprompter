@@ -31,7 +31,7 @@ export interface SrtSegment {
 export function groupUtterances(utterances: CaptionUtterance[]): SrtSegment[] {
   const clean = utterances
     .map((u) => ({ text: u.text.trim().replace(/\s+/g, ' '), at: u.at }))
-    .filter((u) => u.text.length > 0)
+    .filter((u) => u.text.length > 0 && Number.isFinite(u.at) && u.at >= 0)
     .sort((a, b) => a.at - b.at)
 
   if (!clean.length) return []
@@ -54,7 +54,7 @@ export function groupUtterances(utterances: CaptionUtterance[]): SrtSegment[] {
       .slice(segStartIdx, endIdx)
       .map((x) => x.text)
       .join(' ')
-    segments.push({ start: segStartAt, end: paced[endIdx - 1]!.at, text })
+    segments.push({ start: segStartAt, end: Math.max(segStartAt + 0.5, paced[endIdx - 1]!.at), text })
   }
 
   for (let i = 0; i < paced.length; i++) {

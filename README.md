@@ -9,7 +9,7 @@ Teleprompter PT-BR com VoiceTrack, câmera, gravação, biblioteca local e ferra
 
 - **Nome público:** AlvoPrompter — “alvo” comunica foco na lente; “prompter” identifica corretamente a categoria.
 - **Slogan:** Seu roteiro no alvo. Seu olhar na câmera.
-- **Símbolo:** a letra A enquadrada por uma mira, com o ponto ciano marcando a linha de leitura.
+- **Símbolo:** A branco em fita dobrada sobre gradiente azul, violeta e magenta, derivado do conceito aprovado em `docs/brand/conceito-aprovado.png`. O SVG editável está em `public/logo.svg`; `node scripts/generate-brand.mjs` regenera os ícones.
 - **Referências de produto:** BIGVU, Teleprompter Pro e PromptSmart. A referência é funcional; identidade, textos e ativos são próprios.
 
 Alguns identificadores técnicos antigos (`com.alvoprompt.app`, banco IndexedDB `alvoprompt` e Worker publicado) são preservados para não quebrar instalações ou apagar dados existentes.
@@ -25,9 +25,9 @@ Alguns identificadores técnicos antigos (`com.alvoprompt.app`, banco IndexedDB 
 | Editor de vídeo | Beta | Processamento local por Canvas e MediaRecorder; desempenho varia por aparelho |
 | Control Room | Beta | WebRTC/DataChannel com pareamento manual, sem servidor de sinalização |
 | Agenda multicanal | Planejador | Prepara mídia e legenda; não publica automaticamente nas redes |
-| Contas e planos | Implementado, requer configuração | Firebase Authentication, plano gratuito e assinaturas recorrentes no Asaas |
-| Workspaces SaaS | Implementado, requer configuração | D1 com RBAC de servidor para owner, admin, editor e viewer |
-| Workspaces legados | Compatibilidade local | Brand kit e colaboradores via frase-chave continuam disponíveis durante a migração |
+| Contas e planos | Firebase configurado; cobrança pendente de segredo | Login por e-mail, cotas no servidor e webhook transacional |
+| Workspaces SaaS | Integrados | Roteiros, agenda e brand kit em D1, revisões e RBAC de servidor |
+| Sincronização legada | Recuperação | Importação por frase antiga; novos fluxos usam a conta |
 | AI Twin | Avatar local | Anima foto com áudio; referências gravadas não fazem clonagem de voz |
 | PWA, Android e iOS | Empacotados | Exigem QA final em aparelhos antes da distribuição pública |
 
@@ -68,15 +68,15 @@ Os planos iniciais, com valores de lançamento durante o beta, estão centraliza
 | Criador | R$ 29,90 | Sync e backup, 1 workspace pessoal e 100 usos de IA/mês |
 | Studio | R$ 79,90 | Até 5 membros, níveis de acesso, brand kit e 300 usos de IA/mês |
 
-O checkout é hospedado pelo Asaas; dados de cartão não passam pelo AlvoPrompter. Criar o checkout não libera acesso. O plano é ativado somente pelo webhook autenticado `CHECKOUT_PAID`, com idempotência pelo ID do evento. Eventos de cobrança e assinatura atualizam atraso, renovação e cancelamento. O titular pode cancelar a renovação no app; o Worker remove a recorrência no Asaas e preserva o acesso até o fim do período já pago. As cotas mensais de IA são consumidas atomicamente no D1 antes da chamada ao provedor e não dependem do navegador.
+O checkout é hospedado pelo Asaas; dados de cartão não passam pelo AlvoPrompter. Criar o checkout não libera acesso. O plano é ativado somente pelo webhook autenticado `CHECKOUT_PAID`, com idempotência pelo ID do evento. Registro do evento e efeitos de pagamento são uma única transação: uma falha não impede a próxima tentativa. Eventos de cobrança e assinatura atualizam atraso, renovação e cancelamento. O titular pode cancelar a renovação no app; o Worker remove a recorrência no Asaas e preserva o acesso até o fim do período já pago. As cotas mensais de IA são consumidas atomicamente no D1 antes da chamada ao provedor e não dependem do navegador. Erros e respostas de chat vazias devolvem o uso consumido.
 
-O banco D1 `alvoprompter-saas` já foi criado e recebeu a migração `api/transcribe/migrations/0001_saas.sql`. Ele armazena apenas identidade vinculada, assinatura, checkout, workspaces, membros e IDs de eventos.
+O banco D1 `alvoprompter-saas` já foi criado e recebeu a migração `api/transcribe/migrations/0001_saas.sql`. A migração `0004_workspace_content.sql` acrescenta conteúdo, revisões e marcações de exclusão. Aplique as migrações antes de publicar esta API.
 
 Para ativar as contas:
 
-1. Crie ou selecione um projeto Firebase, cadastre um app Web e ative Email/Senha em Authentication.
-2. Copie `.env.example` para `.env.local` e preencha as quatro variáveis `VITE_FIREBASE_*`.
-3. Troque `FIREBASE_PROJECT_ID`, `APP_URL` e `CORS_ORIGIN` em `api/transcribe/wrangler.toml`.
+1. O app Web do projeto `alvoprompt` está cadastrado e Email/Senha está habilitado. A configuração pública está em `src/lib/firebase-config.json`.
+2. Use as quatro variáveis `VITE_FIREBASE_*` somente para substituir o projeto padrão. Não coloque segredos nelas.
+3. Ao criar outro ambiente, ajuste `FIREBASE_PROJECT_ID`, `APP_URL` e `CORS_ORIGIN` em `api/transcribe/wrangler.toml`.
 4. Configure os segredos sem prefixo `VITE_`:
 
 ```bash
@@ -95,16 +95,16 @@ O Firebase identifica a pessoa. O Worker valida o ID token e consulta o papel no
 O núcleo de roteiro, prompter e gravação é local. Geração de texto, transcrição, tradução, TTS, avatar e sincronização usam o Worker em `api/transcribe`.
 
 1. Copie `.env.example` para `.env.local` e configure `VITE_CLOUDFLARE_API_BASE`.
-2. Configure a chave da DeepSeek somente como secret do Worker:
+2. Configure a chave do Carcará somente como secret do Worker:
 
 ```bash
 cd api/transcribe
-npx wrangler secret put DEEPSEEK_API_KEY
+npx wrangler secret put CARCARA_API_KEY
 ```
 
 3. Em `api/transcribe/wrangler.toml`, substitua `CORS_ORIGIN` pelos domínios públicos reais antes de publicar.
 
-Depois do deploy, `GET /health` confirma se o Worker está ativo, se o secret da DeepSeek foi encontrado e qual modelo está configurado, sem revelar a chave. A geração de roteiros usa `deepseek-v4-flash` com raciocínio desativado para priorizar baixa latência; sugestões estruturadas usam o modo JSON da API.
+Depois do deploy, `GET /health` informa versão, protocolo, projeto de login, provedor/modelo de IA e disponibilidade da cobrança, sem expor segredos. O padrão foi alinhado à API publicada: `AI_PROVIDER=carcara`, modelo `Carcara-3.8-27B`. DeepSeek continua disponível mediante configuração explícita de provedor, modelo e segredo correspondente.
 
 O Worker aplica limites diários por IP, limites de payload, isolamento de mídia por frase-chave e exige frases de sincronização com pelo menos 12 caracteres. A frase-chave permanece apenas como compatibilidade do sync antigo; novos workspaces SaaS usam conta e RBAC.
 
@@ -113,8 +113,9 @@ O Worker aplica limites diários por IP, limites de payload, isolamento de mídi
 - Dados locais permanecem no aparelho até serem apagados pelo usuário.
 - Conta, assinatura e papéis de workspace ficam no Firebase Authentication e Cloudflare D1.
 - O Asaas recebe os dados necessários ao checkout e processa a cobrança recorrente.
-- Roteiros, agenda e workspaces sincronizados ficam no Cloudflare KV por até 90 dias desde a última sincronização.
-- Solicitações de texto podem ser processadas por DeepSeek e Cloudflare.
+- Roteiros, agenda e identidade visual dos workspaces da conta ficam no Cloudflare D1. Vídeos permanecem no dispositivo; o plano sincroniza conteúdo textual e metadados, não arquivos de vídeo.
+- O conteúdo legado por frase-chave continua no KV com expiração em 90 dias.
+- Solicitações de texto são processadas pelo provedor configurado (atualmente Carcará/Harpyacore); transcrição e outras funções usam Cloudflare Workers AI.
 - Áudios enviados para transcrição são processados pelo Cloudflare Workers AI.
 - O vídeo do avatar é renderizado localmente.
 
@@ -137,8 +138,12 @@ android/ e ios/       projetos Capacitor
 
 ## Próximas etapas
 
-1. Configurar Firebase e os segredos do Asaas nos ambientes de homologação e produção.
-2. Migrar conteúdo dos workspaces legados por frase-chave para os workspaces SaaS autenticados.
+1. Configurar `ASAAS_API_KEY` e validar a compra em sandbox antes de habilitar cobrança real.
+2. Publicar a API com a migração de conteúdo e a versão web correspondente após a revisão da entrega.
 3. Integrar APIs oficiais antes de anunciar publicação automática multicanal.
 4. Adicionar clonagem de voz somente com consentimento explícito e provedor apropriado.
 5. Ampliar testes de mídia, PWA e aparelhos Android/iOS.
+
+## Validação de mídia
+
+Com `npm run dev`, abra `/audit/media-harness.html`. A bancada usa os módulos reais de gravação, edição e compartilhamento com vídeo/áudio sintéticos. Não entra no build de produção. O relatório de entrega discrimina testes automatizados, navegador e aparelhos físicos.

@@ -29,7 +29,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     priceMonthly: 29.9,
     description: 'Para quem publica com frequência e quer acelerar a produção.',
     badge: 'Recomendado',
-    features: ['Tudo do plano Grátis', 'Sincronização e backup na nuvem', '100 usos de IA por mês', '1 workspace pessoal na nuvem'],
+    features: ['Tudo do plano Grátis', 'Roteiros e agenda na nuvem', '100 usos de IA por mês', '1 workspace pessoal na nuvem'],
     limits: { workspaces: 1, members: 1, aiActionsMonthly: 100 },
   },
   studio: {

@@ -1,4 +1,8 @@
 export interface Script {
+  cloudWorkspaceId?: string
+  cloudRevision?: number
+  cloudDirty?: boolean
+  deletedAt?: number
   id?: number
   /** Identificador estável entre dispositivos (UUID). Usado pelo sync em nuvem. */
   key?: string
@@ -24,6 +28,10 @@ export type SocialChannel = 'youtube' | 'instagram' | 'tiktok' | 'linkedin' | 'x
 export type PostStatus = 'scheduled' | 'published' | 'cancelled' | 'failed'
 
 export interface ScheduledPost {
+  cloudWorkspaceId?: string
+  cloudRevision?: number
+  cloudDirty?: boolean
+  deletedAt?: number
   id?: number
   /** Identificador estável entre dispositivos (UUID). Usado pelo sync em nuvem. */
   key?: string

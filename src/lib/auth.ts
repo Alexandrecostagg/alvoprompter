@@ -1,3 +1,4 @@
+import defaultConfig from './firebase-config.json'
 import { initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   createUserWithEmailAndPassword,
@@ -13,10 +14,10 @@ import {
 } from 'firebase/auth'
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
+  apiKey: (import.meta.env.VITE_FIREBASE_API_KEY as string | undefined) || defaultConfig.apiKey,
+  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined) || defaultConfig.authDomain,
+  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined) || defaultConfig.projectId,
+  appId: (import.meta.env.VITE_FIREBASE_APP_ID as string | undefined) || defaultConfig.appId,
 }
 
 export const firebaseConfigured = Object.values(firebaseConfig).every(Boolean)
@@ -63,13 +64,34 @@ export function resetPassword(email: string): Promise<void> {
 }
 
 export async function getIdToken(): Promise<string> {
-  const user = requireAuth().currentUser
+  const instance = requireAuth()
+  await instance.authStateReady()
+  const user = instance.currentUser
   if (!user) throw new Error('Entre na sua conta para continuar.')
   return user.getIdToken()
 }
 
 export async function getOptionalIdToken(): Promise<string | null> {
+  await auth?.authStateReady()
   return auth?.currentUser ? auth.currentUser.getIdToken() : null
 }
 
+export function currentUser(): User | null { return auth?.currentUser ?? null }
+
+export function requestAccount(): void { window.dispatchEvent(new Event('alvoprompter:account')) }
+
 export type { User }
+
+export async function resendVerification(): Promise<void> {
+  const user = requireAuth().currentUser
+  if (!user) throw new Error('Entre na sua conta para continuar.')
+  await sendEmailVerification(user)
+}
+
+export async function refreshVerifiedUser(): Promise<boolean> {
+  const user = requireAuth().currentUser
+  if (!user) throw new Error('Entre na sua conta para continuar.')
+  await user.reload()
+  await user.getIdToken(true)
+  return user.emailVerified
+}

@@ -1,3 +1,4 @@
+import { syncCloudWorkspace } from '../../lib/cloudSync'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import {
@@ -12,12 +13,10 @@ import {
   listPosts,
   removePost,
   setPostStatus,
-  syncPosts,
   toDateTimeLocal,
   upsertPost,
   whatsappShareUrl,
 } from '../../lib/scheduling'
-import { clearSyncPass, saveSyncPass, savedSyncPass } from '../../lib/syncWorker'
 import { isShareCancelled, shareDataUrl, shareText } from '../../lib/share'
 import type { PostStatus, ScheduledPost, SocialChannel } from '../../lib/types'
 
@@ -65,12 +64,12 @@ export default function SchedulingHub() {
   const [showForm, setShowForm] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-  const [syncOpen, setSyncOpen] = useState(false)
-  const [pass, setPass] = useState('')
   const [selected, setSelected] = useState<{ post: ScheduledPost; channel: SocialChannel } | null>(null)
   const [sharing, setSharing] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-  const connected = (savedSyncPass()?.length ?? 0) >= 12
+  const workspace = useAppStore((s) => s.cloudWorkspace)
+  const connected = Boolean(workspace)
+  const readOnly = workspace?.role === 'viewer'
 
   // form state
   const [title, setTitle] = useState('')
@@ -90,6 +89,7 @@ export default function SchedulingHub() {
   }, [])
 
   const openNew = () => {
+    if (readOnly) return
     setShowForm(true)
     setMsg(null)
     setTitle('')
@@ -125,6 +125,7 @@ export default function SchedulingHub() {
   }
 
   const save = async () => {
+    if (readOnly) return
     if (!title.trim()) {
       setMsg({ type: 'err', text: 'Dê um título à publicação.' })
       return
@@ -162,35 +163,24 @@ export default function SchedulingHub() {
   }
 
   const mark = async (post: ScheduledPost, status: PostStatus) => {
+    if (readOnly) return
     if (post.id != null) await setPostStatus(post.id, status)
     await refresh()
   }
 
   const del = async (post: ScheduledPost) => {
+    if (readOnly) return
     if (!window.confirm(`Excluir o plano “${post.title}”?`)) return
     if (post.id != null) await removePost(post.id)
     await refresh()
   }
 
   const runSync = async () => {
-    const p = savedSyncPass() ?? pass
-    if (!p || p.trim().length < 12) {
-      setMsg({ type: 'err', text: 'Use uma frase-chave com pelo menos 12 caracteres.' })
-      return
-    }
+    if (!workspace) { useAppStore.getState().setView('workspaces'); return }
     setBusy(true)
-    setMsg(null)
-    try {
-      saveSyncPass(p)
-      const r = await syncPosts(p.trim())
-      await refresh()
-      setMsg({ type: 'ok', text: `Sincronizado: ${r.added} novo(s).` })
-      setSyncOpen(false)
-    } catch (err) {
-      setMsg({ type: 'err', text: (err as Error).message })
-    } finally {
-      setBusy(false)
-    }
+    try { await useAppStore.getState().loadScripts(); await syncCloudWorkspace(workspace.id); await useAppStore.getState().loadScripts(); await refresh(); setMsg({ type: 'ok', text: 'Agenda sincronizada com sua conta.' }) }
+    catch (error) { setMsg({ type: 'err', text: (error as Error).message }) }
+    finally { setBusy(false) }
   }
 
   const sorted = useMemo(
@@ -237,14 +227,15 @@ export default function SchedulingHub() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => setSyncOpen((v) => !v)}
+            onClick={() => void runSync()}
             className="rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-            title="Sincronizar agendamentos por frase-chave"
+            title="Sincronizar agenda com sua conta"
           >
             ☁️ {connected ? 'sync' : 'Sincronizar'}
           </button>
           <button
+            disabled={readOnly}
             onClick={openNew}
             className="rounded-lg px-4 py-2 text-sm font-semibold text-black transition-colors"
             style={{ background: 'var(--accent)' }}
@@ -260,51 +251,6 @@ export default function SchedulingHub() {
           O AlvoPrompter prepara o conteúdo e abre Instagram, YouTube, TikTok ou outro app instalado. Você revisa e confirma a publicação na própria rede social.
         </p>
       </div>
-
-      {syncOpen && (
-        <div className="mb-6 rounded-xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-          <p className="text-sm" style={{ color: 'var(--text)' }}>
-            {connected
-              ? 'Planos sincronizados entre dispositivos com a mesma frase-chave.'
-              : 'Use uma frase-chave para sincronizar a agenda entre dispositivos (sem cadastro).'}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input
-              type="password"
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void runSync()
-              }}
-              placeholder="Frase-chave"
-              minLength={12}
-              className="flex-1 rounded-lg border bg-transparent px-3 py-2 text-sm outline-none"
-              style={{ borderColor: 'var(--border)', color: 'var(--text)', minWidth: 180 }}
-            />
-            <button
-              onClick={() => void runSync()}
-              disabled={busy}
-              className="rounded-lg px-4 py-2 text-sm font-semibold text-black disabled:opacity-40"
-              style={{ background: 'var(--accent)' }}
-            >
-              {busy ? 'Sincronizando…' : 'Sincronizar agora'}
-            </button>
-            {connected && (
-              <button
-                onClick={() => {
-                  clearSyncPass()
-                  setSyncOpen(false)
-                  setMsg(null)
-                }}
-                className="rounded-lg border px-3 py-2 text-sm"
-                style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
-              >
-                Sair
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       {msg && (
         <p className="mb-4 text-sm" style={{ color: msg.type === 'err' ? 'var(--danger)' : 'var(--ok)' }}>

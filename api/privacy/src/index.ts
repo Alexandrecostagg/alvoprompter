@@ -41,7 +41,7 @@ const HTML = `<!DOCTYPE html>
 <body>
 <main>
   <h1>Política de Privacidade — AlvoPrompter</h1>
-  <p class="muted">Última atualização: 20 de agosto de 2026</p>
+  <p class="muted">Última atualização: 23 de setembro de 2026</p>
 
   <p>Esta Política de Privacidade descreve como o aplicativo <strong>AlvoPrompter</strong> ("nós", "nosso" ou "aplicativo"), desenvolvido por Alexandre Costa, trata informações quando você utiliza o aplicativo na web, Android ou iOS.</p>
 
@@ -57,8 +57,8 @@ const HTML = `<!DOCTYPE html>
   <h2>3. Dados que coletamos</h2>
   <p>Coletamos apenas os dados necessários para fornecer os recursos solicitados por você:</p>
   <ul>
-    <li><strong>Sincronização:</strong> roteiros, agendamentos e workspaces escolhidos para sincronização são armazenados no Cloudflare KV por até 90 dias desde a última sincronização. A frase-chave funciona como credencial de acesso.</li>
-    <li><strong>Texto para IA:</strong> pedidos de geração ou melhoria de roteiro são enviados pelo nosso Worker à DeepSeek. Traduções e síntese de voz são processadas pelo Cloudflare Workers AI.</li>
+    <li><strong>Sincronização:</strong> roteiros, dados de agenda e identidade visual escolhidos para sincronização ficam no Cloudflare D1, vinculados à conta e às permissões do workspace. Vídeos permanecem no aparelho. Conteúdo da sincronização antiga por frase-chave fica no Cloudflare KV por até 90 dias desde a última sincronização.</li>
+    <li><strong>Texto para IA:</strong> pedidos de geração ou melhoria de roteiro são enviados pelo nosso Worker ao provedor Carcará/Harpyacore. Traduções e síntese de voz são processadas pelo Cloudflare Workers AI.</li>
     <li><strong>Áudio:</strong> arquivos enviados para transcrição são processados pelo Cloudflare Workers AI. As amostras de voz do Avatar IA permanecem locais e não treinam um modelo de clonagem.</li>
     <li><strong>Avatar:</strong> somente a descrição textual é enviada para gerar uma imagem. A animação do avatar e a exportação do vídeo acontecem localmente no aparelho.</li>
     <li><strong>Conta:</strong> nome, e-mail, identificador de usuário e estado de verificação são tratados pelo Firebase Authentication e vinculados ao cadastro do AlvoPrompter.</li>
@@ -69,7 +69,7 @@ const HTML = `<!DOCTYPE html>
   <p>Não coletamos sua lista de contatos nem localização precisa. A conta é necessária para sincronização SaaS, assinatura e colaboração; o prompter local pode ser usado sem conta.</p>
 
   <h2>4. Compartilhamento de dados</h2>
-  <p>Usamos Cloudflare, Firebase/Google, DeepSeek e Asaas como operadores de infraestrutura, autenticação, IA e pagamentos para entregar os recursos solicitados. O processamento de IA é transitório, mas dados de conta, assinatura e sincronização seguem as retenções necessárias ao serviço e às obrigações legais. Quando você autoriza a medição de campanhas, a Meta recebe apenas os eventos e identificadores técnicos descritos acima. Não vendemos seus dados pessoais.</p>
+  <p>Usamos Cloudflare, Firebase/Google, Carcará/Harpyacore e Asaas como operadores de infraestrutura, autenticação, IA e pagamentos para entregar os recursos solicitados. O processamento de IA é transitório, mas dados de conta, assinatura e sincronização seguem as retenções necessárias ao serviço e às obrigações legais. Quando você autoriza a medição de campanhas, a Meta recebe apenas os eventos e identificadores técnicos descritos acima. Não vendemos seus dados pessoais.</p>
 
   <h2>5. Cookies e escolha de marketing</h2>
   <p>O Meta Pixel fica desativado por padrão. Na primeira visita à landing page, você pode aceitar a medição ou manter somente o armazenamento essencial. Sua escolha fica salva no navegador e pode ser revista a qualquer momento pelo botão <strong>Cookies</strong> no rodapé da página. A recusa não impede o uso da landing page nem do aplicativo.</p>

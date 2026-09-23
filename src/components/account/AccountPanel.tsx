@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { firebaseConfigured, observeUser, resetPassword, signIn, signUp, signUserOut, type User } from '../../lib/auth'
+import { firebaseConfigured, observeUser, resendVerification, refreshVerifiedUser, resetPassword, signIn, signUp, signUserOut, type User } from '../../lib/auth'
 import { formatPlanPrice, PAID_PLAN_IDS, PLANS, type PlanId } from '../../lib/plans'
-import { cancelSubscription, createCloudWorkspace, inviteWorkspaceMember, loadAccount, startCheckout, type AccountSummary } from '../../lib/saas'
+import { cancelSubscription, loadAccount, startCheckout, type AccountSummary } from '../../lib/saas'
+import { useAppStore } from '../../store/useAppStore'
 import { trackMetaStandard } from '../../lib/metaPixel'
 
 type AuthMode = 'signin' | 'signup'
@@ -45,11 +46,6 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   const [account, setAccount] = useState<AccountSummary | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
-  const [workspaceName, setWorkspaceName] = useState('')
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteName, setInviteName] = useState('')
-  const [inviteRole, setInviteRole] = useState<'admin' | 'editor' | 'viewer'>('editor')
-
   const requestedPlan = useMemo(() => initialPlan && initialPlan !== 'free' ? initialPlan : null, [initialPlan])
 
   useEffect(() => observeUser((next) => {
@@ -78,7 +74,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   if (!open) return null
 
   const submitAuth = async () => {
-    if (!email.trim() || password.length < 8 || (mode === 'signup' && !name.trim())) {
+    if (!email.trim() || !password || (mode === 'signup' && (password.length < 8 || !name.trim()))) {
       setMessage({ kind: 'error', text: 'Preencha os dados e use uma senha com pelo menos 8 caracteres.' })
       return
     }
@@ -125,37 +121,6 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   }
 
   const refreshAccount = async () => setAccount(await loadAccount())
-
-  const addWorkspace = async () => {
-    if (!workspaceName.trim()) return
-    setBusy(true)
-    setMessage(null)
-    try {
-      await createCloudWorkspace(workspaceName)
-      setWorkspaceName('')
-      await refreshAccount()
-      setMessage({ kind: 'ok', text: 'Workspace em nuvem criado com você como proprietário.' })
-    } catch (error) {
-      setMessage({ kind: 'error', text: (error as Error).message })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const sendInvite = async (workspaceId: string) => {
-    setBusy(true)
-    setMessage(null)
-    try {
-      await inviteWorkspaceMember(workspaceId, { email: inviteEmail, name: inviteName, role: inviteRole })
-      setInviteEmail('')
-      setInviteName('')
-      setMessage({ kind: 'ok', text: 'Convite registrado. O acesso será vinculado quando esse e-mail entrar no AlvoPrompter.' })
-    } catch (error) {
-      setMessage({ kind: 'error', text: (error as Error).message })
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const cancelRenewal = async () => {
     if (!window.confirm('Cancelar a renovação mensal? O acesso pago continua até o fim do período atual e não haverá nova cobrança.')) return
@@ -210,23 +175,18 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
           </div>
         )}
 
-        {user && account ? (
-          <section className="mt-7 rounded-3xl border p-5" style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}>
-            <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-bold">Equipe com níveis de acesso</h3><p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>O servidor valida proprietário, admin, editor e leitor em cada operação.</p></div><span className="rounded-full px-3 py-1 text-xs font-bold" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}>ACESSOS</span></div>
-            {account.limits.workspaces === 0 ? <p className="mt-4 text-sm" style={{ color: 'var(--muted)' }}>Workspaces em nuvem começam no Criador; convites e até 5 membros ficam no Studio.</p> : (
-              <>
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row"><input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="Nome do novo workspace" maxLength={80} className="min-h-11 flex-1 rounded-2xl border bg-transparent px-4 text-sm outline-none" style={{ borderColor: 'var(--border)' }} /><button onClick={() => void addWorkspace()} disabled={busy || !workspaceName.trim()} className="min-h-11 rounded-2xl px-4 text-sm font-bold text-white disabled:opacity-50" style={{ background: 'var(--brand-gradient)' }}>Criar workspace</button></div>
-                <div className="mt-4 grid gap-3">
-                  {account.workspaces.map((workspace) => <article key={workspace.id} className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-                    <div className="flex items-center justify-between gap-3"><div><p className="font-bold">{workspace.name}</p><p className="text-xs capitalize" style={{ color: 'var(--muted)' }}>Seu papel: {workspace.role}</p></div><span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}>{workspace.role}</span></div>
-                    {account.subscription.plan === 'studio' && ['owner', 'admin'].includes(workspace.role) ? <div className="mt-4 grid gap-2 border-t pt-4 sm:grid-cols-[1fr_1fr_auto_auto]" style={{ borderColor: 'var(--border)' }}><input value={inviteName} onChange={(event) => setInviteName(event.target.value)} placeholder="Nome" className="min-h-10 rounded-xl border bg-transparent px-3 text-sm" style={{ borderColor: 'var(--border)' }} /><input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="E-mail" type="email" className="min-h-10 rounded-xl border bg-transparent px-3 text-sm" style={{ borderColor: 'var(--border)' }} /><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as typeof inviteRole)} className="min-h-10 rounded-xl border bg-transparent px-3 text-sm" style={{ borderColor: 'var(--border)' }}><option value="admin">Admin</option><option value="editor">Editor</option><option value="viewer">Leitor</option></select><button onClick={() => void sendInvite(workspace.id)} disabled={busy || !inviteEmail.trim()} className="min-h-10 rounded-xl px-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: 'var(--brand-gradient)' }}>Convidar</button></div> : null}
-                  </article>)}
-                  {account.workspaces.length === 0 ? <p className="text-sm" style={{ color: 'var(--muted)' }}>Nenhum workspace em nuvem ainda.</p> : null}
-                </div>
-              </>
-            )}
-          </section>
-        ) : null}
+        {user && !user.emailVerified ? <div className="mt-5 rounded-2xl border p-4">
+          <p className="text-sm">Confirme seu e-mail para aceitar convites de equipe e assinar um plano.</p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => void resendVerification().then(() => setMessage({kind:'ok',text:'Enviamos um novo link de confirmação.'})).catch((error) => setMessage({kind:'error',text:friendlyAuthError(error)}))}>Reenviar confirmação</button>
+            <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => void refreshVerifiedUser().then(async (verified) => { await refreshAccount(); setMessage({kind:verified?'ok':'error',text:verified?'E-mail confirmado.':'Abra o link enviado ao seu e-mail e tente novamente.'}) }).catch((error) => setMessage({kind:'error',text:friendlyAuthError(error)}))}>Já confirmei meu e-mail</button>
+          </div>
+        </div> : null}
+        {user && account ? <section className="mt-7 rounded-3xl border p-5" style={{borderColor:'var(--border)',background:'var(--bg)'}}>
+          <h3 className="font-bold">Sua equipe e seus roteiros</h3>
+          <p className="mt-2 text-sm" style={{color:'var(--muted)'}}>Abra um workspace para sincronizar roteiros e agenda, gerenciar acessos e compartilhar sua identidade visual.</p>
+          <button className="mt-4 min-h-11 rounded-2xl border px-4 text-sm font-bold" onClick={() => { useAppStore.getState().setView('workspaces'); onClose() }}>Abrir equipe e sincronização</button>
+        </section> : null}
 
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           <PlanCard planId="free" currentPlan={account?.subscription.plan ?? 'free'} busy={busy} onChoose={choosePlan} />

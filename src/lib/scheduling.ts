@@ -1,4 +1,4 @@
-import { db, getPosts, savePost } from './db'
+import { db, getPosts, savePost, deletePost } from './db'
 import { pullPostsCloud, pushPostsCloud, type SerializablePost } from './syncWorker'
 import type { ScheduledPost, SocialChannel } from './types'
 
@@ -119,13 +119,13 @@ export async function upsertPost(post: ScheduledPost): Promise<number> {
 }
 
 export async function removePost(id: number): Promise<void> {
-  await db.posts.delete(id)
+  await deletePost(id)
 }
 
 export async function setPostStatus(id: number, status: ScheduledPost['status']): Promise<void> {
   const post = await db.posts.get(id)
   if (!post) return
-  await db.posts.put({ ...post, status, updatedAt: Date.now() })
+  await savePost({ ...post, status, updatedAt: Date.now() })
 }
 
 function toSerializable(post: ScheduledPost): SerializablePost {

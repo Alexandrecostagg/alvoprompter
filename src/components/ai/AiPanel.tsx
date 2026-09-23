@@ -1,3 +1,4 @@
+import { currentUser, requestAccount } from '../../lib/auth'
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import type { AiPanelTab } from '../../lib/types'
@@ -167,8 +168,8 @@ export default function AiPanel({ tab }: AiPanelProps) {
     if (!currentScript) return
     const next = { ...currentScript, content: text }
     selectScript(next)
-    void upsertScript(next)
-    closeAiPanel()
+    const selected = useAppStore.getState().currentScript
+    if (selected) void upsertScript(selected).then(closeAiPanel).catch((error) => setError((error as Error).message))
   }
 
   const copyItem = async (key: string, text: string) => {
@@ -197,12 +198,12 @@ export default function AiPanel({ tab }: AiPanelProps) {
 
   const primaryBtn = (label: string, onClick: () => void, disabled: boolean) => (
     <button
-      onClick={onClick}
-      disabled={disabled}
+      onClick={() => { if (!currentUser()) { closeAiPanel(); requestAccount(); return } onClick() }}
+      disabled={Boolean(currentUser()) && disabled}
       className="w-full rounded-lg py-2.5 text-sm font-semibold text-black disabled:opacity-40"
       style={{ background: 'var(--accent)' }}
     >
-      {label}
+      {currentUser() ? label : 'Entrar para usar IA'}
     </button>
   )
 
@@ -216,7 +217,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
           className="flex items-center justify-between border-b px-5 py-4"
           style={{ borderColor: 'var(--border)' }}
         >
-          <h2 className="font-semibold text-white">✨ Assistente IA</h2>
+          <h2 className="font-semibold text-[var(--text)]">✨ Assistente IA</h2>
           <button
             onClick={closeAiPanel}
             className="rounded-lg border px-3 py-1 text-sm"
@@ -255,7 +256,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="Ex.: 5 erros de quem começa no TikTok"
-                  className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm text-white outline-none"
+                  className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm text-[var(--text)] outline-none"
                   style={{ borderColor: 'var(--border)' }}
                 />
               </label>
@@ -267,7 +268,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                   <select
                     value={format}
                     onChange={(e) => setFormat(e.target.value)}
-                    className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-white"
+                    className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-[var(--text)]"
                     style={{ borderColor: 'var(--border)' }}
                   >
                     {FORMATS.map((f) => (
@@ -284,7 +285,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                   <select
                     value={tone}
                     onChange={(e) => setTone(e.target.value)}
-                    className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-white"
+                    className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-[var(--text)]"
                     style={{ borderColor: 'var(--border)' }}
                   >
                     {TONES.map((t) => (
@@ -302,7 +303,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                 <select
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
-                  className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-white"
+                  className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-[var(--text)]"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   {DURATIONS.map((d) => (
@@ -320,7 +321,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                   value={audience}
                   onChange={(e) => setAudience(e.target.value)}
                   placeholder="Ex.: pastores e líderes de louvor"
-                  className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm text-white outline-none"
+                  className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm text-[var(--text)] outline-none"
                   style={{ borderColor: 'var(--border)' }}
                 />
               </label>
@@ -333,7 +334,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Pontos que o roteiro precisa cobrir, referências, CTA..."
                   rows={3}
-                  className="w-full resize-none rounded-lg border bg-transparent px-3 py-2 text-sm text-white outline-none"
+                  className="w-full resize-none rounded-lg border bg-transparent px-3 py-2 text-sm text-[var(--text)] outline-none"
                   style={{ borderColor: 'var(--border)' }}
                 />
               </label>
@@ -344,7 +345,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                     value={generated}
                     rows={10}
                     placeholder="O roteiro aparecerá aqui enquanto a IA escreve..."
-                    className="w-full resize-none rounded-lg border p-3 text-sm leading-relaxed text-white"
+                    className="w-full resize-none rounded-lg border p-3 text-sm leading-relaxed text-[var(--text)]"
                     style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
                   />
                   <div className="flex gap-2">
@@ -395,7 +396,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                 <select
                   value={improveAction}
                   onChange={(e) => setImproveAction(e.target.value as ImproveAction)}
-                  className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-white"
+                  className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-[var(--text)]"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   {IMPROVE_ACTIONS.map((a) => (
@@ -414,7 +415,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                     value={toneInstruction}
                     onChange={(e) => setToneInstruction(e.target.value)}
                     placeholder="Ex.: mais empolgante, como um youtuber"
-                    className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm text-white outline-none"
+                    className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm text-[var(--text)] outline-none"
                     style={{ borderColor: 'var(--border)' }}
                   />
                 </label>
@@ -426,7 +427,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                     value={improved}
                     rows={10}
                     placeholder="O roteiro melhorado aparecerá aqui..."
-                    className="w-full resize-none rounded-lg border p-3 text-sm leading-relaxed text-white"
+                    className="w-full resize-none rounded-lg border p-3 text-sm leading-relaxed text-[var(--text)]"
                     style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
                   />
                   <div className="flex gap-2">
@@ -487,7 +488,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                       <li key={i}>
                         <button
                           onClick={() => copyItem(`t${i}`, t)}
-                          className="w-full rounded-lg border px-3 py-2 text-left text-sm text-white transition-colors"
+                          className="w-full rounded-lg border px-3 py-2 text-left text-sm text-[var(--text)] transition-colors"
                           style={{
                             borderColor: copiedIndex === `t${i}` ? 'var(--ok)' : 'var(--border)',
                             background: copiedIndex === `t${i}` ? 'rgba(52,211,153,0.08)' : 'var(--panel)',
@@ -506,7 +507,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
                       <li key={i}>
                         <button
                           onClick={() => copyItem(`h${i}`, h)}
-                          className="w-full rounded-lg border px-3 py-2 text-left text-sm text-white transition-colors"
+                          className="w-full rounded-lg border px-3 py-2 text-left text-sm text-[var(--text)] transition-colors"
                           style={{
                             borderColor: copiedIndex === `h${i}` ? 'var(--ok)' : 'var(--border)',
                             background: copiedIndex === `h${i}` ? 'rgba(52,211,153,0.08)' : 'var(--panel)',

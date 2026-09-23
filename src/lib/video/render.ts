@@ -350,10 +350,11 @@ function drawBrandCard(
 }
 
 const MIME_PREFERRED = [
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4',
   'video/webm;codecs=vp9,opus',
   'video/webm;codecs=vp8,opus',
   'video/webm',
-  'video/mp4',
 ]
 
 /**
@@ -363,100 +364,92 @@ const MIME_PREFERRED = [
  * em tempo real (sem WebCodecs) e é compatível com Chrome/Edge/Safari.
  */
 export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
+  if (!cfg.sourceBlob.size || !cfg.keepRanges.length) throw new Error('Selecione um vídeo e ao menos um trecho para exportar.')
+  if (cfg.keepRanges.some((r) => !Number.isFinite(r.start) || !Number.isFinite(r.end) || r.start < 0 || r.end <= r.start)) throw new Error('Os cortes do vídeo são inválidos.')
+  if (cfg.signal?.aborted) throw new DOMException('Exportação cancelada.', 'AbortError')
+  const actx = new AudioContext()
+  // Resume during the export click, before metadata loading consumes user activation.
+  const audioReady = actx.resume()
   const url = URL.createObjectURL(cfg.sourceBlob)
   const video = document.createElement('video')
   video.preload = 'auto'
-  video.muted = false
-  video.volume = 0
   video.playsInline = true
   video.src = url
-
-  await new Promise<void>((resolve, reject) => {
-    video.onloadedmetadata = () => resolve()
-    video.onerror = () => reject(new Error('Não foi possível abrir o vídeo para edição.'))
+  let out: MediaStream | undefined
+  let musicNode: AudioBufferSourceNode | undefined
+  let rec: MediaRecorder | undefined
+  let stopRange = () => {}
+  let abort = () => {}
+  let done = false
+  const cleanup = () => {
+    if (done) return
+    done = true
+    stopRange()
+    cfg.signal?.removeEventListener('abort', abort)
+    if (rec && rec.state !== 'inactive') rec.stop()
+    video.pause()
+    video.removeAttribute('src')
     video.load()
-  })
-
-  const canvas = document.createElement('canvas')
-  canvas.width = cfg.targetWidth
-  canvas.height = cfg.targetHeight
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas indisponível neste navegador.')
-
-  const fps = cfg.fps ?? 30
-  const canvasStream = canvas.captureStream(fps)
-  const out = new MediaStream()
-  out.addTrack(canvasStream.getVideoTracks()[0]!)
-
-  // Áudio: se há música de fundo ou áudio do vídeo, roteia via Web Audio
-  // para permitir mixar as duas fontes.
-  let actx: AudioContext | null = null
-  let musicNode: AudioBufferSourceNode | null = null
-  const elStream = (
-    video as HTMLVideoElement & { captureStream?: () => MediaStream }
-  ).captureStream?.()
-  const hasElAudio = (elStream?.getAudioTracks().length ?? 0) > 0
-
-  if (cfg.music || hasElAudio) {
-    actx = new AudioContext()
-    const dest = actx.createMediaStreamDestination()
-    if (hasElAudio) {
-      try {
-        actx.createMediaElementSource(video).connect(dest)
-      } catch {
-        // elemento já roteado; usa captureStream como fallback
-        for (const t of elStream?.getAudioTracks() ?? []) out.addTrack(t)
+    URL.revokeObjectURL(url)
+    out?.getTracks().forEach((track) => track.stop())
+    try { musicNode?.stop() } catch { /* Music may not have started. */ }
+    if (actx.state !== 'closed') void actx.close()
+  }
+  try {
+    await audioReady
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timeout)
+        cfg.signal?.removeEventListener('abort', cancel)
+        video.onloadeddata = null
+        video.onerror = null
+        if (error) reject(error)
+        else resolve()
       }
-    }
+      const cancel = () => finish(new DOMException('Exportação cancelada.', 'AbortError'))
+      const timeout = setTimeout(() => finish(new Error('O vídeo demorou demais para abrir. Tente um arquivo menor.')), 15000)
+      video.onloadeddata = () => finish()
+      video.onerror = () => finish(new Error('Não foi possível abrir o vídeo para edição.'))
+      cfg.signal?.addEventListener('abort', cancel, { once: true })
+      if (cfg.signal?.aborted) cancel()
+      else video.load()
+    })
+    if (Number.isFinite(video.duration) && cfg.keepRanges.some((r) => r.start >= video.duration)) throw new Error('Um dos cortes começa depois do fim do vídeo.')
+    const canvas = document.createElement('canvas')
+    canvas.width = cfg.targetWidth
+    canvas.height = cfg.targetHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas indisponível neste navegador.')
+    out = canvas.captureStream(cfg.fps ?? 30)
+    const dest = actx.createMediaStreamDestination()
+    // Safari lacks video.captureStream(); a media element source preserves its audio.
+    actx.createMediaElementSource(video).connect(dest)
     if (cfg.music) {
       musicNode = actx.createBufferSource()
       musicNode.buffer = cfg.music.buffer
       const gain = actx.createGain()
       gain.gain.value = Math.max(0, Math.min(1, cfg.music.volume))
-      musicNode.connect(gain)
-      gain.connect(dest)
-      musicNode.start()
+      musicNode.connect(gain).connect(dest)
     }
-    for (const t of dest.stream.getAudioTracks()) out.addTrack(t)
-    void actx.resume()
-  } else {
-    for (const t of elStream?.getAudioTracks() ?? []) out.addTrack(t)
-  }
-
-  const mime = MIME_PREFERRED.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
-  const rec = mime
-    ? new MediaRecorder(out, { mimeType: mime, videoBitsPerSecond: 12_000_000 })
-    : new MediaRecorder(out)
-
-  return new Promise<Blob>((resolve, reject) => {
-    const chunks: Blob[] = []
-    let done = false
-
-    const cleanup = () => {
-      if (done) return
-      done = true
-      video.pause()
-      video.removeAttribute('src')
-      video.load()
-      URL.revokeObjectURL(url)
-      out.getTracks().forEach((t) => t.stop())
-      musicNode?.stop()
-      if (actx && actx.state !== 'closed') void actx.close()
-    }
-
-    rec.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data)
-    }
-    rec.onstop = () => {
-      const blob = new Blob(chunks, { type: rec.mimeType || 'video/webm' })
-      cleanup()
-      resolve(blob)
-    }
-    rec.onerror = () => {
-      cleanup()
-      reject(new Error('Erro ao processar o vídeo. Tente outro navegador ou formato.'))
-    }
-
+    for (const track of dest.stream.getAudioTracks()) out.addTrack(track)
+    const mime = MIME_PREFERRED.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
+    const recorder = mime ? new MediaRecorder(out, { mimeType: mime, videoBitsPerSecond: 8_000_000 }) : new MediaRecorder(out)
+    rec = recorder
+    return await new Promise<Blob>((resolve, reject) => {
+      const chunks: Blob[] = []
+      const fail = (error: unknown) => { cleanup(); reject(error) }
+      abort = () => fail(new DOMException('Exportação cancelada.', 'AbortError'))
+      cfg.signal?.addEventListener('abort', abort, { once: true })
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+      recorder.onstop = () => {
+        if (done) return
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' })
+        if (!blob.size) { fail(new Error('A exportação ficou vazia. Tente novamente.')); return }
+        cfg.onProgress?.(1)
+        cleanup()
+        resolve(blob)
+      }
+      recorder.onerror = () => fail(new Error('Erro ao processar o vídeo. Tente outro navegador ou formato.'))
     const total = cfg.keepRanges.reduce((s, r) => s + (r.end - r.start), 0)
     let completed = 0
     let rangeIdx = 0
@@ -549,66 +542,63 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
 
     const playNext = () => {
       if (done) return
-      if (rangeIdx >= cfg.keepRanges.length) {
-        if (rec.state !== 'inactive') rec.stop()
-        return
-      }
-      if (cfg.signal?.aborted) {
-        cleanup()
-        reject(new DOMException('Aborted', 'AbortError'))
-        return
-      }
+      if (rangeIdx >= cfg.keepRanges.length) { recorder.stop(); return }
+      if (cfg.signal?.aborted) { abort(); return }
       const range = cfg.keepRanges[rangeIdx]!
-
-      const onSeeked = async () => {
-        video.removeEventListener('seeked', onSeeked)
-        try {
-          await video.play()
-        } catch (err) {
-          video.muted = true
-          try {
-            await video.play()
-          } catch {
-            cleanup()
-            reject(err instanceof Error ? err : new Error('Falha ao reproduzir o vídeo.'))
-            return
-          }
-        }
-
-        const onFrame = () => {
-          if (done) return
-          const pos = Math.min(video.currentTime, range.end) - range.start
-          const rangeDur = Math.max(0.001, range.end - range.start)
-          draw(Math.min(1, pos / rangeDur))
-          cfg.onProgress?.(total ? Math.min(1, (completed + pos) / total) : 1)
-          if (video.currentTime >= range.end || video.ended) {
-            completed += Math.min(range.end, video.duration) - range.start
-            rangeIdx++
-            video.pause()
-            playNext()
-          } else if (typeof video.requestVideoFrameCallback === 'function') {
-            video.requestVideoFrameCallback(onFrame)
-          } else {
-            requestAnimationFrame(onFrame)
-          }
-        }
-        onFrame()
-
-        const onEnded = () => {
-          if (done || rangeIdx >= cfg.keepRanges.length) return
-          completed += Math.min(range.end, video.duration) - range.start
-          rangeIdx++
-          video.pause()
-          playNext()
-        }
-        video.addEventListener('ended', onEnded)
+      let finished = false
+      let frame: number | undefined
+      let animation: number | undefined
+      let seekTimer: ReturnType<typeof setTimeout> | undefined
+      const finishRange = () => {
+        if (done || finished) return
+        finished = true
+        stopRange()
+        completed += Math.max(0, Math.min(range.end, Number.isFinite(video.duration) ? video.duration : range.end) - range.start)
+        rangeIdx++
+        video.pause()
+        if (recorder.state === 'recording') recorder.pause()
+        playNext()
       }
-
-      video.addEventListener('seeked', onSeeked)
-      video.currentTime = range.start
+      const onFrame = () => {
+        if (done || finished) return
+        const pos = Math.max(0, Math.min(video.currentTime, range.end) - range.start)
+        draw(Math.min(1, pos / (range.end - range.start)))
+        cfg.onProgress?.(Math.min(1, (completed + pos) / total))
+        if (video.currentTime >= range.end || video.ended) finishRange()
+        else if (typeof video.requestVideoFrameCallback === 'function') frame = video.requestVideoFrameCallback(onFrame)
+        else animation = requestAnimationFrame(onFrame)
+      }
+      const onSeeked = async () => {
+        clearTimeout(seekTimer)
+        video.removeEventListener('seeked', onSeeked)
+        if (done) return
+        try {
+          draw(0)
+          await video.play()
+          if (done) return
+          if (recorder.state === 'paused') recorder.resume()
+          onFrame()
+        } catch { fail(new Error('Não foi possível reproduzir o vídeo com áudio. Toque em exportar novamente.')) }
+      }
+      stopRange = () => {
+        clearTimeout(seekTimer)
+        video.removeEventListener('seeked', onSeeked)
+        video.removeEventListener('ended', finishRange)
+        if (frame != null) video.cancelVideoFrameCallback(frame)
+        if (animation != null) cancelAnimationFrame(animation)
+      }
+      video.addEventListener('ended', finishRange, { once: true })
+      if (Math.abs(video.currentTime - range.start) < 0.001 && video.readyState >= 2) void onSeeked()
+      else {
+        video.addEventListener('seeked', onSeeked, { once: true })
+        seekTimer = setTimeout(() => fail(new Error('Não foi possível posicionar um dos cortes.')), 15000)
+        video.currentTime = range.start
+      }
     }
-
-    rec.start(500)
+    recorder.start(500)
+    recorder.pause()
+    musicNode?.start()
     playNext()
-  })
+    })
+  } finally { cleanup() }
 }

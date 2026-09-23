@@ -31,6 +31,7 @@ export function useRecorder() {
 
   const enable = useCallback(async () => {
     if (streamRef.current) return
+    setError(null)
     setStatus('requesting')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -58,9 +59,9 @@ export function useRecorder() {
   const start = useCallback(() => {
     const stream = streamRef.current
     if (!stream || recorderRef.current) return
-    const mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m))
     let recorder: MediaRecorder
     try {
+      const mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m))
       recorder = mime
         ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 })
         : new MediaRecorder(stream)
@@ -75,14 +76,25 @@ export function useRecorder() {
     }
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'video/webm' })
+      recorderRef.current = null
+      if (timerRef.current != null) window.clearInterval(timerRef.current)
+      timerRef.current = null
+      if (!blob.size) { setStatus('error'); setError('A gravação ficou vazia. Verifique a câmera e tente novamente.'); return }
       setVideoBlob(blob)
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
       const url = URL.createObjectURL(blob)
       urlRef.current = url
       setVideoUrl(url)
-      setStatus('ready')
+      setStatus(streamRef.current ? 'ready' : 'idle')
     }
-    recorder.start(1500)
+    recorder.onerror = () => {
+      if (timerRef.current != null) window.clearInterval(timerRef.current)
+      timerRef.current = null
+      recorderRef.current = null
+      setStatus('error')
+      setError('A gravação foi interrompida pelo aparelho. Tente novamente com um vídeo menor.')
+    }
+    try { recorder.start(1500) } catch { setStatus('error'); setError('Não foi possível iniciar a gravação.'); return }
     recorderRef.current = recorder
     setElapsed(0)
     timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000)
