@@ -34,9 +34,15 @@ ios/
 android/keystore.properties
 android/*.keystore
 
+# pacotes Android gerados (AAB/APK) — subir manualmente no Play Console
+*.aab
+*.apk
+
 # estado local do Wrangler e config pessoal de agentes de IA
 api/transcribe/.wrangler/
 .claude/
 
 # Pacotes locais de entrega (gerados)
 artifacts/
+# Playwright (E2E local)
+.playwright-mcp/

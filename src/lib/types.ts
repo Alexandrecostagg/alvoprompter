@@ -22,6 +22,8 @@ export type View =
   | 'scheduling'
   | 'workspaces'
   | 'ai-twin'
+  | 'video-page'
+  | 'metrics'
 
 export type SocialChannel = 'youtube' | 'instagram' | 'tiktok' | 'linkedin' | 'x' | 'whatsapp'
 
@@ -107,6 +109,8 @@ export type ScrollMode = 'voice' | 'fixed' | 'manual' | 'timed'
 
 export type AspectGuideRatio = 'none' | '9:16' | '1:1' | '16:9'
 
+export type BeautyPreset = 'none' | 'smooth' | 'classic' | 'glamour'
+
 export interface PrompterSettings {
   mode: ScrollMode
   wpm: number
@@ -115,12 +119,16 @@ export interface PrompterSettings {
   lineHeight: number
   fontColor: string
   bgColor: string
+  bgImage: string | null
+  bgVideo: string | null
   fontFamily: string
   letterSpacing: number
   mirror: boolean
   rtl: boolean
   cameraOn: boolean
-  cameraPosition: 'top' | 'bottom'
+  cameraPosition: 'top' | 'bottom' | 'side' | 'fullscreen'
+  beauty: BeautyPreset
+  beautyIntensity: number
   aspectGuide: AspectGuideRatio
   eyeContactDot: boolean
   voiceLang: string
@@ -139,12 +147,16 @@ export const DEFAULT_SETTINGS: PrompterSettings = {
   lineHeight: 1.6,
   fontColor: '#ffffff',
   bgColor: '#000000',
+  bgImage: null,
+  bgVideo: null,
   fontFamily: 'system-ui, sans-serif',
   letterSpacing: 0,
   mirror: false,
   rtl: false,
-  cameraOn: false,
+  cameraOn: true,
   cameraPosition: 'bottom',
+  beauty: 'none',
+  beautyIntensity: 60,
   aspectGuide: 'none',
   eyeContactDot: false,
   voiceLang: 'pt-BR',

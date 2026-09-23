@@ -4,6 +4,7 @@ import { estimateDurationMinutes, wordCount } from '../../lib/text'
 import { formatElapsed } from '../../hooks/useRecorder'
 import { IMPORTABLE_EXT, extractTextFromFile, fileNameFromImport } from '../../lib/importers'
 import { speakWithTts } from '../../lib/cloudflare'
+import { trackEvent } from '../../lib/stats'
 import AiPanel from '../ai/AiPanel'
 import ScriptAnalysis from './ScriptAnalysis'
 
@@ -52,6 +53,7 @@ export default function ScriptEditor() {
   const handleSave = async () => {
     if (!currentScript || cloudWorkspace?.role === 'viewer') return
     await upsertScript(currentScript)
+    trackEvent('script_saved')
   }
 
   const importFile = async (file: File) => {
@@ -211,31 +213,32 @@ export default function ScriptEditor() {
         <span>Dica: use parágrafos curtos para a rolagem por voz acompanhar melhor.</span>
       </div>
 
-      <div className={`${showTiming ? 'flex' : 'hidden'} mt-3 flex-wrap items-center gap-4 rounded-2xl border px-4 py-3 sm:flex`} style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        <div>
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-            Duração por velocidade
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {SPEEDS.map((s) => (
-              <button
-                key={s}
-                onClick={() => updateSettings({ wpm: s })}
-                className="rounded-md px-2 py-1 text-[11px] tabular-nums transition-colors"
-                style={{
-                  background: s === settings.wpm ? 'var(--accent)' : 'rgba(0,0,0,0.25)',
-                  color: s === settings.wpm ? 'black' : 'var(--text)',
-                }}
-                title="Clique para definir esta velocidade"
-              >
-                {s} wpm · {formatElapsed(estimateDurationMinutes(words, s) * 60)}
-              </button>
-            ))}
-          </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
+        <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
+          Velocidade
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {SPEEDS.map((s) => (
+            <button
+              key={s}
+              onClick={() => updateSettings({ wpm: s })}
+              className="rounded-full border px-3 py-1.5 text-[11px] font-semibold tabular-nums transition-colors"
+              style={
+                s === settings.wpm
+                  ? { background: 'var(--accent)', borderColor: 'var(--accent)', color: 'black' }
+                  : { borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink-soft)' }
+              }
+              title="Clique para definir esta velocidade"
+            >
+              {s} wpm · {formatElapsed(estimateDurationMinutes(words, s) * 60)}
+            </button>
+          ))}
         </div>
-        <div className="h-8 w-px" style={{ background: 'var(--border)' }} />
+      </div>
+
+      <div className={`${showTiming ? 'flex' : 'hidden'} mt-3 flex-wrap items-center gap-4 rounded-2xl border px-4 py-3`} style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
         <div>
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
             Para terminar em
           </p>
           <div className="flex flex-wrap gap-2">
@@ -243,8 +246,8 @@ export default function ScriptEditor() {
               <button
                 key={t}
                 onClick={() => updateSettings({ targetMinutes: t, mode: 'timed' })}
-                className="rounded-md px-2 py-1 text-[11px] tabular-nums transition-colors"
-                style={{ background: 'rgba(0,0,0,0.25)', color: 'var(--text)' }}
+                className="rounded-full border px-3 py-1.5 text-[11px] font-semibold tabular-nums transition-colors"
+                style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink-soft)' }}
                 title="Abre no modo tempo-alvo do prompter"
               >
                 {t} min · ≈{Math.max(1, Math.round(words / t))} wpm

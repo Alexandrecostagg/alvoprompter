@@ -413,9 +413,22 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
   }
 }
 
+export async function requireUser(
+  request: Request,
+  env: SaaSEnv,
+): Promise<AuthUser> {
+  const projectId = env.FIREBASE_PROJECT_ID?.trim() ?? ''
+  if (!env.DB || !projectId || projectId.startsWith('configure-')) {
+    throw new Error('Login não configurado no servidor.')
+  }
+  const user = await authenticate(request, env)
+  await syncUser(requireDb(env), user)
+  return user
+}
+
 /**
  * Consome uma ação mensal de IA quando o SaaS está configurado.
- * Retorna null quando a chamada pode continuar ou uma resposta 4xx quando deve parar.
+ * Retorna Response quando a chamada deve parar; registra a reserva para reembolso em falha.
  */
 export interface AiCharge { uid: string; month: string }
 

@@ -15,7 +15,7 @@
  * Uso local:  npx wrangler dev --port 8787
  * Publicar:   npx wrangler deploy
  */
-import { authorizeAiAction, refundAiAction, handleSaaSRequest, type SaaSEnv, type AiCharge } from './saas'
+import { authorizeAiAction, refundAiAction, handleSaaSRequest, requireUser, type SaaSEnv, type AiCharge } from './saas'
 
 export interface Env {
   AI: {
@@ -113,6 +113,10 @@ async function syncKey(pass: string, prefix = 'sync'): Promise<string> {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
   return `${prefix}:${hex}`
+}
+
+function videoPageKey(id: string): string {
+  return `vpage:${id.toLowerCase()}`
 }
 
 /**
@@ -366,11 +370,58 @@ function uTitle(target: string): string {
   }
 }
 
+// ---- Proteção contra SSRF no importador de URLs ----
+// Bloqueia endereços privados/loopback/metadata para que o Worker não seja
+// usado como proxy para a rede interna (10.x, 172.16/12, 192.168, 127.x,
+// link-local, CGNAT, IPv6 literal e hostnames internos comuns).
+function ipv4IsPrivate(ip: string): boolean {
+  const parts = ip.split('.').map((n) => Number(n))
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false
+  return (
+    parts[0] === 10 ||
+    parts[0] === 127 ||
+    parts[0] === 0 ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168) ||
+    (parts[0] === 169 && parts[1] === 254) ||
+    (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127)
+  )
+}
+
+function importUrlBlocked(target: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(target)
+  } catch {
+    return 'URL inválida.'
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'Somente URLs http(s) são aceitas.'
+  }
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
+  if (host.includes(':')) return 'Endereços IPv6 não são aceitos na importação.'
+  if (
+    host === 'localhost' ||
+    host === 'metadata.google.internal' ||
+    host === 'metadata' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.home.arpa')
+  ) {
+    return 'Endereço interno não pode ser importado.'
+  }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) && ipv4IsPrivate(host)) {
+    return 'Endereço privado não pode ser importado.'
+  }
+  return null
+}
+
 const api = {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS })
     const url = new URL(request.url)
+
 
     const saasResponse = await handleSaaSRequest(request, env as Env & SaaSEnv)
     if (saasResponse) return saasResponse
@@ -402,6 +453,7 @@ const api = {
         response_format?: { type?: string }
       } | null
       if (!input?.messages?.length || input.messages.length > 30) {
+
         return json({ error: 'Conversa inválida.' }, 400)
       }
       const messages = input.messages.map((message) => ({
@@ -421,7 +473,7 @@ const api = {
             stream: true,
             ...(provider.name === 'deepseek' ? { thinking: { type: 'disabled' } } : {}),
             temperature: Math.min(1.5, Math.max(0, input.temperature ?? 0.7)),
-            max_tokens: Math.min(8_000, Math.max(1, input.max_tokens ?? 2_000)),
+            max_tokens: 8_000,
             ...(input.response_format?.type === 'json_object'
               ? { response_format: { type: 'json_object' } }
               : {}),
@@ -441,11 +493,13 @@ const api = {
                     : 'O provedor de IA não respondeu corretamente. Tente novamente.'
           return json({ error: message }, upstream.status)
         }
-        return new Response(upstream.body, {
+        const body = upstream.body
+        return new Response(body, {
           status: upstream.status,
           headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', ...CORS_HEADERS },
         })
       } catch {
+
         return json({ error: 'A IA está temporariamente indisponível.' }, 502)
       }
     }
@@ -580,6 +634,8 @@ const api = {
       const { url: target } = (await request.json()) as { url?: string }
       if (!target) return json({ error: 'Campo "url" ausente.' }, 400)
       if (target.length > 2_048) return json({ error: 'URL acima do limite permitido.' }, 413)
+      const blocked = importUrlBlocked(target)
+      if (blocked) return json({ error: blocked }, 400)
       let parsed: URL
       try {
         parsed = new URL(target)
@@ -636,6 +692,8 @@ const api = {
 
     // ---- Sync de roteiros (KV, protegido por frase-chave) ----
     if (url.pathname === '/sync') {
+      const syncLimited = await enforceRateLimit(request, env, 'sync', 1000)
+      if (syncLimited) return syncLimited
       const pass = (request.headers.get('x-sync-pass') ?? '').trim()
       if (pass.length < MIN_SYNC_PASS_LENGTH) {
         return json({ error: `Frase-chave muito curta (mínimo ${MIN_SYNC_PASS_LENGTH} caracteres).` }, 400)
@@ -682,9 +740,13 @@ const api = {
 
     // ---- Sync de agendamentos e workspaces (KV, mesma frase-chave) ----
     if (url.pathname === '/schedules') {
+      const limited = await enforceRateLimit(request, env, 'schedules', 500)
+      if (limited) return limited
       return handleCollection(request, env.ALVOPROMPT_SYNC, 'schedules', 'posts', sanitizePost)
     }
     if (url.pathname === '/workspaces') {
+      const limited = await enforceRateLimit(request, env, 'workspaces', 500)
+      if (limited) return limited
       return handleCollection(
         request,
         env.ALVOPROMPT_SYNC,
@@ -694,9 +756,113 @@ const api = {
       )
     }
 
+    // ---- Páginas de vídeo (landing pública para compartilhamento) ----
+    const videoPageMatch = url.pathname.match(/^\/videopages\/([a-f0-9-]{36})(?:\/(play))?$/i)
+    if (videoPageMatch) {
+      const id = videoPageMatch[1]!.toLowerCase()
+      const pageKey = videoPageKey(id)
+      const isPlay = Boolean(videoPageMatch[2])
+
+      if (request.method === 'GET' && isPlay) {
+        // --- Reprodução pública (aumenta contador de visualizações) ---
+        const pageRaw = await env.ALVOPROMPT_SYNC.get(pageKey)
+        if (!pageRaw) return json({ error: 'Página de vídeo não encontrada.' }, 404)
+        let page: Record<string, unknown> | null = null
+        try {
+          page = JSON.parse(pageRaw) as Record<string, unknown>
+        } catch {
+          return json({ error: 'Página de vídeo inválida.' }, 500)
+        }
+        const mediaHash = String(page.passHash ?? '')
+        const mediaKey = String(page.mediaKey ?? '')
+        if (!mediaHash || !mediaKey) return json({ error: 'Vídeo não localizado.' }, 404)
+        const object = await env.alvoprompt_media.get(`${mediaHash.startsWith('media:') ? mediaHash : `media:${mediaHash}`}:${mediaKey}`)
+        if (!object) return json({ error: 'Vídeo não encontrado.' }, 404)
+        const headers = new Headers(CORS_HEADERS)
+        object.writeHttpMetadata(headers)
+        headers.set('Content-Type', object.httpMetadata?.contentType ?? 'video/webm')
+        headers.set('Accept-Ranges', 'bytes')
+        const views = Number(page.views ?? 0) + 1
+        await env.ALVOPROMPT_SYNC.put(
+          pageKey,
+          JSON.stringify({ ...page, views }),
+          { metadata: { updated: new Date().toISOString() } },
+        )
+        return new Response(object.body, { headers })
+      }
+
+      if (request.method === 'GET') {
+        // --- Metadados públicos da página ---
+        const pageRaw = await env.ALVOPROMPT_SYNC.get(pageKey)
+        if (!pageRaw) return json({ error: 'Página de vídeo não encontrada.' }, 404)
+        let page: Record<string, unknown> | null = null
+        try {
+          page = JSON.parse(pageRaw) as Record<string, unknown>
+        } catch {
+          return json({ error: 'Página de vídeo inválida.' }, 500)
+        }
+        return json({
+          id: page.id,
+          title: page.title ?? '',
+          description: page.description ?? '',
+          author: page.author ?? '',
+          createdAt: page.createdAt ?? '',
+          videoUrl: `/videopages/${page.id}/play`,
+          views: Number(page.views ?? 0),
+        })
+      }
+    }
+
+    if (url.pathname === '/videopages' && request.method === 'POST') {
+      let author = ''
+      try {
+        const user = await requireUser(request, env as Env & SaaSEnv)
+        author = user.name
+      } catch (error) {
+        return json({ error: (error as Error).message }, 401)
+      }
+      const pass = (request.headers.get('x-sync-pass') ?? '').trim()
+      if (pass.length < MIN_SYNC_PASS_LENGTH) {
+        return json({ error: 'Frase-chave obrigatória para criar páginas de vídeo.' }, 401)
+      }
+      const body = (await request.json().catch(() => null)) as {
+        title?: unknown
+        description?: unknown
+        mediaKey?: unknown
+      } | null
+      const title = String(body?.title ?? '').trim().slice(0, 200)
+      const mediaKey = String(body?.mediaKey ?? '').trim()
+      if (!title || !mediaKey || !/^[a-zA-Z0-9._-]{1,128}$/.test(mediaKey)) {
+        return json({ error: 'Título e arquivo de vídeo são obrigatórios.' }, 400)
+      }
+      const id = crypto.randomUUID()
+      const page = {
+        id,
+        title,
+        description: String(body?.description ?? '').trim().slice(0, 500),
+        author,
+        mediaKey,
+        passHash: await syncKey(pass, 'media'),
+        createdAt: new Date().toISOString(),
+        views: 0,
+      }
+      await env.ALVOPROMPT_SYNC.put(videoPageKey(id), JSON.stringify(page))
+      return json({
+        id,
+        title: page.title,
+        description: page.description,
+        author: page.author,
+        createdAt: page.createdAt,
+        videoUrl: `/videopages/${id}/play`,
+        views: 0,
+      })
+    }
+
     // ---- Armazenamento de mídia no R2 ----
     const mediaMatch = url.pathname.match(/^\/media\/(.+)$/)
     if (mediaMatch) {
+      const mediaLimited = await enforceRateLimit(request, env, 'media', 2000)
+      if (mediaLimited) return mediaLimited
       const pass = (request.headers.get('x-sync-pass') ?? '').trim()
       if (pass.length < MIN_SYNC_PASS_LENGTH) return json({ error: 'Frase-chave obrigatória para acessar mídia.' }, 401)
       const rawKey = decodeURIComponent(mediaMatch[1]!)

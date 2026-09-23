@@ -10,6 +10,7 @@ describe('AI provider and monthly allowance',()=>{
     vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
       if(String(url).includes('googleapis.com/robot')) return new Response(JSON.stringify({test:'certificate'}))
       expect(JSON.parse(String(init?.body)).model).toBe('Carcara-3.8-27B')
+      expect(JSON.parse(String(init?.body)).max_tokens).toBe(8000)
       return upstream()
     }))
     const waiting:Promise<unknown>[]=[]
