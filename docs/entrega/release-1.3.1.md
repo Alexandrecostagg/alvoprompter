@@ -25,6 +25,16 @@ O relatório inicial `2026-09-23.md` registra a validação anterior à integra�
 
 ## Publicação
 
-Em preparação: migração aditiva 0004, API, política de privacidade, app Pages e landing Pages. Os identificadores e verificações serão registrados após a publicação.
+Publicação concluída a partir do commit `cf6077a`:
+
+- D1: migração aditiva `0004_workspace_content.sql` aplicada com sucesso.
+- API: `1d71dec4-c120-440a-83fd-e0c512deb809`.
+- Política: `17f80893-d6ab-404b-9f8c-a5495a06e82e`.
+- App Pages: `https://a034279f.alvoprompter.pages.dev`, produção `https://app.alvoprompter.com.br`.
+- Landing Pages: `https://8467e91b.alvoprompter-landing.pages.dev`, produção `https://alvoprompter.com.br`.
+- API `/health`: release 1.3.1, protocolo 2, Carcará e login configurados; cobrança não configurada, sandbox ativo.
+- Chat e workspaces sem sessão retornam 401; origem externa não permitida retorna 403.
+- HTML e logo do app correspondem ao build. Favicon da landing corresponde ao arquivo local; HTML difere apenas pela proteção automática de e-mail do Cloudflare. Política responde 200 com os textos atualizados.
+- Navegador carregou a apresentação inicial, formulário de login habilitado e entrada no modo local.
 
 A cobrança permanece em sandbox e depende do segredo ASAAS_API_KEY. Esta entrega não configura cobranças de produção nem envia o AAB à loja.
