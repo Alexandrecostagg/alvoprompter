@@ -96,13 +96,13 @@ export default function ScriptEditor() {
       <div className="sticky top-0 z-20 -mx-4 mb-4 border-b px-4 pb-3 backdrop-blur-xl sm:static sm:mx-0 sm:rounded-2xl sm:border sm:p-3" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--bg) 92%, transparent)' }}>
         <div className="flex items-center gap-2">
           <button onClick={() => setView('library')} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border text-lg" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }} aria-label="Voltar para a biblioteca">←</button>
-          <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">Roteiro · etapa 2 de 3</p><p className="text-[11px]" style={{ color: dirty ? 'var(--warn)' : 'var(--muted)' }}>{saveError ?? (saveStatus === 'saving' || saveStatus === 'pending' ? 'Salvando automaticamente…' : saveStatus === 'error' ? 'Falha ao salvar' : 'Salvo neste dispositivo')}</p></div>
+          <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">1. Roteiro</p><p className="text-[11px]" style={{ color: dirty ? 'var(--warn)' : 'var(--muted)' }}>{saveError ?? (saveStatus === 'saving' || saveStatus === 'pending' ? 'Salvando automaticamente…' : saveStatus === 'error' ? 'Falha ao salvar' : 'Salvo neste dispositivo')}</p></div>
           <button onClick={() => void handleSave().catch(() => undefined)} disabled={!dirty || saveStatus === 'saving'} className="min-h-11 rounded-2xl border px-3 text-xs font-bold disabled:opacity-50" style={{ borderColor: dirty ? 'var(--warn)' : 'var(--border)', color: dirty ? 'var(--warn)' : 'var(--muted)' }}>{dirty ? 'Salvar' : 'Salvo'}</button>
-          <button onClick={() => void handleSave().then(() => setView('prompter')).catch(() => undefined)} disabled={words === 0} className="min-h-11 rounded-2xl px-3 text-sm font-bold text-white disabled:opacity-40 sm:px-4" style={{ background: 'var(--brand-gradient)' }}>Preparar</button>
+          <button onClick={() => void handleSave().then(() => setView('prompter')).catch(() => undefined)} disabled={words === 0} className="min-h-11 rounded-2xl px-3 text-sm font-bold text-white disabled:opacity-40 sm:px-4" style={{ background: 'var(--brand-gradient)' }}>Gravar →</button>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2" aria-label="Progresso de criação">
           <span className="h-1.5 rounded-full" style={{ background: 'var(--brand-strong)' }} />
-          <span className="h-1.5 rounded-full" style={{ background: 'var(--brand-strong)' }} />
+          <span className="h-1.5 rounded-full" style={{ background: 'var(--border)' }} />
           <span className="h-1.5 rounded-full" style={{ background: 'var(--border)' }} />
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 sm:flex sm:justify-end">

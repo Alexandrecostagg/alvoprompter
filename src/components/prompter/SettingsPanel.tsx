@@ -28,6 +28,7 @@ const VOICE_LANGS = [
 interface SettingsPanelProps {
   settings: PrompterSettings
   wordCount: number
+  isRecording?: boolean
   onClose: () => void
 }
 
@@ -95,7 +96,7 @@ function Segmented<T extends string>({
   )
 }
 
-export default function SettingsPanel({ settings, wordCount, onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, wordCount, isRecording = false, onClose }: SettingsPanelProps) {
   const updateSettings = useAppStore((s) => s.updateSettings)
   const resetSettings = useAppStore((s) => s.resetSettings)
   const bgFileRef = useRef<HTMLInputElement>(null)
@@ -549,6 +550,7 @@ export default function SettingsPanel({ settings, wordCount, onClose }: Settings
             </Row>
             {settings.cameraOn && (
               <>
+                <fieldset disabled={isRecording} className="min-w-0 disabled:opacity-60">
                 <Row label="Filtro de beleza">
                   <Segmented
                     value={settings.beauty}
@@ -575,6 +577,8 @@ export default function SettingsPanel({ settings, wordCount, onClose }: Settings
                     </p>
                   </>
                 )}
+                </fieldset>
+                {isRecording ? <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Finalize a gravação para mudar o filtro de beleza.</p> : null}
                 <Row label="Ponto de contato visual">
                   <Toggle
                     checked={settings.eyeContactDot}

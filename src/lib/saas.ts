@@ -10,7 +10,10 @@ export interface SaaSWorkspace {
   createdAt: string
 }
 
+export interface AccountProfile { fullName: string; phone: string; organization: string }
+
 export interface AccountSummary {
+  profile?: AccountProfile | null
   user: { uid: string; email: string; name: string }
   subscription: {
     plan: PlanId
@@ -75,4 +78,8 @@ export function inviteWorkspaceMember(
     method: 'POST',
     body: JSON.stringify(member),
   })
+}
+
+export function saveAccountProfile(profile: AccountProfile): Promise<{ profile: AccountProfile }> {
+  return accountFetch('/account/profile', { method: 'PATCH', body: JSON.stringify(profile) })
 }

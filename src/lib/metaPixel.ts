@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core'
+
 const MARKETING_CONSENT_KEY = 'alvoprompter_marketing_consent_v1'
 const META_PIXEL_ID = (import.meta.env.VITE_META_PIXEL_ID as string | undefined)?.trim() ?? ''
 
@@ -61,6 +63,7 @@ function installMetaQueue(): MetaQueue {
  * O app continua funcionando normalmente quando qualquer uma dessas condições não existe.
  */
 export function initializeMetaPixel(): boolean {
+  if (Capacitor.isNativePlatform()) return false
   if (initialized) return true
   if (typeof window === 'undefined' || typeof document === 'undefined') return false
   if (!hasMarketingConsent() || !validPixelId()) return false

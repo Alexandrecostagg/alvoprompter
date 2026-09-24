@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createRecordingPipeline, type RecordingPipeline } from '../lib/recordingPipeline'
 
 type RecorderStatus = 'idle' | 'requesting' | 'ready' | 'recording' | 'error'
 
@@ -20,114 +21,86 @@ export function useRecorder() {
   const streamRef = useRef<MediaStream | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
   const videoElRef = useRef<HTMLVideoElement | null>(null)
   const timerRef = useRef<number | null>(null)
   const urlRef = useRef<string | null>(null)
   const filterRef = useRef<string | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const pipelineVideoRef = useRef<HTMLVideoElement | null>(null)
-  const pipelineTrackRef = useRef<MediaStreamTrack | null>(null)
-  const rafRef = useRef<number | null>(null)
+  const pipelineRef = useRef<RecordingPipeline | null>(null)
+  const appliedFilterRef = useRef<string | null>(null)
+  const pendingEnableRef = useRef<Promise<void> | null>(null)
+  const cameraGeneration = useRef(0)
 
   const attachVideo = useCallback((el: HTMLVideoElement | null) => {
+    const previous = videoElRef.current
+    if (previous && previous !== el) previous.srcObject = null
     videoElRef.current = el
-    if (el && streamRef.current) el.srcObject = streamRef.current
+    // Preview the camera directly: timer updates and encoder effects must not reset playback.
+    if (el && el.srcObject !== cameraStreamRef.current) el.srcObject = cameraStreamRef.current
   }, [])
 
   const teardownPipeline = useCallback(() => {
-    if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
-    rafRef.current = null
-    pipelineTrackRef.current?.stop()
-    pipelineTrackRef.current = null
-    if (pipelineVideoRef.current) {
-      pipelineVideoRef.current.removeAttribute('src')
-      pipelineVideoRef.current.load()
-      pipelineVideoRef.current = null
-    }
-    canvasRef.current = null
+    pipelineRef.current?.dispose()
+    pipelineRef.current = null
+    appliedFilterRef.current = null
   }, [])
 
-  const buildPipeline = useCallback((css: string) => {
+  const applyFilter = useCallback(() => {
     const camera = cameraStreamRef.current
     if (!camera) return
-    const videoTrack = camera.getVideoTracks()[0]
-    const audioTrack = camera.getAudioTracks()[0]
-    const s = videoTrack?.getSettings()
-    const w = s?.width || 1280
-    const h = s?.height || 720
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.filter = css
-    const src = document.createElement('video')
-    src.muted = true
-    src.playsInline = true
-    src.autoplay = true
-    src.srcObject = camera
-    const capture = canvas.captureStream(30)
-    const pipeTrack = capture.getVideoTracks()[0]
-    const draw = () => {
-      if (src.readyState >= 2) ctx.drawImage(src, 0, 0, w, h)
-      rafRef.current = requestAnimationFrame(draw)
+    const css = filterRef.current
+    if (pipelineRef.current) {
+      pipelineRef.current.setFilter(css)
+    } else if (css) {
+      // Never replace a MediaRecorder input track while a recording is active.
+      if (recorderRef.current) return
+      pipelineRef.current = createRecordingPipeline(camera, css)
+      streamRef.current = pipelineRef.current.stream
     }
-    rafRef.current = requestAnimationFrame(draw)
-    const combined = new MediaStream([pipeTrack, audioTrack].filter((t): t is MediaStreamTrack => !!t))
-    canvasRef.current = canvas
-    pipelineVideoRef.current = src
-    pipelineTrackRef.current = pipeTrack
-    streamRef.current = combined
-    if (videoElRef.current) videoElRef.current.srcObject = combined
+    appliedFilterRef.current = css
   }, [])
 
-  const setFilter = useCallback(
-    (css: string | null) => {
-      filterRef.current = css
-      if (!streamRef.current || !cameraStreamRef.current) return
-      teardownPipeline()
-      if (css) buildPipeline(css)
-      else {
-        streamRef.current = cameraStreamRef.current
-        if (videoElRef.current) videoElRef.current.srcObject = cameraStreamRef.current
-      }
-    },
-    [buildPipeline, teardownPipeline],
-  )
+  const setFilter = useCallback((css: string | null) => {
+    if (filterRef.current === css && appliedFilterRef.current === css) return
+    filterRef.current = css
+    try { applyFilter(); setError(null) }
+    catch (error) { setError((error as Error).message) }
+  }, [applyFilter])
 
-  const enable = useCallback(async () => {
-    if (streamRef.current) return
+  const enable = useCallback((): Promise<void> => {
+    if (pendingEnableRef.current) return pendingEnableRef.current
+    if (cameraStreamRef.current) return Promise.resolve()
+    const generation = ++cameraGeneration.current
     setError(null)
     setStatus('requesting')
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30, max: 30 },
-        },
-        audio: { echoCancellation: true, noiseSuppression: true },
-      })
-      cameraStreamRef.current = stream
-      streamRef.current = stream
-      if (filterRef.current) buildPipeline(filterRef.current)
-      if (videoElRef.current) videoElRef.current.srcObject = streamRef.current
-      setStatus('ready')
-    } catch (err) {
-      setStatus('error')
-      setError(
-        err instanceof DOMException && err.name === 'NotAllowedError'
-          ? 'Permissão de câmera/microfone negada.'
-          : 'Não foi possível acessar a câmera.',
-      )
-    }
-  }, [buildPipeline])
+    const request = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
+          audio: { echoCancellation: true, noiseSuppression: true },
+        })
+        if (generation !== cameraGeneration.current) { stream.getTracks().forEach((track) => track.stop()); return }
+        cameraStreamRef.current = stream
+        streamRef.current = stream
+        try { applyFilter() } catch (error) { setError((error as Error).message) }
+        if (videoElRef.current && videoElRef.current.srcObject !== stream) videoElRef.current.srcObject = stream
+        setStatus('ready')
+      } catch (err) {
+        if (generation !== cameraGeneration.current) return
+        setStatus('error')
+        setError(err instanceof DOMException && err.name === 'NotAllowedError'
+          ? 'Permissão de câmera/microfone negada.' : 'Não foi possível acessar a câmera.')
+      }
+    })()
+    pendingEnableRef.current = request
+    void request.finally(() => { if (pendingEnableRef.current === request) pendingEnableRef.current = null })
+    return request
+  }, [applyFilter])
 
   const start = useCallback(() => {
+    if (!streamRef.current || recorderRef.current) return
+    try { applyFilter() } catch (error) { setError((error as Error).message); return }
     const stream = streamRef.current
-    if (!stream || recorderRef.current) return
+    setError(null)
     let recorder: MediaRecorder
     try {
       const mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m))
@@ -139,15 +112,18 @@ export function useRecorder() {
       setError('Este aparelho não conseguiu iniciar a gravação com a câmera selecionada.')
       return
     }
-    chunksRef.current = []
+    const chunks: Blob[] = []
+    let failed = false
     recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data)
+      if (e.data.size > 0) chunks.push(e.data)
     }
     recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'video/webm' })
+      if (recorderRef.current !== recorder) return
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' })
       recorderRef.current = null
       if (timerRef.current != null) window.clearInterval(timerRef.current)
       timerRef.current = null
+      if (failed) return
       if (!blob.size) { setStatus('error'); setError('A gravação ficou vazia. Verifique a câmera e tente novamente.'); return }
       setVideoBlob(blob)
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
@@ -157,9 +133,9 @@ export function useRecorder() {
       setStatus(streamRef.current ? 'ready' : 'idle')
     }
     recorder.onerror = () => {
+      failed = true
       if (timerRef.current != null) window.clearInterval(timerRef.current)
       timerRef.current = null
-      recorderRef.current = null
       setStatus('error')
       setError('A gravação foi interrompida pelo aparelho. Tente novamente com um vídeo menor.')
     }
@@ -168,7 +144,7 @@ export function useRecorder() {
     setElapsed(0)
     timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000)
     setStatus('recording')
-  }, [])
+  }, [applyFilter])
 
   const stop = useCallback(() => {
     if (timerRef.current != null) {
@@ -177,10 +153,12 @@ export function useRecorder() {
     }
     const recorder = recorderRef.current
     if (recorder && recorder.state !== 'inactive') recorder.stop()
-    recorderRef.current = null
+    // Retain the recorder until onstop flushes its final chunk.
   }, [])
 
   const disable = useCallback(() => {
+    cameraGeneration.current++
+    pendingEnableRef.current = null
     stop()
     teardownPipeline()
     cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
@@ -192,9 +170,16 @@ export function useRecorder() {
 
   useEffect(
     () => () => {
+      cameraGeneration.current++
+      pendingEnableRef.current = null
+      if (recorderRef.current) { recorderRef.current.onstop = null; recorderRef.current.ondataavailable = null; recorderRef.current.onerror = null }
       stop()
+      recorderRef.current = null
       teardownPipeline()
       cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
+      cameraStreamRef.current = null
+      streamRef.current = null
+      if (videoElRef.current) videoElRef.current.srcObject = null
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
     },
     [stop, teardownPipeline],

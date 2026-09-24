@@ -184,10 +184,11 @@ export default function PrompterView() {
   const transcription = useTranscription()
   voiceModeRef.current = voice.mode
 
+  const { setFilter: setRecorderFilter } = recorder
   const beautyCss = beautyFilterCss(settings.beauty, settings.beautyIntensity)
   useEffect(() => {
-    recorder.setFilter(beautyCss)
-  }, [recorder, beautyCss])
+    setRecorderFilter(beautyCss)
+  }, [setRecorderFilter, beautyCss])
 
   useEffect(() => {
     voiceFallbackRef.current = voiceFallback
@@ -472,14 +473,14 @@ export default function PrompterView() {
         playsInline
         muted
         className="h-full w-full object-cover"
-        style={{ transform: 'scaleX(-1)' }}
+        style={{ transform: 'scaleX(-1)', filter: beautyCss || undefined }}
       />
       {recorder.status === 'requesting' && (
         <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
           Solicitando câmera...
         </div>
       )}
-      {recorder.status === 'error' && (
+      {recorder.error && (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
           {recorder.error}
         </div>
@@ -504,14 +505,14 @@ export default function PrompterView() {
         playsInline
         muted
         className="h-full w-full object-cover"
-        style={{ transform: 'scaleX(-1)' }}
+        style={{ transform: 'scaleX(-1)', filter: beautyCss || undefined }}
       />
       {recorder.status === 'requesting' && (
         <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
           Solicitando câmera...
         </div>
       )}
-      {recorder.status === 'error' && (
+      {recorder.error && (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
           {recorder.error}
         </div>
@@ -536,14 +537,14 @@ export default function PrompterView() {
         playsInline
         muted
         className="h-full w-full object-cover"
-        style={{ transform: 'scaleX(-1)' }}
+        style={{ transform: 'scaleX(-1)', filter: beautyCss || undefined }}
       />
       {recorder.status === 'requesting' && (
         <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
           Solicitando câmera...
         </div>
       )}
-      {recorder.status === 'error' && (
+      {recorder.error && (
         <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
           {recorder.error}
         </div>
@@ -609,7 +610,7 @@ export default function PrompterView() {
   )
 
   return (
-    <div className="relative flex h-full flex-col" style={{ background: settings.bgColor }}>
+    <div data-theme="dark" className="relative flex h-full flex-col" style={{ background: settings.bgColor }}>
       {settings.bgVideo && !isFullscreenCam ? (
         <>
           <video
@@ -634,7 +635,7 @@ export default function PrompterView() {
         className="relative z-10 grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 pb-2 pt-2 sm:px-4"
         style={{ borderColor: 'var(--border)', background: showScrim ? 'rgba(0,0,0,0.45)' : 'rgba(10,12,18,0.94)', backdropFilter: showScrim ? 'blur(6px)' : undefined, paddingTop: 'max(.5rem, env(safe-area-inset-top))' }}
       >
-        <button onClick={() => setView('library')} className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold" style={{ borderColor: 'rgba(255,255,255,.28)', color: '#fff', background: 'rgba(255,255,255,.08)' }} aria-label="Sair do prompter">←</button>
+        <button onClick={() => { if (recorder.isRecording) stopRecording(); else setView('editor') }} className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold" style={{ borderColor: 'rgba(255,255,255,.28)', color: '#fff', background: 'rgba(255,255,255,.08)' }} aria-label={recorder.isRecording ? 'Parar e revisar gravação' : 'Voltar ao roteiro'}>←</button>
         <div className="min-w-0 text-center">
           <p className="truncate text-sm font-semibold text-white on-dark">{currentScript.title || 'Sem título'}</p>
           <span
@@ -734,6 +735,7 @@ export default function PrompterView() {
               🎮 pedal ativo
             </span>
           )}
+          {!settings.cameraOn && <button onClick={() => updateSettings({ cameraOn: true })} className="min-h-12 rounded-2xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)' }}>Ligar câmera</button>}
           {settings.cameraOn && (
             <button
               onClick={() => {
@@ -747,6 +749,7 @@ export default function PrompterView() {
                   recorder.start()
                 }
               }}
+              disabled={recorder.status !== 'ready' && !recorder.isRecording}
               className="flex h-12 shrink-0 items-center gap-2 rounded-2xl border px-3 text-sm font-semibold"
               style={{
                 borderColor: recorder.isRecording ? 'var(--danger)' : 'var(--border)',
@@ -756,12 +759,12 @@ export default function PrompterView() {
               {recorder.isRecording ? (
                 <>
                   <span className="h-2 w-2 animate-pulse rounded-full" style={{ background: 'var(--danger)' }} />
-                  Gravando {formatElapsed(recorder.elapsed)}
+                  Parar · {formatElapsed(recorder.elapsed)}
                 </>
               ) : (
                 <>
                   <span className="h-2 w-2 rounded-full" style={{ background: 'var(--danger)' }} />
-                  <span className="hidden min-[390px]:inline">Gravar</span>
+                  <span>Gravar</span>
                 </>
               )}
             </button>
@@ -774,7 +777,7 @@ export default function PrompterView() {
       </div>
 
       {showSettings && (
-        <SettingsPanel settings={settings} wordCount={words.length} onClose={() => setShowSettings(false)} />
+        <SettingsPanel settings={settings} isRecording={recorder.isRecording} wordCount={words.length} onClose={() => setShowSettings(false)} />
       )}
 
       {showResult && recorder.videoUrl && (

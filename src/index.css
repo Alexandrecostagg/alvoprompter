@@ -4,19 +4,19 @@
   color-scheme: light;
   --bg: #f7f8fb;
   --panel: #ffffff;
-  --border: #e8ebf2;
+  --border: #dce1eb;
   --text: #1c2540;
   --ink-soft: #5b6478;
-  --muted: #8a93a6;
+  --muted: #626d82;
   --accent: #8052ff;
   --accent-strong: #4537e8;
   --accent-2: #ffb829;
   --accent-soft: #f1ecff;
   --brand-strong: #6b3df0;
   --brand-gradient: linear-gradient(135deg, #8052ff 0%, #6366f1 52%, #15846e 100%);
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --danger: #f87171;
+  --ok: #137a62;
+  --warn: #956000;
+  --danger: #c33c49;
   --shadow-sm: 0 1px 2px rgba(20, 24, 40, .05), 0 1px 3px rgba(20, 24, 40, .06);
   --shadow-md: 0 4px 16px rgba(20, 24, 40, .08);
 }
@@ -136,3 +136,54 @@ input[type="range"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Account sheet: keep controls clear of the native status/navigation bars. */
+.account-overlay {
+  padding: max(.75rem, env(safe-area-inset-top)) max(.75rem, env(safe-area-inset-right)) max(.75rem, env(safe-area-inset-bottom)) max(.75rem, env(safe-area-inset-left));
+}
+.account-copy {
+  text-align: justify;
+  text-align-last: start;
+  hyphens: auto;
+  overflow-wrap: anywhere;
+}
+.account-usage { appearance: none; background: var(--border); color: var(--brand-strong); }
+.account-usage::-webkit-progress-bar { background: var(--border); }
+.account-usage::-webkit-progress-value { background: var(--brand-gradient); border-radius: 99px; }
+.account-usage::-moz-progress-bar { background: var(--brand-gradient); border-radius: 99px; }
+@media (min-width: 640px) { .account-overlay { padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom)); } }
+
+/* Shared account and team controls: readable on narrow mobile screens. */
+.team-card { padding: 1rem; border: 1px solid var(--border); border-radius: 1.25rem; background: var(--panel); min-width: 0; }
+.team-button { min-height: 44px; padding: .7rem 1rem; border: 1px solid var(--border); border-radius: .875rem; background: var(--panel); color: var(--text); font-size: .875rem; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.team-button:disabled { opacity: .5; cursor: not-allowed; }
+.team-button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.team-primary { background: var(--brand-gradient); color: white; border-color: transparent; }
+.team-back { min-height: 44px; color: var(--brand-strong); font-weight: 650; font-size: .875rem; text-align: left; }
+.team-badge { display: inline-flex; padding: .3rem .65rem; border-radius: 999px; background: var(--accent-soft); color: var(--brand-strong); font-size: .65rem; font-weight: 750; }
+.team-field { min-height: 48px; min-width: 0; max-width: 100%; padding: .7rem .875rem; border: 1px solid var(--border); border-radius: .875rem; background: var(--bg); color: var(--text); font-size: 16px; }
+.team-page input[type="file"] { display: block; max-width: 100%; margin-top: .5rem; font-size: .75rem; }
+.team-page li { overflow-wrap: anywhere; }
+.team-field:focus-visible, .team-button:focus-visible, .team-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.auth-form label { display: block; font-size: .875rem; font-weight: 600; }
+.auth-form input { display: block; width: 100%; margin-top: .4rem; }
+.auth-form fieldset { min-width: 0; }
+
+/* Keep primary actions legible in both application themes. */
+[data-theme="light"] button.text-white,
+[data-theme="light"] .library-actions span.text-white { color: #fff; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+.library-actions button { padding: 1rem; }
+.library-actions button > span:first-child { margin-bottom: .65rem; }
+@media (max-width: 639px) {
+  .library-actions button { padding: .85rem .5rem; text-align: center; }
+  .library-actions button > span:first-child { margin-inline: auto; width: 2.5rem; height: 2.5rem; }
+  .library-actions button > span:last-child { display: none; }
+  input:not([type="range"]):not([type="checkbox"]):not([type="color"]), select, textarea { font-size: max(1rem, 16px); }
+}
+.video-editor details > summary { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer; font-weight: 650; font-size: .9rem; }
+.video-editor details > summary::after { content: '+'; color: var(--muted); font-size: 1.2rem; }
+.video-editor details[open] > summary::after { content: '−'; }
+.video-editor details > summary + * { margin-top: .75rem; }
+.video-editor details { border: 1px solid var(--border); border-radius: 1rem; padding: 0 1rem 1rem; background: var(--panel); }
+.video-editor details:not([open]) { padding-bottom: 0; }

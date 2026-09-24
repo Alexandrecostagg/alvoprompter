@@ -158,6 +158,23 @@ export default function App() {
     if (requestedPlan) setAccountOpen(true)
   }, [requestedPlan])
 
+  useEffect(() => {
+    if (!moreOpen) return
+    const previous = document.activeElement as HTMLElement | null
+    const dialog = document.querySelector<HTMLElement>('[aria-label="Mais ferramentas"]')
+    const controls = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)') ?? []).filter((node) => node.getClientRects().length)
+    controls()[0]?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false)
+      if (event.key !== 'Tab') return
+      const items = controls(), first = items[0], last = items.at(-1)
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey); previous?.focus() }
+  }, [moreOpen])
+
   const navigate = (next: View) => {
     setMoreOpen(false)
     setView(next)
@@ -205,7 +222,7 @@ export default function App() {
     )
   }
 
-  const moreActive = view === 'workspaces' || view === 'ai-twin'
+  const moreActive = view === 'workspaces' || view === 'ai-twin' || view === 'metrics'
 
   return (
     <div className="flex h-full flex-col">
@@ -224,11 +241,9 @@ export default function App() {
         <nav className="flex items-center gap-1" aria-label="Navegação principal">
           <DesktopNavButton active={view === 'library'} onClick={() => navigate('library')}>Roteiros</DesktopNavButton>
           <DesktopNavButton active={view === 'editor'} disabled={!currentScript} onClick={() => navigate('editor')}>Editor</DesktopNavButton>
-          <DesktopNavButton onClick={() => navigate('control')}>Control Room</DesktopNavButton>
+          <DesktopNavButton onClick={openPrompterFlow}>Gravar</DesktopNavButton>
           <DesktopNavButton active={view === 'scheduling'} onClick={() => navigate('scheduling')}>Agenda</DesktopNavButton>
-          <DesktopNavButton active={view === 'metrics'} onClick={() => navigate('metrics')}>Métricas</DesktopNavButton>
-          <DesktopNavButton active={view === 'workspaces'} onClick={() => navigate('workspaces')}>Equipe</DesktopNavButton>
-          <DesktopNavButton active={view === 'ai-twin'} onClick={() => navigate('ai-twin')}>Avatar IA</DesktopNavButton>
+          <DesktopNavButton active={moreActive} onClick={() => setMoreOpen(true)}>Mais</DesktopNavButton>
         </nav>
         <div className="flex items-center gap-2">
           <button onClick={() => setAccountOpen(true)} className="flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}><UserAvatar name={user?.displayName} email={user?.email} size={24} /><span className="hidden sm:inline">Conta</span></button>
@@ -251,15 +266,15 @@ export default function App() {
 
       {moreOpen ? (
         <>
-          <button className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden" onClick={() => setMoreOpen(false)} aria-label="Fechar menu" />
-          <section className="fixed inset-x-0 bottom-[calc(4.9rem+env(safe-area-inset-bottom))] z-50 rounded-t-[2rem] border p-4 pb-5 shadow-2xl lg:hidden" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }} role="dialog" aria-modal="true" aria-label="Mais ferramentas">
+          <button className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm" onClick={() => setMoreOpen(false)} aria-label="Fechar menu" />
+          <section className="fixed inset-x-0 bottom-[calc(4.9rem+env(safe-area-inset-bottom))] z-50 rounded-t-[2rem] border p-4 pb-5 shadow-2xl lg:inset-x-auto lg:right-6 lg:bottom-auto lg:top-20 lg:w-96 lg:rounded-3xl" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }} role="dialog" aria-modal="true" aria-label="Mais ferramentas">
             <span className="mx-auto mb-3 block h-1 w-12 rounded-full" style={{ background: 'var(--border)' }} aria-hidden="true" />
             <div className="mb-3 flex items-center justify-between">
               <div><p className="font-bold">Mais ferramentas</p><p className="text-xs" style={{ color: 'var(--muted)' }}>Produção, equipe e preferências</p></div>
               <button onClick={() => setMoreOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl" style={{ background: 'var(--bg)', color: 'var(--muted)' }} aria-label="Fechar">×</button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {([['control', 'Control Room', 'control'], ['chart', 'Métricas', 'metrics'], ['team', 'Equipe', 'workspaces'], ['twin', 'Avatar IA', 'ai-twin']] as const).map(([icon, label, target]) => (
+              {([['control', 'Controle de leitura', 'control'], ['chart', 'Métricas', 'metrics'], ['team', 'Equipe', 'workspaces'], ['twin', 'Avatar IA', 'ai-twin']] as const).map(([icon, label, target]) => (
                 <button key={target} onClick={() => navigate(target)} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border px-2 text-xs font-semibold" style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text)' }}>
                   <Icon name={icon} className="h-6 w-6" />{label}
                 </button>
@@ -276,7 +291,7 @@ export default function App() {
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t px-2 pb-[env(safe-area-inset-bottom)] pt-1 lg:hidden" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 96%, transparent)', boxShadow: '0 -12px 30px rgba(15,23,42,.08)' }} aria-label="Navegação principal">
         <MobileNavButton icon="scripts" label="Roteiros" active={view === 'library'} onClick={() => navigate('library')} />
         <MobileNavButton icon="edit" label="Editor" active={view === 'editor'} disabled={!currentScript} onClick={() => navigate('editor')} />
-        <MobileNavButton icon="record" label="Prompter" primary onClick={openPrompterFlow} />
+        <MobileNavButton icon="record" label="Gravar" primary onClick={openPrompterFlow} />
         <MobileNavButton icon="calendar" label="Agenda" active={view === 'scheduling'} onClick={() => navigate('scheduling')} />
         <MobileNavButton icon="more" label="Mais" active={moreActive} onClick={() => setMoreOpen(true)} />
       </nav>

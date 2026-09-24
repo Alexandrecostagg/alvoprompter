@@ -1,7 +1,7 @@
 {
   "name": "alvoprompter",
   "private": true,
-  "version": "1.3.1",
+  "version": "1.4.0",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
@@ -20,6 +20,7 @@
     "ios": "npm run cap:sync && cap open ios"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/core": "^8.5.0",
     "@capacitor/filesystem": "^8.1.2",

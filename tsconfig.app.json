@@ -22,5 +22,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "audit/media-harness.tsx"]
+  "include": ["src", "audit/media-harness.tsx", "audit/recorder-stability-harness.tsx"]
 }

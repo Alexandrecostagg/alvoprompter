@@ -73,3 +73,25 @@ describe('automatic script saving', () => {
     expect(readDrafts()).toHaveLength(0)
   })
 })
+
+describe('leaving the team screen for the personal space', () => {
+  it('opens a usable empty local library without an account or team', async () => {
+    const { openLocalScripts } = await import('../lib/localNavigation')
+    useAppStore.setState({ view: 'workspaces' })
+    await openLocalScripts()
+    expect(useAppStore.getState()).toMatchObject({ view: 'library', cloudWorkspace: null, activeWorkspaceId: null, scripts: [] })
+  })
+  it('creates and saves the first local script after leaving a cloud workspace', async () => {
+    const { openLocalScripts } = await import('../lib/localNavigation')
+    setContentScope('old-cloud')
+    useAppStore.setState({ view: 'workspaces', cloudWorkspace: { id: 'old-cloud', name: 'Equipe', role: 'viewer', createdAt: '' } })
+    await openLocalScripts(true)
+    expect(useAppStore.getState()).toMatchObject({ view: 'editor', cloudWorkspace: null, currentScript: { title: 'Novo roteiro', content: '' } })
+    const script = useAppStore.getState().currentScript!
+    await useAppStore.getState().upsertScript({ ...script, content: 'Meu primeiro texto' })
+    const rows = await getScripts()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.cloudWorkspaceId).toBeFalsy()
+    expect(rows[0]?.content).toBe('Meu primeiro texto')
+  })
+})

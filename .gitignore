@@ -46,3 +46,12 @@ api/transcribe/.wrangler/
 artifacts/
 # Playwright (E2E local)
 .playwright-mcp/
+
+# iOS privacy manifest authored for App Store distribution
+!ios/
+ios/*
+!ios/App/
+ios/App/*
+!ios/App/App/
+ios/App/App/*
+!ios/App/App/PrivacyInfo.xcprivacy

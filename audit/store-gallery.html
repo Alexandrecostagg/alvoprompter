@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlvoPrompter — imagens da loja</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1284px; height: 2778px; overflow: hidden; }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Arial', sans-serif; background:#f8f7ff; color:#172039; }
+.backdrop { position:absolute; inset:0; width:1284px; height:2778px; }
+header { position:relative; text-align:center; padding-top:100px; z-index:2; }
+.logo { width:178px; height:178px; border-radius:42px; box-shadow:0 22px 55px #4f38ad29; }
+.brand { margin:32px 0 28px; font-size:35px; letter-spacing:6px; font-weight:700; color:#684bd0; }
+h1 { font-size:101px; line-height:1.06; letter-spacing:-3px; margin:0; font-weight:800; }
+h1 span { color:#6544ce; }
+.sub { margin:30px auto 0; color:#5c627b; font-size:39px; line-height:1.35; max-width:1030px; }
+.phone { position:absolute; top:776px; left:169px; width:946px; height:1937px; padding:19px; border-radius:100px; background:linear-gradient(110deg,#b4b7c4,#262735 15%,#10111b 85%,#b4b7c4); box-shadow:0 38px 65px #3c26693a,0 0 0 3px #ffffff; }
+.screen { width:908px; height:1899px; border-radius:82px; overflow:hidden; position:relative; background:#f7f7fc; border:7px solid #13141b; }
+.status { height:73px; display:flex; justify-content:space-between; align-items:center; padding:0 55px; font-size:28px; font-weight:600; color:#192037; }
+.camera { position:absolute; width:218px; height:49px; top:13px; left:337px; border-radius:28px; background:#08090e; }
+.signal { letter-spacing:3px; font-size:23px; }
+iframe { position:absolute; top:73px; left:0; width:428px; height:850px; transform:scale(2.088785); transform-origin:top left; border:0; background:#f7f7fc; }
+.home { position:absolute; bottom:12px; left:318px; width:250px; height:9px; border-radius:9px; background:#111426; }
+.phone::before { content:''; position:absolute; left:-6px; top:295px; width:7px; height:120px; background:#555867; border-radius:5px; }
+.phone::after { content:''; position:absolute; right:-6px; top:405px; width:7px; height:167px; background:#555867; border-radius:5px; }
+.ipad, .ipad body { width:2732px; height:2048px; }
+.ipad .backdrop { width:2732px; height:2048px; }
+.ipad header { padding-top:55px; }
+.ipad .logo { width:116px; height:116px; border-radius:28px; }
+.ipad .brand { font-size:25px; margin:18px 0; }
+.ipad h1 { font-size:86px; line-height:1.08; }
+.ipad h1 br, .ipad .sub br { display:none; }
+.ipad h1 span { margin-left:20px; }
+.ipad .sub { font-size:33px; max-width:2100px; margin-top:20px; }
+.ipad .phone { top:540px; left:416px; width:1900px; height:1430px; padding:20px; border-radius:65px; }
+.ipad .screen { width:1860px; height:1390px; border-radius:47px; }
+.ipad .status { height:70px; font-size:27px; }
+.ipad .camera { display:none; }
+.ipad iframe { top:70px; width:1366px; height:956px; transform:scale(1.351391); }
+.ipad .home { left:780px; width:280px; }
+</style>
+<svg class="backdrop" viewBox="0 0 1284 2778" aria-hidden="true">
+<defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="#e5dfff"/><stop offset="1" stop-color="#f5f2ff"/></linearGradient><linearGradient id="b" x2="1" y2="0"><stop stop-color="#dcf7fc"/><stop offset="1" stop-color="#ece6ff"/></linearGradient></defs>
+<path fill="url(#a)" d="M1284 0H904c88 91 81 196 156 258s123 64 224 96Z"/>
+<path fill="url(#b)" d="M0 882c335 257 247 521 458 658s577 136 826-123v1361H0Z"/>
+<path fill="#d6c9fa" opacity=".48" d="M0 1648c128-248 266-253 326-564-181 168-275 134-326 295Zm0 547c130-242 231-201 353-467-232 110-263 86-353 199Z"/>
+<path fill="#c7e8f1" opacity=".72" d="M1284 1924c-206 126-194 258-379 309 56-191 135-269 379-342Zm0 370c-136 130-176 253-339 329 54-200 125-285 339-362Z"/>
+</svg>
+<header>
+<img class="logo" src="/icon-512.png" alt="AlvoPrompter">
+<div class="brand">ALVOPROMPTER</div>
+<h1 id="title">Sua ideia.<br><span>Seu próximo vídeo.</span></h1>
+<p class="sub" id="subtitle">Seus roteiros organizados.<br>Prontos para ganhar a sua voz.</p>
+</header>
+<div class="phone"><div class="screen"><div class="status"><span>9:41</span><svg width="128" height="29" viewBox="0 0 128 29" fill="currentColor" aria-hidden="true"><rect x="0" y="19" width="5" height="8" rx="1"/><rect x="9" y="14" width="5" height="13" rx="1"/><rect x="18" y="8" width="5" height="19" rx="1"/><rect x="27" y="2" width="5" height="25" rx="1"/><path d="M43 10Q57-2 71 10L67 14Q57 6 47 14ZM50 17Q57 11 64 17L60 21Q57 18 54 21ZM55 24Q57 22 59 24L57 27Z"/><rect x="82" y="5" width="37" height="20" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="86" y="9" width="29" height="12" rx="2"/><rect x="122" y="11" width="3" height="8" rx="1"/></svg></div><div class="camera"></div><iframe title="AlvoPrompter" src="/"></iframe><div class="home"></div></div></div>
+<script>
+const panel = new URLSearchParams(location.search).get('panel');
+if (new URLSearchParams(location.search).get('device') === 'ipad') {
+ document.documentElement.classList.add('ipad');
+ document.querySelector('#subtitle').textContent='Seus roteiros organizados. Prontos para ganhar a sua voz.';
+}
+if (panel === 'editor') {
+ document.querySelector('#title').innerHTML='Escreva<br><span>do seu jeito.</span>';
+ document.querySelector('#subtitle').innerHTML='Uma ideia clara, um roteiro simples.<br>Salvamento automático no dispositivo.';
+}
+if (panel === 'prompter') {
+ document.querySelector('#title').innerHTML='Fale<br><span>no seu ritmo.</span>';
+ document.querySelector('#subtitle').innerHTML='Ajuste a leitura. Respire. Ensaie.<br>Seu roteiro acompanha você.';
+}
+</script>
+</html>

@@ -1,8 +1,16 @@
+import { Capacitor } from '@capacitor/core'
 import defaultConfig from './firebase-config.json'
 import { initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   createUserWithEmailAndPassword,
   getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  GoogleAuthProvider,
+  getAdditionalUserInfo,
+  OAuthProvider,
+  signInWithPopup,
+  signInWithCredential,
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
@@ -27,7 +35,7 @@ let auth: Auth | null = null
 
 if (firebaseConfigured) {
   app = initializeApp(firebaseConfig as Required<typeof firebaseConfig>)
-  auth = getAuth(app)
+  auth = Capacitor.isNativePlatform() ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app)
   auth.languageCode = 'pt-BR'
 }
 
@@ -36,27 +44,46 @@ function requireAuth(): Auth {
   return auth
 }
 
+// Wait for the registration name to be persisted before mounting the signed-in UI.
+let registration: Promise<void> | null = null
+
 export function observeUser(callback: (user: User | null) => void): () => void {
   if (!auth) {
     callback(null)
     return () => undefined
   }
-  return onAuthStateChanged(auth, callback)
+  let active = true
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    if (registration) { await registration; user = auth?.currentUser ?? null }
+    if (active) callback(user)
+  })
+  return () => { active = false; unsubscribe() }
 }
 
 export async function signUp(name: string, email: string, password: string): Promise<User> {
-  const credential = await createUserWithEmailAndPassword(requireAuth(), email.trim(), password)
-  await updateProfile(credential.user, { displayName: name.trim() })
-  await sendEmailVerification(credential.user).catch(() => undefined)
-  return credential.user
+  let release!: () => void
+  registration = new Promise<void>((resolve) => { release = resolve })
+  try {
+    const credential = await createUserWithEmailAndPassword(requireAuth(), email.trim(), password)
+    await updateProfile(credential.user, { displayName: name.trim() })
+    await credential.user.getIdToken(true)
+    await sendEmailVerification(credential.user).catch(() => undefined)
+    return credential.user
+  } finally { registration = null; release() }
 }
 
 export async function signIn(email: string, password: string): Promise<User> {
   return (await signInWithEmailAndPassword(requireAuth(), email.trim(), password)).user
 }
 
-export function signUserOut(): Promise<void> {
-  return signOut(requireAuth())
+export async function signUserOut(): Promise<void> {
+  // Always clear the JS session, even if the native provider fails to sign out.
+  try {
+    if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication')) {
+      const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication')
+      await FirebaseAuthentication.signOut()
+    }
+  } finally { await signOut(requireAuth()) }
 }
 
 export function resetPassword(email: string): Promise<void> {
@@ -94,4 +121,42 @@ export async function refreshVerifiedUser(): Promise<boolean> {
   await user.reload()
   await user.getIdToken(true)
   return user.emailVerified
+}
+
+export type SocialProvider = 'google' | 'apple'
+
+export function socialAvailability(): Record<SocialProvider, boolean> {
+  const nativeReady = !Capacitor.isNativePlatform() || Capacitor.isPluginAvailable('FirebaseAuthentication')
+  return {
+    google: firebaseConfigured && nativeReady && import.meta.env.VITE_AUTH_GOOGLE_ENABLED !== 'false',
+    apple: firebaseConfigured && nativeReady && import.meta.env.VITE_AUTH_APPLE_ENABLED === 'true',
+  }
+}
+
+export async function signInSocial(provider: SocialProvider): Promise<User> {
+  if (!socialAvailability()[provider]) throw new Error('Este método de entrada ainda não está ativado. Use e-mail e senha.')
+  const instance = requireAuth()
+  if (!Capacitor.isNativePlatform()) {
+    const oauth = provider === 'google' ? new GoogleAuthProvider() : new OAuthProvider('apple.com')
+    if (provider === 'google') oauth.setCustomParameters({ prompt: 'select_account' })
+    else { oauth.addScope('email'); oauth.addScope('name') }
+    const result = await signInWithPopup(instance, oauth)
+    if (getAdditionalUserInfo(result)?.isNewUser) requestAccount()
+    return result.user
+  }
+  // Native system UI obtains provider credentials; Firebase JS owns the app session.
+  const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication')
+  const result = provider === 'google'
+    ? await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true })
+    : await FirebaseAuthentication.signInWithApple({ skipNativeAuth: true, scopes: ['email', 'name'] })
+  const idToken = result.credential?.idToken
+  if (!idToken) throw new Error('O provedor não retornou uma identificação válida. Tente novamente.')
+  if (provider === 'apple' && Capacitor.getPlatform() === 'ios' && !result.credential?.nonce) throw new Error('Não foi possível validar o retorno da Apple. Tente novamente.')
+  const credential = provider === 'google' ? GoogleAuthProvider.credential(idToken)
+    : new OAuthProvider('apple.com').credential({ idToken, rawNonce: result.credential?.nonce })
+  const signedIn = await signInWithCredential(instance, credential)
+  const user = signedIn.user
+  if (!user.displayName && result.user?.displayName) await updateProfile(user, { displayName: result.user.displayName })
+  if (getAdditionalUserInfo(signedIn)?.isNewUser) requestAccount()
+  return user
 }

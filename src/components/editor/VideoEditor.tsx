@@ -593,24 +593,25 @@ export default function VideoEditor() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-6 sm:px-6">
+    <div className="video-editor mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-6 sm:px-6" style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))', paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setView('prompter')}
-            className="rounded-lg border px-3 py-1.5 text-sm"
+            className="min-h-11 rounded-xl border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
           >
             ← Voltar
           </button>
-          <h1 className="text-lg font-semibold text-white">🎬 Editor de vídeo</h1>
+          <h1 className="text-lg font-semibold">3. Finalizar vídeo</h1>
         </div>
         <button
           onClick={() => {
+            if (!window.confirm('Descartar esta gravação? Salve ou compartilhe o vídeo antes de sair.')) return
             setRecording(null)
             setView('library')
           }}
-          className="rounded-lg border px-3 py-1.5 text-sm"
+          className="min-h-11 rounded-xl border px-3 py-2 text-sm"
           style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
         >
           Descartar gravação
@@ -621,7 +622,7 @@ export default function VideoEditor() {
         <div className="flex flex-col">
           <div
             className="mx-auto w-full max-w-sm overflow-hidden rounded-xl bg-black"
-            style={{ aspectRatio: previewAspect }}
+            style={{ aspectRatio: previewAspect, width: `min(100%, ${46 * previewAspect}dvh)` }}
           >
             <video
               ref={metaVideoRef}
@@ -637,13 +638,93 @@ export default function VideoEditor() {
           <p className="mt-2 text-center text-xs" style={{ color: 'var(--muted)' }}>
             {meta ? `${meta.w}×${meta.h} · ${formatSrtTime(meta.dur)}` : 'Carregando vídeo...'}
           </p>
+          <div className="mt-4 flex flex-col gap-4" aria-live="polite">
+          {error && (
+            <p className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
+              {error}
+            </p>
+          )}
+
+          {processing ? (
+            <div>
+              <div className="flex items-center justify-between text-xs" style={{ color: 'var(--muted)' }}>
+                <span>Preparando seu vídeo… mantenha o app aberto.</span>
+                <button
+                  onClick={() => abortRef.current?.abort()}
+                  className="rounded-md border px-2 py-1"
+                  style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+                >
+                  Cancelar
+                </button>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}>
+                <div
+                  className="h-full rounded-full transition-[width]"
+                  style={{ width: `${Math.round(progress * 100)}%`, background: 'var(--brand-gradient)' }}
+                />
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => void handleProcess()}
+              disabled={!meta}
+              className="w-full rounded-lg py-3 text-sm font-semibold text-white disabled:opacity-40"
+              style={{ background: 'var(--brand-gradient)' }}
+            >
+              Exportar vídeo
+            </button>
+          )}
+
+          {outUrl && (
+            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--ok)', background: 'var(--panel)' }}>
+              <p className="mb-2 text-xs font-medium" style={{ color: 'var(--ok)' }}>
+                ✓ Vídeo gerado
+              </p>
+              <video src={outUrl} controls playsInline className="mb-3 max-h-48 w-full rounded-lg" />
+              {shareMsg && <p className="mb-2 text-xs" style={{ color: 'var(--muted)' }}>{shareMsg}</p>}
+              {pageMsg && <p className="mb-2 break-all text-xs" style={{ color: pageMsg.startsWith('Página criada') ? 'var(--ok)' : 'var(--danger)' }}>{pageMsg}</p>}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => void handleShare()}
+                  disabled={!outBlob || shareBusy}
+                  className="flex-1 rounded-lg px-4 py-2 text-center text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ background: 'var(--brand-gradient)' }}
+                >
+                  {shareBusy ? 'Preparando…' : '↗ Compartilhar vídeo'}
+                </button>
+                <button
+                  onClick={() => void handleCreateVideoPage()}
+                  disabled={!outBlob || pageBusy}
+                  className="flex-1 rounded-lg border px-4 py-2 text-center text-sm font-medium disabled:opacity-50"
+                  style={{ borderColor: 'var(--accent-2)', color: 'var(--brand-strong)' }}
+                >
+                  {pageBusy ? 'Enviando…' : '📄 Criar página de vídeo'}
+                </button>
+                <a
+                  href={outUrl}
+                  download={`alvoprompter-${aspect === 'original' ? 'original' : aspect}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${outBlob?.type.includes('mp4') ? 'mp4' : 'webm'}`}
+                  className="rounded-lg border px-4 py-2 text-center text-sm"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
+                >
+                  Baixar vídeo editado
+                </a>
+                <a
+                  href={recording.url}
+                  download={`alvoprompter-gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}`}
+                  className="rounded-lg border px-4 py-2 text-sm"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
+                >
+                  Original
+                </a>
+              </div>
+            </div>
+          )}
+
+          </div>
         </div>
 
         <div className="flex flex-col gap-5">
-          <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              Formato de exportação
-            </h3>
+          <details open><summary>Formato de exportação</summary>
             <div className="flex rounded-lg border p-0.5" style={{ borderColor: 'var(--border)' }}>
               {ASPECT_OPTIONS.map((opt) => (
                 <button
@@ -685,15 +766,12 @@ export default function VideoEditor() {
                 </>
               ) : (
                 <p className="mt-2 text-[11px]" style={{ color: 'var(--muted)' }}>
-                  Reframe automático exige Chrome/Edge (API FaceDetector).
+                  O enquadramento automático não está disponível neste dispositivo.
                 </p>
               ))}
-          </section>
+          </details>
 
-          <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              Legendas no vídeo
-            </h3>
+          <details open><summary>Legendas no vídeo</summary>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
@@ -702,7 +780,7 @@ export default function VideoEditor() {
                   onChange={(e) => setBurnCaptions(e.target.checked)}
                   className="h-4 w-4 accent-cyan-400"
                 />
-                Queimar legendas
+                Incluir legendas
               </label>
               {burnCaptions && (
                 <>
@@ -713,12 +791,12 @@ export default function VideoEditor() {
                       onChange={(e) => setHighlightWords(e.target.checked)}
                       className="h-4 w-4 accent-cyan-400"
                     />
-                    Destacar palavra (Shorts)
+                    Destacar palavras
                   </label>
                   <select
                   value={themeKey}
                   onChange={(e) => setThemeKey(e.target.value as CaptionThemeKey)}
-                  className="rounded-lg border bg-transparent px-2 py-1.5 text-sm text-white"
+                  className="rounded-lg border bg-transparent px-2 py-1.5 text-sm"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   {CAPTION_THEMES.filter((t) => t.key !== 'none').map((t) => (
@@ -739,8 +817,8 @@ export default function VideoEditor() {
                     className="rounded-lg border px-3 py-2 text-xs transition-colors"
                     style={{
                       borderColor: themeKey === t.key ? 'var(--accent)' : 'var(--border)',
-                      color: t.key === 'social' ? '#ffe066' : t.key === 'box' ? '#fff' : 'var(--text)',
-                      background: t.key === 'box' && themeKey === t.key ? 'rgba(0,0,0,0.65)' : 'var(--panel)',
+                      color: t.key === 'social' ? '#ffe066' : '#fff',
+                      background: themeKey === t.key ? '#42317b' : '#232837',
                     }}
                   >
                     {t.label}
@@ -748,12 +826,9 @@ export default function VideoEditor() {
                 ))}
               </div>
             )}
-          </section>
+          </details>
 
-          <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              Marca & som
-            </h3>
+          <details><summary>Logo e trilha sonora</summary>
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -812,7 +887,7 @@ export default function VideoEditor() {
                 </label>
               )}
               <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border)', background: 'rgba(0,0,0,0.2)' }}>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--brand-strong)' }}>
                   🪄 Avatar IA
                 </p>
                 <textarea
@@ -964,12 +1039,9 @@ export default function VideoEditor() {
                 até o fim do vídeo. A música é mixada com o áudio da gravação durante a exportação.
               </p>
             </div>
-          </section>
+          </details>
 
-          <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              Brand kit
-            </h3>
+          <details><summary>Identidade visual</summary>
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
@@ -1027,12 +1099,9 @@ export default function VideoEditor() {
                 salvas neste aparelho.
               </p>
             </div>
-          </section>
+          </details>
 
-          <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              Intro & outro de marca
-            </h3>
+          <details><summary>Abertura e encerramento</summary>
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
@@ -1094,12 +1163,9 @@ export default function VideoEditor() {
                 Cards com o gradiente da marca aparecem no início (intro) e no fim (outro) do vídeo.
               </p>
             </div>
-          </section>
+          </details>
 
-          <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              Fundo & movimento
-            </h3>
+          <details><summary>Fundo e movimento</summary>
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
@@ -1185,13 +1251,11 @@ export default function VideoEditor() {
                 aplica zoom/pan no trecho entre cortes durante a exportação.
               </p>
             </div>
-          </section>
+          </details>
 
-          <section>
+          <details><summary>Corte por palavras {cutCount > 0 && `· ${cutCount} cortado${cutCount === 1 ? '' : 's'}`}</summary>
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-                Corte por palavras {cutCount > 0 && `· ${cutCount} cortado${cutCount === 1 ? '' : 's'}`}
-              </h3>
+
               {segments.length > 0 && (
                 <button
                   onClick={selectFillers}
@@ -1199,7 +1263,7 @@ export default function VideoEditor() {
                   className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
                   style={{ borderColor: 'var(--border)', color: 'var(--warn)' }}
                 >
-                  Remover fillers
+                  Remover vícios de fala
                 </button>
               )}
             </div>
@@ -1246,13 +1310,11 @@ export default function VideoEditor() {
                 </ul>
               </div>
             )}
-          </section>
+          </details>
 
-          <section>
+          <details><summary>B-rolls · cortar pausas</summary>
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-                B-rolls · cortar pausas
-              </h3>
+
               {autoCut && activeRanges.length > 0 && (
                 <span className="rounded-full px-2 py-0.5 text-[10px]" style={{ background: 'rgba(52,211,153,0.12)', color: 'var(--ok)' }}>
                   −{Math.round(autoRemoved * 10) / 10}s
@@ -1389,93 +1451,10 @@ export default function VideoEditor() {
                 ativo, substitui os cortes manuais.
               </p>
             </div>
-          </section>
+          </details>
 
-          {error && (
-            <p className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
-              {error}
-            </p>
-          )}
+          <details><summary>🗣️ Comando em linguagem natural</summary>
 
-          {processing ? (
-            <div>
-              <div className="flex items-center justify-between text-xs" style={{ color: 'var(--muted)' }}>
-                <span>Processando em tempo real — não feche esta aba...</span>
-                <button
-                  onClick={() => abortRef.current?.abort()}
-                  className="rounded-md border px-2 py-1"
-                  style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-                >
-                  Cancelar
-                </button>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}>
-                <div
-                  className="h-full rounded-full transition-[width]"
-                  style={{ width: `${Math.round(progress * 100)}%`, background: 'var(--accent)' }}
-                />
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => void handleProcess()}
-              disabled={!meta}
-              className="w-full rounded-lg py-3 text-sm font-semibold text-black disabled:opacity-40"
-              style={{ background: 'var(--accent)' }}
-            >
-              🎬 Processar e exportar
-            </button>
-          )}
-
-          {outUrl && (
-            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--ok)', background: 'var(--panel)' }}>
-              <p className="mb-2 text-xs font-medium" style={{ color: 'var(--ok)' }}>
-                ✓ Vídeo gerado
-              </p>
-              <video src={outUrl} controls playsInline className="mb-3 max-h-48 w-full rounded-lg" />
-              {shareMsg && <p className="mb-2 text-xs" style={{ color: 'var(--muted)' }}>{shareMsg}</p>}
-              {pageMsg && <p className="mb-2 break-all text-xs" style={{ color: pageMsg.startsWith('Página criada') ? 'var(--ok)' : 'var(--danger)' }}>{pageMsg}</p>}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => void handleShare()}
-                  disabled={!outBlob || shareBusy}
-                  className="flex-1 rounded-lg px-4 py-2 text-center text-sm font-semibold text-black disabled:opacity-50"
-                  style={{ background: 'var(--accent)' }}
-                >
-                  {shareBusy ? 'Preparando…' : '↗ Compartilhar vídeo'}
-                </button>
-                <button
-                  onClick={() => void handleCreateVideoPage()}
-                  disabled={!outBlob || pageBusy}
-                  className="flex-1 rounded-lg border px-4 py-2 text-center text-sm font-medium disabled:opacity-50"
-                  style={{ borderColor: 'var(--accent-2)', color: 'var(--accent-2)' }}
-                >
-                  {pageBusy ? 'Enviando…' : '📄 Criar página de vídeo'}
-                </button>
-                <a
-                  href={outUrl}
-                  download={`alvoprompter-${aspect === 'original' ? 'original' : aspect}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.webm`}
-                  className="rounded-lg border px-4 py-2 text-center text-sm"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
-                >
-                  Baixar vídeo editado
-                </a>
-                <a
-                  href={recording.url}
-                  download="alvoprompter-gravacao-original.webm"
-                  className="rounded-lg border px-4 py-2 text-sm"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
-                >
-                  Original
-                </a>
-              </div>
-            </div>
-          )}
-
-          <section className="rounded-xl border p-3" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              🗣️ Comando em linguagem natural
-            </h3>
             <input
               value={promptText}
               onChange={(e) => setPromptText(e.target.value)}
@@ -1507,13 +1486,11 @@ export default function VideoEditor() {
                 “remova o silêncio”, “deixa 9:16”, “adiciona legendas”.
               </p>
             )}
-          </section>
+          </details>
 
           {segments.length > 0 && (
-            <section className="rounded-xl border p-3" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-                ✂️ Fábrica de clipes 9:16
-              </h3>
+            <details><summary>✂️ Fábrica de clipes 9:16</summary>
+
               {processing && shortsProgress > 0 ? (
                 <p className="text-xs" style={{ color: 'var(--muted)' }}>
                   Gerando clipe {shortsProgress} de {Math.min(keptRanges.length, 12)}...
@@ -1557,7 +1534,7 @@ export default function VideoEditor() {
                   Limpar clipes
                 </button>
               )}
-            </section>
+            </details>
           )}
         </div>
       </div>

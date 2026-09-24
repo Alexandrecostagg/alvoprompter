@@ -1,3 +1,5 @@
+import { readProfile, saveProfile } from './profile'
+import { billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
 import { decodeProtectedHeader, importX509, jwtVerify } from 'jose'
 
@@ -121,6 +123,7 @@ async function accountSummary(db: D1Database, user: AuthUser): Promise<Response>
   `).bind(user.uid).all<{ id: string; name: string; role: SaaSRole; createdAt: string }>()
   return responseJson({
     user: { uid: user.uid, email: user.email, name: user.name },
+    profile: await readProfile(db, user.uid),
     subscription: {
       plan,
       status: subscription?.status ?? 'free',
@@ -207,7 +210,7 @@ function plusDays(days: number): string {
 
 async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, user: AuthUser): Promise<Response> {
   if (!user.emailVerified) return responseJson({ error: 'Confirme seu e-mail antes de assinar.' }, 403)
-  if (!env.ASAAS_API_KEY) return responseJson({ error: 'Checkout ainda não configurado neste ambiente.' }, 503)
+  if (!billingAvailability(env).configured) return responseJson({ error: 'As assinaturas estão temporariamente indisponíveis. Seu plano atual continua disponível.', code: 'BILLING_UNAVAILABLE' }, 503)
   const body = (await request.json().catch(() => null)) as { plan?: unknown } | null
   const plan = body?.plan
   if (plan !== 'creator' && plan !== 'studio') return responseJson({ error: 'Plano inválido.' }, 400)
@@ -220,7 +223,7 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
   }
   const today = new Date().toISOString().slice(0, 10)
   const payload = {
-    billingTypes: ['PIX', 'CREDIT_CARD'],
+    billingTypes: ['CREDIT_CARD'],
     chargeTypes: ['RECURRENT'],
     minutesToExpire: 60,
     externalReference: checkoutId,
@@ -236,22 +239,23 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
       quantity: 1,
       value: PLAN_CONFIG[plan].price,
     }],
-    customerData: { name: user.name, email: user.email },
+    // The payer provides billing details on Asaas; our account lacks CPF/address.
     subscription: { cycle: 'MONTHLY', nextDueDate: today },
   }
   const base = env.ASAAS_API_BASE?.replace(/\/$/, '') || 'https://api-sandbox.asaas.com/v3'
   const upstream = await fetch(`${base}/checkouts`, {
     method: 'POST',
-    headers: { accept: 'application/json', 'content-type': 'application/json', access_token: env.ASAAS_API_KEY },
+    headers: { accept: 'application/json', 'content-type': 'application/json', access_token: env.ASAAS_API_KEY! },
     body: JSON.stringify(payload),
   })
   const result = (await upstream.json().catch(() => null)) as { id?: string; link?: string; errors?: unknown } | null
-  if (!upstream.ok || !result?.id || !result.link) return responseJson({ error: 'O Asaas não conseguiu abrir o checkout. Confira a configuração e tente novamente.' }, 502)
+  if (!upstream.ok || typeof result?.id !== 'string' || !result.id.trim()) return responseJson({ error: 'Não foi possível abrir o pagamento agora. Tente novamente em alguns instantes.' }, 502)
+  const url = checkoutUrl(result.id, billingAvailability(env).sandbox)
   await db.prepare(`
     INSERT INTO checkout_sessions (id, user_id, plan, asaas_checkout_id, checkout_url, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-  `).bind(checkoutId, user.uid, plan, result.id, result.link, new Date().toISOString(), new Date().toISOString()).run()
-  return responseJson({ url: result.link })
+  `).bind(checkoutId, user.uid, plan, result.id, url, new Date().toISOString(), new Date().toISOString()).run()
+  return responseJson({ url })
 }
 
 async function cancelSubscription(request: Request, env: SaaSEnv, db: D1Database, user: AuthUser): Promise<Response> {
@@ -392,6 +396,10 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
       if (ownerPlan.plan === 'free' || (actor.role !== 'owner' && ownerPlan.plan !== 'studio')) return responseJson({ error: 'O proprietário precisa de um plano ativo para sincronizar este workspace.' }, 403)
       if (contentMatch[2] === 'brandkit' && request.method === 'PUT' && ownerPlan.plan !== 'studio') return responseJson({ error: 'A identidade visual compartilhada está disponível no Studio.' }, 403)
       return await workspaceContent(request, db, workspaceId, contentMatch[2]!, user.uid, actor.role)
+    }
+    if (url.pathname === '/account/profile' && request.method === 'PATCH') {
+      const result = await saveProfile(request, db, user.uid)
+      return responseJson(result, 'error' in result ? 400 : 200)
     }
     if (url.pathname === '/account' && request.method === 'GET') return await accountSummary(db, user)
     if (url.pathname === '/account/workspaces' && request.method === 'POST') return await createWorkspace(request, db, user)

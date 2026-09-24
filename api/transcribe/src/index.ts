@@ -1,3 +1,4 @@
+import { billingAvailability } from './billing'
 /**
  * AlvoPrompter API — Cloudflare Worker com Workers AI (plano gratuito).
  *
@@ -40,7 +41,7 @@ export interface Env {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-sync-pass',
 }
 
@@ -434,7 +435,7 @@ const api = {
         protocol: 2,
         ai: { provider: chatProvider(env).name, configured: Boolean(chatProvider(env).key), model: chatProvider(env).model },
         auth: { projectId: env.FIREBASE_PROJECT_ID || null, configured: Boolean(env.FIREBASE_PROJECT_ID && !env.FIREBASE_PROJECT_ID.startsWith('configure-')) },
-        billing: { configured: Boolean(env.ASAAS_API_KEY && env.ASAAS_WEBHOOK_TOKEN), sandbox: !(env.ASAAS_API_BASE || '').includes('api.asaas.com') },
+        billing: billingAvailability(env),
         workersAi: { configured: Boolean(env.AI) },
       })
     }

@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import BrandMark from '../BrandMark'
-import { firebaseConfigured, resetPassword, signIn, signUp } from '../../lib/auth'
+import AuthForm from './AuthForm'
 import { PLANS, type PlanId } from '../../lib/plans'
-import { trackMetaStandard } from '../../lib/metaPixel'
 
 type EntryStep = 'intro' | 'welcome' | 'signin' | 'signup'
 
@@ -27,15 +26,6 @@ const INTRO_SLIDES = [
   },
 ] as const
 
-function friendlyAuthError(error: unknown): string {
-  const code = (error as { code?: string }).code ?? ''
-  if (code.includes('invalid-credential')) return 'E-mail ou senha inválidos.'
-  if (code.includes('email-already-in-use')) return 'Já existe uma conta com esse e-mail.'
-  if (code.includes('weak-password')) return 'Use uma senha mais forte, com pelo menos 8 caracteres.'
-  if (code.includes('too-many-requests')) return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.'
-  return (error as Error).message || 'Não foi possível concluir. Tente novamente.'
-}
-
 function Benefit({ icon, title, text }: { icon: string; title: string; text: string }) {
   return (
     <li className="flex gap-3 rounded-2xl border p-3.5" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 78%, transparent)' }}>
@@ -48,43 +38,7 @@ function Benefit({ icon, title, text }: { icon: string; title: string; text: str
 export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { requestedPlan?: PlanId | null; onContinueLocal: () => void }) {
   const [step, setStep] = useState<EntryStep>(requestedPlan ? 'signup' : 'intro')
   const [introIndex, setIntroIndex] = useState(0)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
-
-  const submit = async () => {
-    if (!firebaseConfigured) {
-      setMessage({ kind: 'error', text: 'O acesso online ainda não foi ativado neste beta. Continue no modo local por enquanto.' })
-      return
-    }
-    if (!email.trim() || password.length < 8 || (step === 'signup' && !name.trim())) {
-      setMessage({ kind: 'error', text: 'Preencha os dados e use uma senha com pelo menos 8 caracteres.' })
-      return
-    }
-    setBusy(true)
-    setMessage(null)
-    try {
-      if (step === 'signup') {
-        await signUp(name, email, password)
-        trackMetaStandard('CompleteRegistration', {
-          content_name: requestedPlan ? `Cadastro para plano ${PLANS[requestedPlan].name}` : 'Conta gratuita',
-          status: true,
-        })
-      } else await signIn(email, password)
-      setPassword('')
-    } catch (error) {
-      setMessage({ kind: 'error', text: friendlyAuthError(error) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const openAuth = (next: EntryStep) => {
-    setMessage(null)
-    setStep(next)
-  }
+  const openAuth = (next: EntryStep) => setStep(next)
 
   if (step === 'intro') {
     const slide = INTRO_SLIDES[introIndex]!
@@ -171,18 +125,8 @@ export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { reques
                 <p className="text-xs font-bold uppercase tracking-[.16em]" style={{ color: 'var(--brand-strong)' }}>{step === 'signup' ? 'Conta gratuita' : 'Boas-vindas de volta'}</p>
                 <h2 className="mt-2 text-2xl font-extrabold">{step === 'signup' ? 'Crie sua conta' : 'Entre no AlvoPrompter'}</h2>
                 {requestedPlan ? <p className="mt-3 rounded-2xl px-3 py-2 text-xs font-bold" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}>Plano escolhido: {PLANS[requestedPlan].name}</p> : null}
-                {!firebaseConfigured ? <p className="mt-4 rounded-2xl border px-4 py-3 text-sm leading-relaxed" style={{ borderColor: 'var(--warn)', color: 'var(--warn)', background: 'color-mix(in srgb, var(--warn) 8%, var(--panel))' }}>O acesso online ainda não está ativo neste beta. Você pode explorar agora no modo local; seus roteiros ficarão somente neste aparelho.</p> : null}
-                {message ? <p role="alert" className="mt-4 rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: message.kind === 'error' ? 'var(--danger)' : 'var(--ok)', color: message.kind === 'error' ? 'var(--danger)' : 'var(--ok)' }}>{message.text}</p> : null}
-                {firebaseConfigured ? (
-                  <>
-                    {step === 'signup' ? <label className="mt-5 block text-sm font-bold">Nome<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" className="mt-2 min-h-12 w-full rounded-2xl border bg-transparent px-4 outline-none" style={{ borderColor: 'var(--border)' }} /></label> : null}
-                    <label className="mt-4 block text-sm font-bold">E-mail<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" inputMode="email" autoComplete="email" className="mt-2 min-h-12 w-full rounded-2xl border bg-transparent px-4 outline-none" style={{ borderColor: 'var(--border)' }} /></label>
-                    <label className="mt-4 block text-sm font-bold">Senha<input value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submit() }} type="password" minLength={8} autoComplete={step === 'signup' ? 'new-password' : 'current-password'} className="mt-2 min-h-12 w-full rounded-2xl border bg-transparent px-4 outline-none" style={{ borderColor: 'var(--border)' }} /></label>
-                    <button onClick={() => void submit()} disabled={busy} className="mt-5 min-h-13 w-full rounded-2xl font-bold text-white disabled:opacity-50" style={{ background: 'var(--brand-gradient)' }}>{busy ? 'Aguarde…' : step === 'signup' ? 'Criar conta e continuar' : 'Entrar e continuar'}</button>
-                    {step === 'signin' ? <button onClick={() => { if (!email.trim()) setMessage({ kind: 'error', text: 'Informe seu e-mail primeiro.' }); else void resetPassword(email).then(() => setMessage({ kind: 'ok', text: 'Se a conta existir, enviaremos a recuperação por e-mail.' })).catch((error) => setMessage({ kind: 'error', text: friendlyAuthError(error) })) }} className="mt-3 min-h-10 w-full text-sm font-bold" style={{ color: 'var(--brand-strong)' }}>Esqueci minha senha</button> : null}
-                    <button onClick={onContinueLocal} className="mt-3 min-h-10 w-full text-sm font-bold" style={{ color: 'var(--muted)' }}>Continuar no modo local</button>
-                  </>
-                ) : <button onClick={onContinueLocal} className="mt-5 min-h-13 w-full rounded-2xl font-bold text-white" style={{ background: 'var(--brand-gradient)' }}>Explorar no modo local</button>}
+                <div className="mt-5"><AuthForm mode={step} onModeChange={setStep} /></div>
+                <button onClick={onContinueLocal} className="team-back mt-3 w-full text-center">Continuar no modo local</button>
               </div>
             )}
           </div>
