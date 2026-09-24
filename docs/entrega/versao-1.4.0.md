@@ -1,6 +1,6 @@
 # AlvoPrompter 1.4.0 — entrega Android e iOS
 
-Data: 23/09/2026. Pacotes gerados sem commit, push ou deploy. Após autorização posterior, o app foi criado e o build iOS 1.4.0 (14) enviado e processado pela Apple; consulte [registro do envio](apple-envio-1.4.0.md).
+Data: 23/09/2026. Pacotes 1.4.0 gerados; o build iOS 1.4.0 (14) foi enviado e processado pela Apple. Após autorização, o código foi registrado em commit e o site e a API publicados em produção; consulte [registro do envio e deploy](apple-envio-1.4.0.md).
 
 ## Arquivos prontos
 
@@ -41,6 +41,8 @@ Abra a faixa de testes desejada no Play Console e envie o AAB 1.4.0/código 14. 
 
 ### Xcode / App Store Connect
 
+O registro e o upload abaixo já foram concluídos; não reenviar o mesmo build 14. Para referência do procedimento utilizado:
+
 1. Abra o archive acima com o Xcode. No Organizer, selecione AlvoPrompter/App, versão 1.4.0 (14).
 2. No App Store Connect, crie o registro do app caso ainda não exista, com bundle ID com.alvoprompt.app, idioma Português (Brasil), nome AlvoPrompter e SKU próprio (sugestão: ALVOPROMPTER-IOS).
 3. No Organizer, use Distribute App → App Store Connect → Upload. Preserve a versão/build 1.4.0/14; o pacote já foi exportado com gerenciamento automático de versão desativado. Alternativamente, envie App.ipa pelo Transporter.
@@ -53,7 +55,7 @@ O binário está preparado para envio e testes; **a aprovação pública na App 
 - Conta: implementar exclusão de conta e dados dentro do app, com reautenticação e tratamento de assinatura/equipe, antes da revisão pública. [Exigência da Apple](https://developer.apple.com/support/offering-account-deletion-in-your-app).
 - Compras: a integração atual é Asaas. Para vender recursos digitais dentro da versão iOS, preparar compras nativas/StoreKit ou outra modalidade expressamente aplicável e aprovada para as lojas/regiões de distribuição. Não habilitar o checkout externo indiscriminadamente. [Diretrizes da Apple, seção 3.1](https://developer.apple.com/app-store/review/guidelines/).
 - Login: Google/Apple nativos dependem dos cadastros Firebase e da configuração Apple ainda ausentes; nesta compilação ficam indisponíveis, com alternativa por e-mail. O Team ID configurado assina o aplicativo, mas não ativa o login Apple. Ver [login-social.md](login-social.md).
-- Servidor: a migração D1 0005, endpoint de perfil e política de privacidade atualizada ainda precisam ser publicados. O AAB/IPA não publica o servidor. Pagamentos reais continuam bloqueados pela ausência de configuração Asaas em produção.
-- App Store Connect: preencher metadados, privacidade/coleta, classificação etária, suporte, política de privacidade e screenshots reais; disponibilizar acesso de revisão se necessário. Validar câmera/microfone, login e compartilhamento em iPhone real, e a câmera no Android relatado.
+- Servidor: migração D1 0005 aplicada, endpoint de perfil publicado na API 1.4.0 e política de privacidade atualizada em produção. Pagamentos reais continuam bloqueados pela ausência de configuração Asaas em produção.
+- App Store Connect: metadados, classificação, suporte, direitos de conteúdo, preço gratuito e capturas (3 iPhone e 1 iPad) salvos. A ficha de privacidade foi preenchida e aguarda autorização para publicar a declaração exigida pela Apple; na última validação, é a única pendência de cadastro apontada. Conferir disponibilidade territorial e disponibilizar acesso de revisão se necessário. Validar câmera/microfone, login e compartilhamento em iPhone real, e a câmera no Android relatado.
 
 Esses pontos não são solucionados apenas pela assinatura do IPA. O envio posterior à Apple foi concluído, mas não foi solicitada revisão pública.

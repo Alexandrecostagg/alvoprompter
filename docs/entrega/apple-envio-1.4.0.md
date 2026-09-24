@@ -42,7 +42,7 @@
 - Os três envios rejeitados foram removidos e substituídos por PNGs válidos. Estado atual: **3 capturas para iPhone e 1 para iPad de 13 polegadas**.
 - PNGs reais corrigidos: artifacts/app-store-1.4.0/upload-corrigido/. Formato, RGB 8 bits, dimensões e ausência de transparência verificados com sharp e file. Cópias principais e upload/ também corrigidas para evitar reutilizar arquivos inválidos.
 - Alternativa JPEG com extensão correta: artifacts/app-store-1.4.0/upload-jpeg/.
-- Reenvio concluído usando cópias em /private/tmp, que habilitaram o botão Enviar do Safari. Ordem do iPhone confirmada: 01, 02, 03. O aviso de processamento das imagens do iPhone desapareceu na validação da Apple.
+- Reenvio concluído usando cópias em /private/tmp, que habilitaram o botão Enviar do Safari. Ordem do iPhone confirmada: 01, 02, 03. Após o envio de iPhone e iPad, a validação da Apple aponta somente a publicação da ficha de privacidade como pendência de cadastro; não há mais erro de processamento das imagens.
 - Imagem de iPad: artifacts/app-store-1.4.0/ipad/01-roteiro-ipad-2732x2048.png. PNG RGB 8 bits, sem transparência, 2732 × 2048. Editor real da interface compartilhada renderizado em viewport de tablet; moldura ilustrativa, sem alegação de captura em aparelho físico.
 - O cadastro continua com apenas um AlvoPrompter e a logo visível no cabeçalho e na lista de apps.
 
@@ -54,11 +54,16 @@
 - Ficha ainda NÃO publicada: a Apple apresenta declaração de precisão, conformidade e atualização; confirmação solicitada ao responsável e ainda pendente. Botão Publicar habilitado após configuração.
 - Conferir novamente a ficha antes do lançamento se mudar o tratamento de dados. A ficha inclui os recursos opcionais do cliente 1.4.0; não significa que pagamentos ou login social já estejam liberados em produção.
 - Política pública corrigida para explicar páginas de vídeo em R2/KV, áudio compartilhado, ausência de expiração automática dessas páginas, retenção de IP para segurança e Meta Pixel desativado no nativo.
-- Deploy somente da política: Worker alvoprompt-privacy, versão 80ea6178-b0a2-4a8a-82d9-69624948d9a6. Nenhum novo deploy da API principal ou commit.
+- Política publicada: Worker alvoprompt-privacy, versão 80ea6178-b0a2-4a8a-82d9-69624948d9a6. O deploy posterior da API e do site está registrado abaixo.
 - O app permanece em Preparar para envio; corrigir metadados não resolve as pendências funcionais da revisão pública.
 
 ## Publicação do código autorizada
 
 - Usuário autorizou commit, deploy e push após o envio dos arquivos.
 - Verificação desta rodada: 89 testes em 17 arquivos, lint, tipos do app/API/política e build web aprovados. Nenhuma nova alteração no binário móvel; permanece 1.4.0/build 14.
-- Publicar API com RELEASE 1.4.0 após migração aditiva 0005_account_profiles.sql; publicar dist no projeto Pages alvoprompter. A landing page é um projeto separado e não recebeu alterações nesta rodada.
+- Commit de implementação: 4574961 (feat: prepare AlvoPrompter 1.4.0 with refreshed UX and store release).
+- Migração aditiva D1 0005_account_profiles.sql aplicada em produção com sucesso.
+- API publicada com RELEASE 1.4.0: Worker alvoprompt-api, versão 00844f17-68fb-4484-b6bb-b75f83e9980d.
+- Site publicado no projeto Pages alvoprompter: https://60429729.alvoprompter.pages.dev. Domínio de produção: https://app.alvoprompter.com.br.
+- Verificação após deploy: domínio de produção retorna os novos arquivos index-BRlMWcJH.js e index-BTkcO2Ee.css; /health confirma release 1.4.0, autenticação e IA configuradas. PATCH /account/profile sem sessão retorna 401, como esperado.
+- Pagamentos permanecem não configurados e em sandbox; o deploy não habilitou cobranças reais. A landing page é um projeto separado e não recebeu alterações nesta rodada.
