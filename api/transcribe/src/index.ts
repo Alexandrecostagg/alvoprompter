@@ -36,6 +36,7 @@ export interface Env {
   BILLING_QUEUE?: Queue<{ id: string }>
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
+  ASAAS_PRODUCTION_API_KEY?: string
   ASAAS_API_BASE?: string
   ASAAS_WEBHOOK_TOKEN?: string
   APPLE_IAP_ISSUER_ID?: string

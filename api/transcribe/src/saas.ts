@@ -1,5 +1,5 @@
 import { readProfile, saveProfile } from './profile'
-import { billingAvailability, checkoutUrl } from './billing'
+import { asaasApiKey, billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
 import { APPLE_PRODUCTS, appleAccountToken, appleBillingConfigured, reconcileAppleSubscription, refreshAppleAccount } from './appleBilling'
 import { decodeProtectedHeader, importX509, jwtVerify } from 'jose'
@@ -12,6 +12,7 @@ export interface SaaSEnv {
   BILLING_QUEUE?: Queue<{ id: string }>
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
+  ASAAS_PRODUCTION_API_KEY?: string
   ASAAS_API_BASE?: string
   ASAAS_WEBHOOK_TOKEN?: string
   APP_URL?: string
@@ -271,7 +272,7 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
   const base = env.ASAAS_API_BASE?.replace(/\/$/, '') || 'https://api-sandbox.asaas.com/v3'
   const upstream = await fetch(`${base}/checkouts`, {
     method: 'POST',
-    headers: { accept: 'application/json', 'content-type': 'application/json', access_token: env.ASAAS_API_KEY! },
+    headers: { accept: 'application/json', 'content-type': 'application/json', access_token: asaasApiKey(env)! },
     body: JSON.stringify(payload),
   })
   const result = (await upstream.json().catch(() => null)) as { id?: string; link?: string; errors?: unknown } | null
@@ -288,7 +289,8 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
 async function cancelSubscription(request: Request, env: SaaSEnv, db: D1Database, user: AuthUser): Promise<Response> {
   const current = await effectivePlan(db, user.uid)
   if (current.subscription?.provider === 'apple') return responseJson({ error: 'Gerencie ou cancele a assinatura nas configurações da App Store.' }, 409)
-  if (!env.ASAAS_API_KEY) return responseJson({ error: 'Cobrança ainda não configurada neste ambiente.' }, 503)
+  const apiKey = asaasApiKey(env)
+  if (!apiKey) return responseJson({ error: 'Cobrança ainda não configurada neste ambiente.' }, 503)
   const subscription = await db.prepare(`
     SELECT asaas_subscription_id, current_period_end FROM subscriptions
     WHERE user_id = ? AND status IN ('active', 'past_due') LIMIT 1
@@ -299,7 +301,7 @@ async function cancelSubscription(request: Request, env: SaaSEnv, db: D1Database
   const base = env.ASAAS_API_BASE?.replace(/\/$/, '') || 'https://api-sandbox.asaas.com/v3'
   const upstream = await fetch(`${base}/subscriptions/${encodeURIComponent(subscription.asaas_subscription_id)}`, {
     method: 'DELETE',
-    headers: { accept: 'application/json', access_token: env.ASAAS_API_KEY },
+    headers: { accept: 'application/json', access_token: apiKey },
   })
   if (!upstream.ok) return responseJson({ error: 'Não foi possível cancelar a renovação no Asaas. Tente novamente.' }, 502)
   const periodEnd = subscription.current_period_end ?? nextMonthlyPeriod()

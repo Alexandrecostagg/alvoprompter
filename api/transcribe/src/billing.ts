@@ -1,5 +1,12 @@
 import type { SaaSEnv } from './saas'
 
+export function asaasApiKey(env: SaaSEnv): string | undefined {
+  const base = env.ASAAS_API_BASE?.replace(/\/$/, '') || 'https://api-sandbox.asaas.com/v3'
+  if (base === 'https://api-sandbox.asaas.com/v3') return env.ASAAS_API_KEY?.trim()
+  if (base === 'https://api.asaas.com/v3') return env.ASAAS_PRODUCTION_API_KEY?.trim()
+  return undefined
+}
+
 export function billingAvailability(env: SaaSEnv) {
   const base = env.ASAAS_API_BASE?.replace(/\/$/, '') || 'https://api-sandbox.asaas.com/v3'
   const sandbox = base === 'https://api-sandbox.asaas.com/v3'
@@ -9,7 +16,7 @@ export function billingAvailability(env: SaaSEnv) {
     validApp = !app.username && !app.password && (app.protocol === 'https:' || (app.protocol === 'http:' && app.hostname === 'localhost'))
   } catch { /* Missing or malformed callback URL: checkout stays unavailable. */ }
   return {
-    configured: Boolean(env.ASAAS_API_KEY?.trim() && env.ASAAS_WEBHOOK_TOKEN?.trim() && env.DB && validApp && (sandbox || base === 'https://api.asaas.com/v3')),
+    configured: Boolean(asaasApiKey(env) && env.ASAAS_WEBHOOK_TOKEN?.trim() && env.DB && validApp),
     sandbox,
   }
 }

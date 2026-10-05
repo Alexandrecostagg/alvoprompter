@@ -54,7 +54,10 @@ async function fetchStatus(env: SaaSEnv, transactionId: string, environment?: st
       headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/json' },
       signal: AbortSignal.timeout(10_000),
     })
-    if (response.status === 404 && environments.length > 1) continue
+    // An app not yet released can return 401 in Production while the same key
+    // authenticates in Sandbox. First purchases must still reach TestFlight.
+    // Once linked, the stored environment is used exclusively.
+    if (environments.length > 1 && target === 'Production' && [401, 404].includes(response.status)) continue
     if (!response.ok) throw new Error('Não foi possível confirmar a assinatura com a Apple. Tente novamente.')
     return { status: await response.json() as AppleStatus, environment: target }
   }

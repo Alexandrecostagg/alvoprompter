@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { handleSaaSRequest, type SaaSEnv } from '../api/transcribe/src/saas'
-import { APPLE_PRODUCTS } from '../api/transcribe/src/appleBilling'
+import { APPLE_PRODUCTS, reconcileAppleSubscription } from '../api/transcribe/src/appleBilling'
 import { testDatabase } from './d1-test-db'
 
 vi.mock('jose', () => ({
@@ -23,6 +23,33 @@ function setup() {
 }
 
 describe('Apple subscription verification', () => {
+  it('verifies a first TestFlight purchase when the unreleased production app returns 401', async () => {
+    const { sqlite, request } = setup()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('googleapis.com/robot')) return new Response(JSON.stringify({ test: 'certificate' }))
+      if (String(url).includes('api.storekit.apple.com')) return new Response(null, { status: 401 })
+      return new Response(JSON.stringify({ data: [{ lastTransactions: [{ status: 1, signedTransactionInfo: JSON.stringify({
+        appAccountToken: (sqlite.prepare('SELECT app_account_token FROM apple_accounts').get() as { app_account_token: string }).app_account_token,
+        bundleId: 'com.alvoprompt.app', environment: 'Sandbox', originalTransactionId: '654321',
+        transactionId: '654321', productId: APPLE_PRODUCTS.creator, expiresDate: Date.now() + 2_000_000,
+      }) }] }] }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    await request('/billing/apple/session')
+    expect((await request('/billing/apple/verify', { transactionId: '654321' }))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT environment FROM apple_subscriptions').get()?.environment).toBe('Sandbox')
+    expect(sqlite.prepare('SELECT provider, status FROM subscriptions').get()).toMatchObject({ provider: 'apple', status: 'active' })
+  })
+  it('does not switch environments for an already linked production purchase', async () => {
+    const { db, env, request } = setup()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ test: 'certificate' }))))
+    await request('/billing/apple/session')
+    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(reconcileAppleSubscription(db, env, 'apple-user', '654321', 'Production')).rejects.toThrow('Não foi possível confirmar')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('api.storekit.apple.com')
+  })
   it('grants a paid plan only after the Apple API confirms its account token and bundle', async () => {
     const { sqlite, request } = setup()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).includes('googleapis.com/robot')

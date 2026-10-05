@@ -9,10 +9,11 @@ vi.mock('jose', () => ({
 afterEach(() => vi.unstubAllGlobals())
 function setup(overrides: Partial<SaaSEnv> = {}, reply: unknown = { id: 'checkout-123' }, status = 200) {
   const data = testDatabase()
-  const env: SaaSEnv = { DB: data.db, FIREBASE_PROJECT_ID: 'alvoprompt', APP_URL: 'https://app.example.test', ASAAS_API_KEY: 'test-only', ASAAS_WEBHOOK_TOKEN: 'test-only', ...overrides }
+  const env: SaaSEnv = { DB: data.db, FIREBASE_PROJECT_ID: 'alvoprompt', APP_URL: 'https://app.example.test', ASAAS_API_KEY: 'test-only', ASAAS_PRODUCTION_API_KEY: 'production-test-only', ASAAS_WEBHOOK_TOKEN: 'test-only', ...overrides }
   const provider = vi.fn(async () => new Response(JSON.stringify(reply), { status }))
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (String(url).includes('googleapis.com/robot')) return new Response(JSON.stringify({ test: 'certificate' }))
+    expect(new Headers(init?.headers).get('access_token')).toBe(String(url).startsWith('https://api.asaas.com/') ? 'production-test-only' : 'test-only')
     if (init?.body) {
       const payload = JSON.parse(String(init.body))
       expect(payload.billingTypes).toEqual(['CREDIT_CARD'])
@@ -26,6 +27,15 @@ function setup(overrides: Partial<SaaSEnv> = {}, reply: unknown = { id: 'checkou
   return { ...data, env, request, provider }
 }
 describe('checkout availability and Asaas ID response', () => {
+  it.each([
+    { ASAAS_API_BASE: 'https://api.asaas.com/v3', ASAAS_PRODUCTION_API_KEY: undefined },
+    { ASAAS_API_BASE: 'https://api-sandbox.asaas.com/v3', ASAAS_API_KEY: undefined },
+  ])('never sends a credential to the other Asaas environment', async (overrides) => {
+    const { env, request, provider } = setup(overrides)
+    expect(billingAvailability(env).configured).toBe(false)
+    expect((await request())?.status).toBe(503)
+    expect(provider).not.toHaveBeenCalled()
+  })
   it.each([{ ASAAS_API_KEY: undefined }, { ASAAS_WEBHOOK_TOKEN: undefined }, { APP_URL: '' }])('blocks incomplete configuration without creating a checkout: %j', async (overrides) => {
     const { env, request, provider } = setup(overrides)
     expect(billingAvailability(env).configured).toBe(false)

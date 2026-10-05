@@ -1,0 +1,28 @@
+name = "alvoprompt-billing-test"
+main = "src/billingTest.ts"
+compatibility_date = "2025-04-01"
+account_id = "8f0d2ed7851f91dd1efbaa53af71323d"
+
+# Deliberately isolated from production storage, queues and provider credentials.
+[vars]
+RELEASE = "1.5.0-billing-test"
+CORS_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173,https://billing-test.alvoprompter.pages.dev"
+FIREBASE_PROJECT_ID = "alvoprompt"
+APP_URL = "https://billing-test.alvoprompter.pages.dev"
+ASAAS_API_BASE = "https://api-sandbox.asaas.com/v3"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "alvoprompter-billing-test"
+database_id = "ac5ab6b1-ecdf-4b2d-a770-8becd1516589"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "BILLING_QUEUE"
+queue = "alvoprompt-billing-test-retry"
+
+[[queues.consumers]]
+queue = "alvoprompt-billing-test-retry"
+max_batch_size = 10
+max_retries = 12
+retry_delay = 300
