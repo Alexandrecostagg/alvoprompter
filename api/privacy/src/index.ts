@@ -41,7 +41,7 @@ const HTML = `<!DOCTYPE html>
 <body>
 <main>
   <h1>Política de Privacidade — AlvoPrompter</h1>
-  <p class="muted">Última atualização: 23 de setembro de 2026</p>
+  <p class="muted">Última atualização: 5 de outubro de 2026</p>
 
   <p>Esta Política de Privacidade descreve como o aplicativo <strong>AlvoPrompter</strong> ("nós", "nosso" ou "aplicativo"), desenvolvido por Alexandre Costa, trata informações quando você utiliza o aplicativo na web, Android ou iOS.</p>
 
@@ -67,13 +67,13 @@ const HTML = `<!DOCTYPE html>
     <li><strong>Perfil opcional:</strong> nome completo, telefone e empresa ou organização informados por você ficam no Cloudflare D1, vinculados à sua conta. Telefone e organização são opcionais, podem ser removidos na tela de perfil e não são usados para autenticação por SMS.</li>
     <li><strong>Login social:</strong> quando disponível e escolhido por você, Google ou Apple fornecem ao Firebase os dados necessários à autenticação, como identificador, nome e e-mail autorizado. A Apple pode fornecer um endereço de e-mail privado. Não recebemos a senha da sua conta Google ou Apple.</li>
     <li><strong>Equipe:</strong> nome do workspace, e-mails convidados e papéis de acesso são armazenados no Cloudflare D1 para aplicar as permissões no servidor.</li>
-    <li><strong>Assinatura e uso:</strong> plano, estado da cobrança, contador mensal de ações de IA e identificadores técnicos do checkout/assinatura ficam no Cloudflare D1. O Asaas recebe os dados necessários para identificar o pagador e processar o checkout.</li>
+    <li><strong>Assinatura e uso:</strong> plano, estado da cobrança, contador mensal de ações de IA e identificadores técnicos do checkout/assinatura ficam no Cloudflare D1. Na web, o Asaas recebe os dados necessários para identificar o pagador e processar o checkout. No iOS, a Apple processa as compras e fornece identificadores e o estado da assinatura; vinculamos esses dados à conta para liberar e restaurar o plano.</li>
     <li><strong>Medição de campanhas na landing page:</strong> somente depois do seu consentimento, o Meta Pixel registra visitas e eventos do funil, como início do cadastro, seleção de plano, cadastro concluído e início do checkout. Não enviamos nome, e-mail, roteiro, gravação ou dados de pagamento nesses eventos. A Meta pode tratar identificadores técnicos, como endereço IP, navegador e cookies, conforme suas próprias políticas.</li>
   </ul>
   <p>Não coletamos sua lista de contatos nem localização precisa. A conta é necessária para sincronização SaaS, assinatura e colaboração; o prompter local pode ser usado sem conta.</p>
 
   <h2>4. Compartilhamento de dados</h2>
-  <p>Usamos Cloudflare, Firebase/Google, Apple quando você escolhe esse login, Carcará/Harpyacore e Asaas como operadores de infraestrutura, autenticação, IA e pagamentos para entregar os recursos solicitados. O processamento de IA é transitório, mas dados de conta, assinatura e sincronização seguem as retenções necessárias ao serviço e às obrigações legais. Quando você autoriza a medição de campanhas, a Meta recebe apenas os eventos e identificadores técnicos descritos acima. Não vendemos seus dados pessoais.</p>
+  <p>Usamos Cloudflare, Firebase/Google, Apple para login quando escolhido e para compras no iOS, Carcará/Harpyacore e Asaas para pagamentos na web como operadores de infraestrutura, autenticação, IA e pagamentos para entregar os recursos solicitados. O processamento de IA é transitório, mas dados de conta, assinatura e sincronização seguem as retenções necessárias ao serviço e às obrigações legais. Quando você autoriza a medição de campanhas, a Meta recebe apenas os eventos e identificadores técnicos descritos acima. Não vendemos seus dados pessoais.</p>
 
   <h2>5. Cookies e escolha de marketing</h2>
   <p>O Meta Pixel fica desativado por padrão e não é inicializado no aplicativo nativo para iOS ou Android. Na primeira visita à landing page, você pode aceitar a medição ou manter somente o armazenamento essencial. Sua escolha fica salva no navegador e pode ser revista a qualquer momento pelo botão <strong>Cookies</strong> no rodapé da página. A recusa não impede o uso da landing page nem do aplicativo.</p>

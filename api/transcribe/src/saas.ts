@@ -1,6 +1,7 @@
 import { readProfile, saveProfile } from './profile'
 import { billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
+import { APPLE_PRODUCTS, appleAccountToken, appleBillingConfigured, reconcileAppleSubscription, refreshAppleAccount } from './appleBilling'
 import { decodeProtectedHeader, importX509, jwtVerify } from 'jose'
 
 export type SaaSPlan = 'free' | 'creator' | 'studio'
@@ -8,11 +9,15 @@ type SaaSRole = 'owner' | 'admin' | 'editor' | 'viewer'
 
 export interface SaaSEnv {
   DB?: D1Database
+  BILLING_QUEUE?: Queue<{ id: string }>
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
   ASAAS_API_BASE?: string
   ASAAS_WEBHOOK_TOKEN?: string
   APP_URL?: string
+  APPLE_IAP_ISSUER_ID?: string
+  APPLE_IAP_KEY_ID?: string
+  APPLE_IAP_PRIVATE_KEY?: string
 }
 
 interface AuthUser {
@@ -26,6 +31,7 @@ interface SubscriptionRow {
   plan: SaaSPlan
   status: 'pending' | 'active' | 'past_due' | 'canceled'
   current_period_end: string | null
+  provider: 'asaas' | 'apple'
 }
 
 const PLAN_CONFIG = {
@@ -103,14 +109,17 @@ async function syncUser(db: D1Database, user: AuthUser): Promise<void> {
 
 async function effectivePlan(db: D1Database, uid: string): Promise<{ plan: SaaSPlan; subscription: SubscriptionRow | null }> {
   const subscription = await db.prepare(`
-    SELECT plan, status, current_period_end FROM subscriptions WHERE user_id = ? LIMIT 1
+    SELECT plan, status, current_period_end, provider FROM subscriptions WHERE user_id = ? LIMIT 1
   `).bind(uid).first<SubscriptionRow>()
-  const paidThroughPeriod = subscription?.status === 'canceled' && Boolean(subscription.current_period_end) && Date.parse(subscription.current_period_end!) > Date.now()
+  const paidThroughPeriod = subscription?.provider === 'asaas' && subscription.status === 'canceled' && Boolean(subscription.current_period_end) && Date.parse(subscription.current_period_end!) > Date.now()
   const active = subscription?.status === 'active' && (!subscription.current_period_end || Date.parse(subscription.current_period_end) > Date.now())
   return { plan: active || paidThroughPeriod ? subscription!.plan : 'free', subscription: subscription ?? null }
 }
 
-async function accountSummary(db: D1Database, user: AuthUser): Promise<Response> {
+async function accountSummary(db: D1Database, env: SaaSEnv, user: AuthUser): Promise<Response> {
+  if (appleBillingConfigured(env)) {
+    try { await refreshAppleAccount(db, env, user.uid) } catch { /* Keep the last verified entitlement through its expiry during Apple outages. */ }
+  }
   const { plan, subscription } = await effectivePlan(db, user.uid)
   const usage = await db.prepare('SELECT ai_actions FROM usage_monthly WHERE user_id = ? AND month = ? LIMIT 1')
     .bind(user.uid, new Date().toISOString().slice(0, 7)).first<{ ai_actions: number }>()
@@ -128,6 +137,7 @@ async function accountSummary(db: D1Database, user: AuthUser): Promise<Response>
       plan,
       status: subscription?.status ?? 'free',
       currentPeriodEnd: subscription?.current_period_end ?? null,
+      provider: subscription?.provider ?? null,
     },
     limits: {
       workspaces: PLAN_CONFIG[plan].workspaces,
@@ -204,8 +214,17 @@ async function inviteMember(request: Request, db: D1Database, user: AuthUser, wo
   return responseJson({ ok: true }, 201)
 }
 
-function plusDays(days: number): string {
-  return new Date(Date.now() + days * 86_400_000).toISOString()
+function nextMonthlyPeriod(dueDate?: string): string {
+  const matched = dueDate?.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const date = matched ? new Date(Date.UTC(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3]))) : new Date()
+  if (!Number.isFinite(date.getTime())) throw new Error('Data de cobrança inválida no Asaas.')
+  const day = date.getUTCDate()
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1))
+  const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate()
+  next.setUTCDate(Math.min(day, lastDay))
+  if (matched) next.setUTCHours(12)
+  else next.setUTCHours(date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds())
+  return next.toISOString()
 }
 
 async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, user: AuthUser): Promise<Response> {
@@ -214,21 +233,28 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
   const body = (await request.json().catch(() => null)) as { plan?: unknown } | null
   const plan = body?.plan
   if (plan !== 'creator' && plan !== 'studio') return responseJson({ error: 'Plano inválido.' }, 400)
+  if (appleBillingConfigured(env)) await refreshAppleAccount(db, env, user.uid)
   const current = await effectivePlan(db, user.uid)
-  if (current.plan === plan) return responseJson({ error: 'Este já é o seu plano atual.' }, 409)
+  if (current.plan !== 'free') return responseJson({ error: 'Você já possui um plano ativo. Cancele a renovação e aguarde o fim do período atual antes de criar uma nova assinatura.' }, 409)
+  const pending = await db.prepare("SELECT id FROM checkout_sessions WHERE user_id = ? AND status = 'pending' AND created_at > ? LIMIT 1")
+    .bind(user.uid, new Date(Date.now() - 3_600_000).toISOString()).first()
+  if (pending) return responseJson({ error: 'Você já iniciou um pagamento. Conclua ou aguarde o vencimento do checkout antes de iniciar outro.' }, 409)
   const checkoutId = `alp_${crypto.randomUUID()}`
   const appUrl = (env.APP_URL ?? '').replace(/\/$/, '')
   if (!appUrl.startsWith('https://') && !appUrl.startsWith('http://localhost')) {
     return responseJson({ error: 'URL pública do aplicativo ainda não configurada.' }, 503)
   }
   const today = new Date().toISOString().slice(0, 10)
+  const createdAt = new Date().toISOString()
+  await db.prepare('INSERT INTO checkout_intents (id, user_id, plan, created_at) VALUES (?, ?, ?, ?)')
+    .bind(checkoutId, user.uid, plan, createdAt).run()
   const payload = {
     billingTypes: ['CREDIT_CARD'],
     chargeTypes: ['RECURRENT'],
     minutesToExpire: 60,
     externalReference: checkoutId,
     callback: {
-      successUrl: `${appUrl}/?billing=success`,
+      successUrl: `${appUrl}/?billing=success&intent=${encodeURIComponent(checkoutId)}`,
       cancelUrl: `${appUrl}/?billing=cancel`,
       expiredUrl: `${appUrl}/?billing=expired`,
     },
@@ -251,14 +277,17 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
   const result = (await upstream.json().catch(() => null)) as { id?: string; link?: string; errors?: unknown } | null
   if (!upstream.ok || typeof result?.id !== 'string' || !result.id.trim()) return responseJson({ error: 'Não foi possível abrir o pagamento agora. Tente novamente em alguns instantes.' }, 502)
   const url = checkoutUrl(result.id, billingAvailability(env).sandbox)
-  await db.prepare(`
-    INSERT INTO checkout_sessions (id, user_id, plan, asaas_checkout_id, checkout_url, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-  `).bind(checkoutId, user.uid, plan, result.id, url, new Date().toISOString(), new Date().toISOString()).run()
+  await db.batch([
+    db.prepare(`INSERT INTO checkout_sessions (id, user_id, plan, asaas_checkout_id, checkout_url, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`).bind(checkoutId, user.uid, plan, result.id, url, createdAt, createdAt),
+    db.prepare('UPDATE checkout_intents SET asaas_checkout_id = ? WHERE id = ?').bind(result.id, checkoutId),
+  ])
   return responseJson({ url })
 }
 
 async function cancelSubscription(request: Request, env: SaaSEnv, db: D1Database, user: AuthUser): Promise<Response> {
+  const current = await effectivePlan(db, user.uid)
+  if (current.subscription?.provider === 'apple') return responseJson({ error: 'Gerencie ou cancele a assinatura nas configurações da App Store.' }, 409)
   if (!env.ASAAS_API_KEY) return responseJson({ error: 'Cobrança ainda não configurada neste ambiente.' }, 503)
   const subscription = await db.prepare(`
     SELECT asaas_subscription_id, current_period_end FROM subscriptions
@@ -273,7 +302,7 @@ async function cancelSubscription(request: Request, env: SaaSEnv, db: D1Database
     headers: { accept: 'application/json', access_token: env.ASAAS_API_KEY },
   })
   if (!upstream.ok) return responseJson({ error: 'Não foi possível cancelar a renovação no Asaas. Tente novamente.' }, 502)
-  const periodEnd = subscription.current_period_end ?? plusDays(32)
+  const periodEnd = subscription.current_period_end ?? nextMonthlyPeriod()
   await db.prepare(`UPDATE subscriptions SET status = 'canceled', cancellation_reason = ?, current_period_end = ?, updated_at = ? WHERE user_id = ?`)
     .bind(reason, periodEnd, new Date().toISOString(), user.uid).run()
   return responseJson({ ok: true, accessUntil: periodEnd })
@@ -286,29 +315,69 @@ function safeTokenEqual(received: string, expected: string): boolean {
   return difference === 0
 }
 
-async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database): Promise<Response> {
+async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database, retryPending = true): Promise<Response> {
   const expected = env.ASAAS_WEBHOOK_TOKEN ?? ''
   const received = request.headers.get('asaas-access-token') ?? ''
   if (!expected || !safeTokenEqual(received, expected)) return responseJson({ error: 'Webhook não autorizado.' }, 401)
   const event = (await request.json().catch(() => null)) as {
     id?: string
     event?: string
-    checkout?: { id?: string; customer?: string; subscription?: { id?: string } }
+    checkout?: { id?: string; customer?: string; externalReference?: string; callback?: { successUrl?: string }; subscription?: { id?: string; nextDueDate?: string } }
     subscription?: { id?: string; externalReference?: string; customer?: string; status?: string }
-    payment?: { subscription?: string; checkoutSession?: string; customer?: string }
+    payment?: { id?: string; subscription?: string; checkoutSession?: string; customer?: string; dueDate?: string }
   } | null
   if (!event?.id || !event.event) return responseJson({ error: 'Evento inválido.' }, 400)
   const processed = () => db.prepare('SELECT id FROM webhook_events WHERE id = ?').bind(event.id).first()
   if (await processed()) return responseJson({ ok: true, duplicate: true })
+  const defer = async () => {
+    const replay = {
+      id: event.id, event: event.event,
+      checkout: event.checkout ? { id: event.checkout.id, customer: event.checkout.customer, externalReference: event.checkout.externalReference,
+        callback: { successUrl: event.checkout.callback?.successUrl }, subscription: { id: event.checkout.subscription?.id } } : undefined,
+      subscription: event.subscription ? { id: event.subscription.id, customer: event.subscription.customer,
+        externalReference: event.subscription.externalReference } : undefined,
+      payment: event.payment ? { id: event.payment.id, subscription: event.payment.subscription,
+        checkoutSession: event.payment.checkoutSession, dueDate: event.payment.dueDate } : undefined,
+    }
+    await db.prepare('INSERT OR IGNORE INTO pending_webhook_events (id, event_type, payload, received_at) VALUES (?, ?, ?, ?)')
+      .bind(event.id!, event.event!, JSON.stringify(replay), new Date().toISOString()).run()
+    if (retryPending && env.BILLING_QUEUE) {
+      try { await env.BILLING_QUEUE.send({ id: event.id! }, { delaySeconds: 60 }) }
+      catch { return responseJson({ error: 'Não foi possível agendar a recuperação do evento.' }, 503) }
+    }
+    return responseJson({ ok: true, deferred: true })
+  }
   const statements: D1PreparedStatement[] = []
 
   const now = new Date().toISOString()
   const checkoutAsaasId = event.checkout?.id ?? event.payment?.checkoutSession
+  // A provider checkout can exist when the DB write after its creation failed.
+  // Recover the pre-written intent from the authenticated webhook's callback.
+  if (checkoutAsaasId && event.event.startsWith('CHECKOUT_')) {
+    const existing = await db.prepare('SELECT id FROM checkout_sessions WHERE asaas_checkout_id = ?').bind(checkoutAsaasId).first()
+    if (!existing) {
+      let intentId = event.checkout?.externalReference ?? ''
+      try {
+        const callback = new URL(event.checkout?.callback?.successUrl ?? '')
+        if (callback.origin === new URL(env.APP_URL ?? '').origin) intentId ||= callback.searchParams.get('intent') ?? ''
+      } catch { /* No usable callback reference. */ }
+      const intent = intentId ? await db.prepare('SELECT id, user_id, plan, asaas_checkout_id, created_at FROM checkout_intents WHERE id = ?')
+        .bind(intentId).first<{ id: string; user_id: string; plan: SaaSPlan; asaas_checkout_id: string | null; created_at: string }>() : null
+      if (intent && (!intent.asaas_checkout_id || intent.asaas_checkout_id === checkoutAsaasId)) {
+        await db.batch([
+          db.prepare(`INSERT OR IGNORE INTO checkout_sessions (id, user_id, plan, asaas_checkout_id, checkout_url, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`).bind(intent.id, intent.user_id, intent.plan, checkoutAsaasId, checkoutUrl(checkoutAsaasId, billingAvailability(env).sandbox), intent.created_at, now),
+          db.prepare('UPDATE checkout_intents SET asaas_checkout_id = ? WHERE id = ? AND (asaas_checkout_id IS NULL OR asaas_checkout_id = ?)')
+            .bind(checkoutAsaasId, intent.id, checkoutAsaasId),
+        ])
+      }
+    }
+  }
   if (event.event === 'CHECKOUT_PAID' && checkoutAsaasId) {
-    const checkout = await db.prepare('SELECT id, user_id, plan FROM checkout_sessions WHERE asaas_checkout_id = ? LIMIT 1')
-      .bind(checkoutAsaasId).first<{ id: string; user_id: string; plan: SaaSPlan }>()
-    if (!checkout) return responseJson({ error: 'Checkout ainda não encontrado. Reenvie o evento.' }, 503)
-    if (checkout) {
+    const checkout = await db.prepare('SELECT id, user_id, plan, status FROM checkout_sessions WHERE asaas_checkout_id = ? LIMIT 1')
+      .bind(checkoutAsaasId).first<{ id: string; user_id: string; plan: SaaSPlan; status: string }>()
+    if (!checkout) return defer()
+    if (checkout.status !== 'paid') {
       const subscriptionId = event.checkout?.subscription?.id ?? null
       statements.push(
         db.prepare(`UPDATE checkout_sessions SET status = 'paid', asaas_customer_id = ?, updated_at = ? WHERE id = ?`)
@@ -320,7 +389,8 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database): Pr
             asaas_subscription_id = COALESCE(excluded.asaas_subscription_id, subscriptions.asaas_subscription_id),
             asaas_customer_id = COALESCE(excluded.asaas_customer_id, subscriptions.asaas_customer_id),
             current_period_end = excluded.current_period_end, updated_at = excluded.updated_at
-        `).bind(crypto.randomUUID(), checkout.user_id, checkout.plan, subscriptionId, event.checkout?.customer ?? null, plusDays(32), now, now),
+          WHERE subscriptions.provider = 'asaas'
+        `).bind(crypto.randomUUID(), checkout.user_id, checkout.plan, subscriptionId, event.checkout?.customer ?? null, nextMonthlyPeriod(), now, now),
       )
     }
   }
@@ -338,28 +408,35 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database): Pr
       : event.subscription.customer
         ? await db.prepare(`SELECT user_id, plan FROM checkout_sessions WHERE asaas_customer_id = ? AND status = 'paid' ORDER BY updated_at DESC LIMIT 1`).bind(event.subscription.customer).first<{ user_id: string; plan: SaaSPlan }>()
         : null
-    if (!checkout) return responseJson({ error: 'Checkout ainda não encontrado. Reenvie o evento.' }, 503)
+    if (!checkout) return defer()
     const activeSubscription = await db.prepare('SELECT id FROM subscriptions WHERE user_id = ?').bind(checkout.user_id).first()
-    if (!activeSubscription) return responseJson({ error: 'Pagamento ainda não processado. Reenvie o evento.' }, 503)
-    statements.push(db.prepare(`UPDATE subscriptions SET asaas_subscription_id = ?, asaas_customer_id = ?, updated_at = ? WHERE user_id = ?`)
+    if (!activeSubscription) return defer()
+    statements.push(db.prepare(`UPDATE subscriptions SET asaas_subscription_id = ?, asaas_customer_id = ?, updated_at = ? WHERE user_id = ? AND provider = 'asaas'`)
       .bind(event.subscription.id, event.subscription.customer ?? null, now, checkout.user_id))
   }
 
   if (subscriptionId && /^(PAYMENT_|SUBSCRIPTION_(INACTIVATED|DELETED))/.test(event.event)) {
     const linked = await db.prepare('SELECT id FROM subscriptions WHERE asaas_subscription_id = ?').bind(subscriptionId).first()
-    if (!linked) return responseJson({ error: 'Assinatura ainda não vinculada. Reenvie o evento.' }, 503)
+    if (!linked) return defer()
   }
 
   if (subscriptionId && ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'].includes(event.event)) {
-    statements.push(db.prepare(`UPDATE subscriptions SET status = 'active', current_period_end = ?, updated_at = ? WHERE asaas_subscription_id = ?`)
-      .bind(plusDays(32), now, subscriptionId))
+    if (!event.payment?.id) return responseJson({ error: 'Cobrança Asaas sem identificação. Reenvie o evento.' }, 503)
+    statements.push(db.prepare(`UPDATE subscriptions SET status = 'active', current_period_end = ?, asaas_last_paid_payment_id = ?, updated_at = ?
+      WHERE asaas_subscription_id = ? AND provider = 'asaas' AND (asaas_last_paid_payment_id IS NULL OR asaas_last_paid_payment_id <> ?)`)
+      .bind(nextMonthlyPeriod(event.payment.dueDate), event.payment.id, now, subscriptionId, event.payment.id))
   }
-  if (subscriptionId && ['PAYMENT_OVERDUE', 'PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED'].includes(event.event)) {
-    statements.push(db.prepare(`UPDATE subscriptions SET status = 'past_due', updated_at = ? WHERE asaas_subscription_id = ?`)
+  if (subscriptionId && event.event === 'PAYMENT_OVERDUE') {
+    statements.push(db.prepare(`UPDATE subscriptions SET status = 'past_due', updated_at = ? WHERE asaas_subscription_id = ? AND provider = 'asaas'`)
       .bind(now, subscriptionId))
   }
+  if (subscriptionId && ['PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED'].includes(event.event) && event.payment?.id) {
+    statements.push(db.prepare(`UPDATE subscriptions SET status = 'past_due', updated_at = ?
+      WHERE asaas_subscription_id = ? AND provider = 'asaas' AND asaas_last_paid_payment_id = ?`)
+      .bind(now, subscriptionId, event.payment.id))
+  }
   if (event.subscription?.id && ['SUBSCRIPTION_INACTIVATED', 'SUBSCRIPTION_DELETED'].includes(event.event)) {
-    statements.push(db.prepare(`UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE asaas_subscription_id = ?`)
+    statements.push(db.prepare(`UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE asaas_subscription_id = ? AND provider = 'asaas'`)
       .bind(now, event.subscription.id))
   }
   // D1 batch is one transaction: a failed effect also rolls back the event ID.
@@ -368,12 +445,51 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database): Pr
     await db.batch([
       db.prepare('INSERT INTO webhook_events (id, event_type, received_at) VALUES (?, ?, ?)').bind(event.id, event.event, now),
       ...statements,
+      db.prepare('DELETE FROM pending_webhook_events WHERE id = ?').bind(event.id),
     ])
   } catch (error) {
     if (await processed()) return responseJson({ ok: true, duplicate: true })
     throw error
   }
+  if (retryPending) await replayPendingAsaasWebhooks(env)
   return responseJson({ ok: true })
+}
+
+export async function replayPendingAsaasWebhooks(env: SaaSEnv): Promise<void> {
+  if (!env.DB || !env.ASAAS_WEBHOOK_TOKEN) return
+  for (let pass = 0; pass < 3; pass++) {
+    // Other subscriptions on the same Asaas account may leave unrelated events pending.
+    // Prioritize fresh events so an old backlog cannot block a newly paid checkout.
+    const rows = await env.DB.prepare('SELECT id, payload FROM pending_webhook_events ORDER BY received_at DESC LIMIT 20')
+      .all<{ id: string; payload: string }>()
+    if (!rows.results.length) break
+    let progressed = false
+    for (const row of rows.results) {
+      try {
+        const response = await handleWebhook(new Request('https://internal.invalid/webhooks/asaas', {
+          method: 'POST', headers: { 'asaas-access-token': env.ASAAS_WEBHOOK_TOKEN }, body: row.payload,
+        }), env, env.DB, false)
+        if (response.ok) {
+          const result = await response.json() as { deferred?: boolean }
+          if (!result.deferred) progressed = true
+        }
+      } catch { /* The event remains durable for the next scheduled replay. */ }
+    }
+    if (!progressed) break
+  }
+}
+
+export async function replayAsaasWebhookEvent(env: SaaSEnv, id: string): Promise<boolean> {
+  if (!env.DB || !env.ASAAS_WEBHOOK_TOKEN) return false
+  const row = await env.DB.prepare('SELECT payload FROM pending_webhook_events WHERE id = ?')
+    .bind(id).first<{ payload: string }>()
+  if (!row) return true
+  const response = await handleWebhook(new Request('https://internal.invalid/webhooks/asaas', {
+    method: 'POST', headers: { 'asaas-access-token': env.ASAAS_WEBHOOK_TOKEN }, body: row.payload,
+  }), env, env.DB, false)
+  if (!response.ok) return false
+  const result = await response.json() as { deferred?: boolean }
+  return !result.deferred
 }
 
 export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise<Response | null> {
@@ -385,6 +501,26 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     if (url.pathname === '/webhooks/asaas' && request.method === 'POST') return await handleWebhook(request, env, db)
     const user = await authenticate(request, env)
     await syncUser(db, user)
+    if (url.pathname === '/billing/apple/session' && request.method === 'GET') {
+      if (!user.emailVerified) return responseJson({ error: 'Confirme seu e-mail antes de assinar.' }, 403)
+      if (!appleBillingConfigured(env)) return responseJson({ error: 'Compras Apple ainda não configuradas.' }, 503)
+      await refreshAppleAccount(db, env, user.uid)
+      const current = await effectivePlan(db, user.uid)
+      if (current.subscription?.provider === 'asaas' && current.plan !== 'free') return responseJson({ error: 'Você já possui uma assinatura Asaas ativa. Cancele a renovação e aguarde o fim do período antes de comprar pela Apple.' }, 409)
+      const pending = await db.prepare("SELECT id FROM checkout_sessions WHERE user_id = ? AND status = 'pending' AND created_at > ? LIMIT 1")
+        .bind(user.uid, new Date(Date.now() - 3_600_000).toISOString()).first()
+      if (pending) return responseJson({ error: 'Você já iniciou um pagamento pelo Asaas. Conclua ou aguarde o checkout vencer antes de comprar pela Apple.' }, 409)
+      return responseJson({ appAccountToken: await appleAccountToken(db, user.uid), products: APPLE_PRODUCTS })
+    }
+    if (url.pathname === '/billing/apple/verify' && request.method === 'POST') {
+      if (!appleBillingConfigured(env)) return responseJson({ error: 'Compras Apple ainda não configuradas.' }, 503)
+      const current = await effectivePlan(db, user.uid)
+      if (current.subscription?.provider === 'asaas' && current.plan !== 'free') return responseJson({ error: 'Existe uma assinatura Asaas ativa nesta conta. Contate o suporte para conciliar sua compra Apple.' }, 409)
+      const body = await request.json().catch(() => null) as { transactionId?: unknown } | null
+      if (typeof body?.transactionId !== 'string') return responseJson({ error: 'Transação Apple inválida.' }, 400)
+      const result = await reconcileAppleSubscription(db, env, user.uid, body.transactionId)
+      return responseJson(result)
+    }
     const contentMatch = url.pathname.match(/^\/account\/workspaces\/([a-f0-9-]+)\/content\/(scripts|schedules|brandkit)$/i)
     if (contentMatch) {
       const workspaceId = contentMatch[1]!
@@ -401,7 +537,7 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
       const result = await saveProfile(request, db, user.uid)
       return responseJson(result, 'error' in result ? 400 : 200)
     }
-    if (url.pathname === '/account' && request.method === 'GET') return await accountSummary(db, user)
+    if (url.pathname === '/account' && request.method === 'GET') return await accountSummary(db, env, user)
     if (url.pathname === '/account/workspaces' && request.method === 'POST') return await createWorkspace(request, db, user)
     const memberMatch = url.pathname.match(/^\/account\/workspaces\/([a-f0-9-]+)\/members$/i)
     if (memberMatch && request.method === 'GET') {
@@ -416,8 +552,9 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     return responseJson({ error: 'Rota não encontrada.' }, 404)
   } catch (error) {
     const message = (error as Error).message
-    const authError = /sessão|conta|login|token/i.test(message)
-    return responseJson({ error: message }, authError ? 401 : 503)
+    const authError = /^(Entre na sua conta|Sessão|Login não configurado|Token)/i.test(message)
+    const forbiddenPurchase = /não pertence à sua conta|vinculada a outra conta/i.test(message)
+    return responseJson({ error: message }, authError ? 401 : forbiddenPurchase ? 403 : 503)
   }
 }
 

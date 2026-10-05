@@ -42,7 +42,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   },
 }
 
-export const PAID_PLAN_IDS: PlanId[] = ['creator', 'studio']
+export const PAID_PLAN_IDS: Exclude<PlanId, 'free'>[] = ['creator', 'studio']
 
 export function formatPlanPrice(value: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)

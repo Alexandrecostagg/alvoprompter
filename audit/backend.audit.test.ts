@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { authorizeAiAction, handleSaaSRequest, type SaaSEnv } from '../api/transcribe/src/saas'
+import { authorizeAiAction, handleSaaSRequest, replayAsaasWebhookEvent, type SaaSEnv } from '../api/transcribe/src/saas'
 import { workspaceContent } from '../api/transcribe/src/content'
 import { testDatabase } from './d1-test-db'
 
@@ -42,17 +42,95 @@ describe('payment recovery and authorization', () => {
     expect(await (await handleSaaSRequest(eventRequest(), env))?.json()).toEqual({ ok: true, duplicate: true })
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM subscriptions').get()?.n).toBe(1)
   })
-  it('does not mark a payment handled before its checkout exists', async () => {
+  it('durably defers a paid event until its checkout can be recovered', async () => {
     const { env, sqlite } = setup()
     sqlite.exec('DELETE FROM checkout_sessions')
-    expect((await handleSaaSRequest(eventRequest(), env))?.status).toBe(503)
+    expect((await handleSaaSRequest(eventRequest(), env))?.status).toBe(200)
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM webhook_events').get()?.n).toBe(0)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(1)
+  })
+  it('retries a deferred payment through the queue after the checkout is recovered', async () => {
+    const { env, sqlite } = setup()
+    sqlite.exec('DELETE FROM checkout_sessions')
+    const send = vi.fn(async () => ({ metadata: { metrics: { backlogCount: 1, backlogBytes: 1 } } }))
+    env.BILLING_QUEUE = { send } as unknown as Queue<{ id: string }>
+    expect((await handleSaaSRequest(eventRequest('queued'), env))?.status).toBe(200)
+    expect(send).toHaveBeenCalledWith({ id: 'queued' }, { delaySeconds: 60 })
+    expect(await replayAsaasWebhookEvent(env, 'queued')).toBe(false)
+    sqlite.exec(`INSERT INTO checkout_sessions (id,user_id,plan,asaas_checkout_id,checkout_url,status,created_at,updated_at)
+      VALUES ('recovered','owner','studio','checkout','https://test.invalid','pending','2026-09-23','2026-09-23')`)
+    expect(await replayAsaasWebhookEvent(env, 'queued')).toBe(true)
+    expect(sqlite.prepare('SELECT status FROM subscriptions').get()?.status).toBe('active')
+    expect(await replayAsaasWebhookEvent(env, 'queued')).toBe(true)
+  })
+  it('asks Asaas to resend when durable replay cannot be enqueued', async () => {
+    const { env, sqlite } = setup()
+    sqlite.exec('DELETE FROM checkout_sessions')
+    env.BILLING_QUEUE = { send: async () => { throw new Error('queue unavailable') } } as unknown as Queue<{ id: string }>
+    expect((await handleSaaSRequest(eventRequest('failed-queue'), env))?.status).toBe(503)
+    expect(sqlite.prepare('SELECT id FROM pending_webhook_events WHERE id = ?').get('failed-queue')?.id).toBe('failed-queue')
+  })
+  it('replays a subscription event delivered before checkout payment', async () => {
+    const { env, sqlite } = setup()
+    const early = new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id: 'early-sub', event: 'SUBSCRIPTION_CREATED', subscription: { id: 'sub-1', customer: 'cus-1' } }),
+    })
+    expect((await handleSaaSRequest(early, env))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(1)
+    const paid = new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id: 'checkout-paid', event: 'CHECKOUT_PAID', checkout: { id: 'checkout', customer: 'cus-1' } }),
+    })
+    expect((await handleSaaSRequest(paid, env))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT asaas_subscription_id FROM subscriptions').get()?.asaas_subscription_id).toBe('sub-1')
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(0)
+  })
+  it('replays a new subscription despite older unrelated Asaas events', async () => {
+    const { env, sqlite } = setup()
+    for (let index = 0; index < 20; index++) {
+      const id = `other-project-${index}`
+      sqlite.prepare('INSERT INTO pending_webhook_events (id, event_type, payload, received_at) VALUES (?, ?, ?, ?)')
+        .run(id, 'SUBSCRIPTION_CREATED', JSON.stringify({ id, event: 'SUBSCRIPTION_CREATED', subscription: { id } }), '2026-09-01')
+    }
+    const early = new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id: 'new-sub', event: 'SUBSCRIPTION_CREATED', subscription: { id: 'sub-1', customer: 'cus-1' } }),
+    })
+    await handleSaaSRequest(early, env)
+    const paid = new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id: 'new-paid', event: 'CHECKOUT_PAID', checkout: { id: 'checkout', customer: 'cus-1' } }),
+    })
+    expect((await handleSaaSRequest(paid, env))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT asaas_subscription_id FROM subscriptions').get()?.asaas_subscription_id).toBe('sub-1')
+    expect(sqlite.prepare("SELECT id FROM pending_webhook_events WHERE id = 'new-sub'").get()).toBeUndefined()
   })
   it('cannot downgrade a paid checkout with a late expiration event', async () => {
     const { env, sqlite } = setup()
     await handleSaaSRequest(eventRequest(), env)
     await handleSaaSRequest(eventRequest('event-2', 'CHECKOUT_EXPIRED'), env)
     expect(sqlite.prepare('SELECT status FROM checkout_sessions').get()?.status).toBe('paid')
+  })
+  it('does not extend access when a paid checkout arrives again with another event ID', async () => {
+    const { env, sqlite } = setup()
+    await handleSaaSRequest(eventRequest(), env)
+    const first = sqlite.prepare('SELECT current_period_end FROM subscriptions').get()?.current_period_end
+    await handleSaaSRequest(eventRequest('another-event'), env)
+    expect(sqlite.prepare('SELECT current_period_end FROM subscriptions').get()?.current_period_end).toBe(first)
+  })
+  it('keeps the same period for confirmation and receipt of one Asaas payment', async () => {
+    const { env, sqlite } = setup()
+    await handleSaaSRequest(eventRequest(), env)
+    const payment = (id: string, event: string) => new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id, event, payment: { id: 'pay-1', subscription: 'sub-1', dueDate: '2026-10-05' } }),
+    })
+    expect((await handleSaaSRequest(payment('confirmed', 'PAYMENT_CONFIRMED'), env))?.status).toBe(200)
+    const end = sqlite.prepare('SELECT current_period_end FROM subscriptions').get()?.current_period_end
+    expect(end).toBe('2026-11-05T12:00:00.000Z')
+    expect((await handleSaaSRequest(payment('received', 'PAYMENT_RECEIVED'), env))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT current_period_end FROM subscriptions').get()?.current_period_end).toBe(end)
   })
 })
 

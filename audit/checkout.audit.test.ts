@@ -52,4 +52,21 @@ describe('checkout availability and Asaas ID response', () => {
     expect(await response?.text()).not.toContain('private provider detail')
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM checkout_sessions').get()?.n).toBe(0)
   })
+  it('recovers a paid checkout when saving the provider ID initially failed', async () => {
+    const { request, sqlite, env, failNextBatch } = setup()
+    failNextBatch()
+    expect((await request())?.status).toBe(503)
+    const intent = sqlite.prepare('SELECT id FROM checkout_intents').get() as { id: string }
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM checkout_sessions').get()?.n).toBe(0)
+    const event = new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'test-only' },
+      body: JSON.stringify({ id: 'paid-after-db-failure', event: 'CHECKOUT_PAID', checkout: {
+        id: 'checkout-123', status: 'PAID', callback: { successUrl: `https://app.example.test/?billing=success&intent=${intent.id}` },
+        subscription: { id: 'subscription-123' },
+      } }),
+    })
+    expect((await handleSaaSRequest(event, env))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT status FROM subscriptions').get()?.status).toBe('active')
+    expect(sqlite.prepare('SELECT status FROM checkout_sessions').get()?.status).toBe('paid')
+  })
 })

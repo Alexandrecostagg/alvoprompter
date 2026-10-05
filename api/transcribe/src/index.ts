@@ -1,4 +1,5 @@
 import { billingAvailability } from './billing'
+import { appleBillingConfigured } from './appleBilling'
 /**
  * AlvoPrompter API — Cloudflare Worker com Workers AI (plano gratuito).
  *
@@ -16,7 +17,7 @@ import { billingAvailability } from './billing'
  * Uso local:  npx wrangler dev --port 8787
  * Publicar:   npx wrangler deploy
  */
-import { authorizeAiAction, refundAiAction, handleSaaSRequest, requireUser, type SaaSEnv, type AiCharge } from './saas'
+import { authorizeAiAction, refundAiAction, handleSaaSRequest, replayAsaasWebhookEvent, requireUser, type SaaSEnv, type AiCharge } from './saas'
 
 export interface Env {
   AI: {
@@ -32,10 +33,14 @@ export interface Env {
   AI_MODEL?: string
   RELEASE?: string
   DB?: D1Database
+  BILLING_QUEUE?: Queue<{ id: string }>
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
   ASAAS_API_BASE?: string
   ASAAS_WEBHOOK_TOKEN?: string
+  APPLE_IAP_ISSUER_ID?: string
+  APPLE_IAP_KEY_ID?: string
+  APPLE_IAP_PRIVATE_KEY?: string
   APP_URL?: string
 }
 
@@ -436,6 +441,7 @@ const api = {
         ai: { provider: chatProvider(env).name, configured: Boolean(chatProvider(env).key), model: chatProvider(env).model },
         auth: { projectId: env.FIREBASE_PROJECT_ID || null, configured: Boolean(env.FIREBASE_PROJECT_ID && !env.FIREBASE_PROJECT_ID.startsWith('configure-')) },
         billing: billingAvailability(env),
+        appleBilling: { configured: appleBillingConfigured(env) },
         workersAi: { configured: Boolean(env.AI) },
       })
     }
@@ -927,6 +933,14 @@ async function checkChatOutput(stream: ReadableStream<Uint8Array>, charge: AiCha
 }
 
 export default {
+  async queue(batch: MessageBatch<{ id: string }>, env: Env): Promise<void> {
+    for (const message of batch.messages) {
+      try {
+        if (await replayAsaasWebhookEvent(env, message.body.id)) message.ack()
+        else message.retry({ delaySeconds: 300 })
+      } catch { message.retry({ delaySeconds: 300 }) }
+    }
+  },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
     const path = new URL(request.url).pathname

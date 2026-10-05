@@ -15,7 +15,7 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
   },
   android: { includePlugins: [...basePlugins, ...(androidAuth ? [authPlugin] : [])] },
-  ios: { includePlugins: [...basePlugins, ...(iosAuth ? [authPlugin] : [])] },
+  ios: { includePlugins: [...basePlugins, '@capgo/native-purchases', ...(iosAuth ? [authPlugin] : [])] },
   ...(iosAuth ? { experimental: { ios: { spm: { swiftToolsVersion: '6.1', packageTraits: { [authPlugin]: ['Google'] }, packageOptions: { [authPlugin]: { symlink: true } } } } } } : {}),
   plugins: {
     FirebaseAuthentication: { skipNativeAuth: true, providers: ['google.com', 'apple.com'] },

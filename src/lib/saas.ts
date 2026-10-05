@@ -19,6 +19,7 @@ export interface AccountSummary {
     plan: PlanId
     status: 'free' | 'pending' | 'active' | 'past_due' | 'canceled'
     currentPeriodEnd: string | null
+    provider?: 'asaas' | 'apple' | null
   }
   limits: { workspaces: number; members: number; aiActionsMonthly: number }
   usage: { aiActions: number }

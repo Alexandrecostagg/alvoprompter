@@ -21,7 +21,7 @@ id = "7f2df53777804be2aefce83dd26e3945"
 # Publicar: npx wrangler deploy
 # Origens autorizadas. Adicione o domínio público real antes do deploy.
 [vars]
-RELEASE = "1.4.0"
+RELEASE = "1.5.0"
 AI_PROVIDER = "carcara"
 AI_MODEL = "Carcara-3.8-27B"
 CARCARA_API_BASE = "https://tunel.harpyacore.com/v1"
@@ -36,3 +36,13 @@ binding = "DB"
 database_name = "alvoprompter-saas"
 database_id = "f7cd9af4-26f0-4d5a-ab25-8464581b84d3"
 migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "BILLING_QUEUE"
+queue = "alvoprompt-billing-retry"
+
+[[queues.consumers]]
+queue = "alvoprompt-billing-retry"
+max_batch_size = 10
+max_retries = 12
+retry_delay = 300
