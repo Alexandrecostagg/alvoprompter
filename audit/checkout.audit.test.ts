@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { handleSaaSRequest, type SaaSEnv } from '../api/transcribe/src/saas'
-import { billingAvailability } from '../api/transcribe/src/billing'
+import { asaasFailureCode, billingAvailability } from '../api/transcribe/src/billing'
 import { testDatabase } from './d1-test-db'
 vi.mock('jose', () => ({
   decodeProtectedHeader: () => ({ alg: 'RS256', kid: 'test' }), importX509: async () => ({}),
@@ -14,6 +14,7 @@ function setup(overrides: Partial<SaaSEnv> = {}, reply: unknown = { id: 'checkou
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (String(url).includes('googleapis.com/robot')) return new Response(JSON.stringify({ test: 'certificate' }))
     expect(new Headers(init?.headers).get('access_token')).toBe(String(url).startsWith('https://api.asaas.com/') ? 'production-test-only' : 'test-only')
+    expect(new Headers(init?.headers).get('user-agent')).toBe('AlvoPrompter/1.5.0')
     if (init?.body) {
       const payload = JSON.parse(String(init.body))
       expect(payload.billingTypes).toEqual(['CREDIT_CARD'])
@@ -61,6 +62,16 @@ describe('checkout availability and Asaas ID response', () => {
     expect(response?.status).toBe(502)
     expect(await response?.text()).not.toContain('private provider detail')
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM checkout_sessions').get()?.n).toBe(0)
+    expect(sqlite.prepare('SELECT upstream_status, upstream_error_code FROM checkout_intents').get()).toEqual({ upstream_status: 401, upstream_error_code: 'authentication_failed' })
+  })
+  it('stores only recognized error codes and never provider descriptions', async () => {
+    const { request, sqlite } = setup({}, { errors: [{ code: 'invalid_environment', description: 'private provider detail' }] }, 401)
+    const response = await request()
+    expect(await response?.text()).not.toContain('private provider detail')
+    expect(sqlite.prepare('SELECT upstream_error_code FROM checkout_intents').get()?.upstream_error_code).toBe('invalid_environment')
+    expect(asaasFailureCode(400, { errors: [{ code: 'secret-or-customer-data', description: 'private' }] })).toBe('request_rejected')
+    expect(asaasFailureCode(200, null)).toBe('invalid_response')
+    expect(asaasFailureCode(403, { errors: [null] })).toBe('request_forbidden')
   })
   it('recovers a paid checkout when saving the provider ID initially failed', async () => {
     const { request, sqlite, env, failNextBatch } = setup()

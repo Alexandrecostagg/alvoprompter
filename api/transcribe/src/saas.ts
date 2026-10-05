@@ -1,5 +1,5 @@
 import { readProfile, saveProfile } from './profile'
-import { asaasApiKey, billingAvailability, checkoutUrl } from './billing'
+import { asaasApiKey, asaasHeaders, asaasFailureCode, billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
 import { APPLE_PRODUCTS, appleAccountToken, appleBillingConfigured, reconcileAppleSubscription, refreshAppleAccount } from './appleBilling'
 import { decodeProtectedHeader, importX509, jwtVerify } from 'jose'
@@ -272,11 +272,15 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
   const base = env.ASAAS_API_BASE?.replace(/\/$/, '') || 'https://api-sandbox.asaas.com/v3'
   const upstream = await fetch(`${base}/checkouts`, {
     method: 'POST',
-    headers: { accept: 'application/json', 'content-type': 'application/json', access_token: asaasApiKey(env)! },
+    headers: asaasHeaders(env),
     body: JSON.stringify(payload),
   })
   const result = (await upstream.json().catch(() => null)) as { id?: string; link?: string; errors?: unknown } | null
-  if (!upstream.ok || typeof result?.id !== 'string' || !result.id.trim()) return responseJson({ error: 'Não foi possível abrir o pagamento agora. Tente novamente em alguns instantes.' }, 502)
+  if (!upstream.ok || typeof result?.id !== 'string' || !result.id.trim()) {
+    await db.prepare('UPDATE checkout_intents SET upstream_status = ?, upstream_error_code = ? WHERE id = ?')
+      .bind(upstream.status, asaasFailureCode(upstream.status, result), checkoutId).run()
+    return responseJson({ error: 'Não foi possível abrir o pagamento. A falha foi registrada para verificação. Nenhum plano foi ativado.', code: 'CHECKOUT_PROVIDER_ERROR', reference: checkoutId }, 502)
+  }
   const url = checkoutUrl(result.id, billingAvailability(env).sandbox)
   await db.batch([
     db.prepare(`INSERT INTO checkout_sessions (id, user_id, plan, asaas_checkout_id, checkout_url, status, created_at, updated_at)
@@ -301,7 +305,7 @@ async function cancelSubscription(request: Request, env: SaaSEnv, db: D1Database
   const base = env.ASAAS_API_BASE?.replace(/\/$/, '') || 'https://api-sandbox.asaas.com/v3'
   const upstream = await fetch(`${base}/subscriptions/${encodeURIComponent(subscription.asaas_subscription_id)}`, {
     method: 'DELETE',
-    headers: { accept: 'application/json', access_token: apiKey },
+    headers: asaasHeaders(env),
   })
   if (!upstream.ok) return responseJson({ error: 'Não foi possível cancelar a renovação no Asaas. Tente novamente.' }, 502)
   const periodEnd = subscription.current_period_end ?? nextMonthlyPeriod()
