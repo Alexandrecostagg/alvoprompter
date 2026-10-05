@@ -50,10 +50,28 @@ export async function buyApplePlan(plan: Exclude<PlanId, 'free'>): Promise<void>
 export async function restoreApplePlans(): Promise<boolean> {
   const { NativePurchases, PURCHASE_TYPE } = await purchases()
   const session = await purchaseSession()
-  await NativePurchases.restorePurchases()
-  const { purchases: records } = await NativePurchases.getPurchases({
-    productType: PURCHASE_TYPE.SUBS, onlyCurrentEntitlements: true,
-  })
+  const currentPurchases = async () => {
+    try {
+      const { purchases: records } = await NativePurchases.getPurchases({
+        productType: PURCHASE_TYPE.SUBS, onlyCurrentEntitlements: true,
+      })
+      return records.filter((record) =>
+        Object.values(APPLE_PRODUCT_IDS).includes(record.productIdentifier as typeof APPLE_PRODUCT_IDS[keyof typeof APPLE_PRODUCT_IDS])
+        && record.appAccountToken?.toLowerCase() === session.appAccountToken.toLowerCase())
+    } catch {
+      throw new Error('Não foi possível consultar suas compras na App Store. Confira sua conexão e tente novamente.')
+    }
+  }
+  // StoreKit keeps current entitlements synchronized, including after reinstall.
+  // Force an authenticated AppStore.sync only when the account has no local entitlement.
+  let records = await currentPurchases()
+  if (!records.length) {
+    try { await NativePurchases.restorePurchases() }
+    catch {
+      throw new Error('A App Store não conseguiu sincronizar suas compras. Confira se está usando a mesma Conta Apple da compra e tente novamente. Seu plano atual não foi alterado.')
+    }
+    records = await currentPurchases()
+  }
   let restored = false
   for (const record of records) {
     if (!Object.values(APPLE_PRODUCT_IDS).includes(record.productIdentifier as typeof APPLE_PRODUCT_IDS[keyof typeof APPLE_PRODUCT_IDS])) continue
