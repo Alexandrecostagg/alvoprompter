@@ -20,25 +20,17 @@ const INTRO_SLIDES = [
   },
   {
     eyebrow: 'Privacidade por padrão',
-    title: 'Comece local. Sincronize quando quiser.',
-    text: 'Seus roteiros ficam neste dispositivo no modo local. Com uma conta, você libera backup, equipe e assinatura.',
+    title: 'Comece sem conta. Entre quando quiser.',
+    text: 'Sem conta, seus roteiros ficam apenas neste dispositivo. Com uma conta, você libera backup, equipe e assinatura.',
     icon: '◇',
   },
 ] as const
 
-function Benefit({ icon, title, text }: { icon: string; title: string; text: string }) {
-  return (
-    <li className="flex gap-3 rounded-2xl border p-3.5" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 78%, transparent)' }}>
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg" style={{ background: 'var(--accent-soft)' }} aria-hidden="true">{icon}</span>
-      <span><strong className="block text-sm">{title}</strong><span className="mt-0.5 block text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>{text}</span></span>
-    </li>
-  )
-}
-
 export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { requestedPlan?: PlanId | null; onContinueLocal: () => void }) {
   const [step, setStep] = useState<EntryStep>(requestedPlan ? 'signup' : 'intro')
+  const [recovering, setRecovering] = useState(false)
   const [introIndex, setIntroIndex] = useState(0)
-  const openAuth = (next: EntryStep) => setStep(next)
+  const openAuth = (next: EntryStep) => { setRecovering(false); setStep(next) }
 
   if (step === 'intro') {
     const slide = INTRO_SLIDES[introIndex]!
@@ -81,30 +73,29 @@ export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { reques
       <div className="pointer-events-none absolute -left-28 top-12 h-72 w-72 rounded-full opacity-30 blur-3xl" style={{ background: '#8b5cf6' }} />
       <div className="pointer-events-none absolute -right-24 bottom-8 h-72 w-72 rounded-full opacity-25 blur-3xl" style={{ background: '#22d3ee' }} />
 
-      <div className="relative mx-auto w-full max-w-6xl">
+      <div className="relative mx-auto w-full max-w-5xl">
         <header className="flex min-h-12 items-center justify-between gap-3">
           <BrandMark />
-          <span className="rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.14em]" style={{ borderColor: 'var(--border)', color: 'var(--muted)', background: 'var(--panel)' }}>Beta transparente</span>
+          <span className="rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.14em]" style={{ borderColor: 'var(--border)', color: 'var(--muted)', background: 'var(--panel)' }}>Seu roteiro no alvo</span>
         </header>
 
         <section className="mt-6 grid overflow-hidden rounded-[2rem] border shadow-2xl lg:grid-cols-[1.05fr_.95fr]" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: '0 30px 90px rgba(15,23,42,.12)' }}>
-          <div className="relative order-2 flex flex-col justify-between overflow-hidden p-6 sm:p-9 lg:order-1 lg:min-h-[650px] lg:p-12" style={{ background: 'linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 84%, var(--panel)), color-mix(in srgb, #cffafe 42%, var(--panel)))' }}>
+          <div className={`welcome-story ${step !== 'welcome' ? 'hidden lg:flex' : 'flex'}`}>
             <div>
-              <span className="inline-flex rounded-full px-3 py-1.5 text-xs font-bold" style={{ color: 'var(--brand-strong)', background: 'color-mix(in srgb, var(--panel) 80%, transparent)' }}>Seu estúdio de fala no celular</span>
-              <h1 className="mt-5 max-w-xl text-3xl font-extrabold leading-tight tracking-[-.04em] sm:text-5xl">Grave olhando para a câmera, não para o roteiro.</h1>
-              <p className="mt-4 max-w-xl text-sm leading-relaxed sm:text-base" style={{ color: 'var(--muted)' }}>Crie o texto, acompanhe a fala e grave no mesmo fluxo. O AlvoPrompter organiza a produção sem transformar a primeira tela em um painel cheio de ferramentas.</p>
+              <p className="text-xs font-bold uppercase tracking-[.16em]" style={{ color: 'var(--brand-strong)' }}>Da sua ideia ao vídeo</p>
+              <h1 className="mt-4 text-3xl font-extrabold leading-tight tracking-[-.04em] sm:text-4xl">Sua mensagem.<br />Seu olhar na câmera.</h1>
+              <p className="mt-4 max-w-sm text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>Prepare seu roteiro, acompanhe a leitura e grave com mais confiança.</p>
             </div>
-
-            <ul className="mt-7 grid gap-2.5 sm:grid-cols-3 lg:grid-cols-1">
-              <Benefit icon="◎" title="Comece pelo roteiro" text="Escreva, importe ou gere com IA." />
-              <Benefit icon="◉" title="Leia com naturalidade" text="Rolagem por voz e controles grandes." />
-              <Benefit icon="↗" title="Publique com confiança" text="Gravação, legendas e formatos sociais." />
-            </ul>
-
-            <div className="mt-7 flex items-center gap-3 text-xs" style={{ color: 'var(--muted)' }}><span className="h-2 w-2 rounded-full" style={{ background: 'var(--ok)' }} />Roteiros e gravações ficam neste dispositivo por padrão.</div>
+            <div className="welcome-prompter" aria-label="Exemplo de leitura no teleprompter">
+              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.18em] text-white/60"><span>Seu próximo vídeo</span><span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-red-400" />REC</span></div>
+              <p className="mt-7 text-xl font-semibold leading-relaxed text-white/40">Toda boa história<br />começa com uma ideia.</p>
+              <p className="my-3 border-l-2 border-cyan-300 pl-4 text-2xl font-bold leading-relaxed text-white on-dark">A próxima pode<br />ser a sua.</p>
+              <div className="mt-7 flex items-center justify-between border-t border-white/15 pt-4 text-xs text-white/60"><span>Roteiro pronto. Agora é com você.</span><span aria-hidden="true">▶</span></div>
+            </div>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Roteiro · Teleprompter · Gravação</p>
           </div>
 
-          <div className="order-1 flex min-h-[470px] flex-col justify-center p-6 sm:p-9 lg:order-2 lg:p-12">
+          <div className="order-1 flex min-h-[470px] flex-col justify-center p-6 sm:p-9 lg:order-2 lg:p-9">
             {step === 'welcome' ? (
               <div className="mx-auto w-full max-w-sm">
                 <p className="text-xs font-bold uppercase tracking-[.16em]" style={{ color: 'var(--brand-strong)' }}>Primeiro acesso</p>
@@ -117,16 +108,20 @@ export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { reques
                 <div className="my-6 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[.12em]" style={{ color: 'var(--muted)' }}><span className="h-px flex-1" style={{ background: 'var(--border)' }} />ou<span className="h-px flex-1" style={{ background: 'var(--border)' }} /></div>
 
                 <button onClick={onContinueLocal} className="min-h-11 w-full text-sm font-bold" style={{ color: 'var(--brand-strong)' }}>Continuar sem conta</button>
-                <p className="mt-2 text-center text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Modo local: sem sincronização, equipe ou backup na nuvem.</p>
+                <p className="mt-2 text-center text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Seus arquivos ficam só neste dispositivo, sem backup na nuvem.</p>
               </div>
             ) : (
               <div className="mx-auto w-full max-w-sm">
-                <button onClick={() => openAuth('welcome')} className="mb-5 flex min-h-10 items-center gap-2 text-sm font-bold" style={{ color: 'var(--muted)' }}>← Voltar</button>
-                <p className="text-xs font-bold uppercase tracking-[.16em]" style={{ color: 'var(--brand-strong)' }}>{step === 'signup' ? 'Conta gratuita' : 'Boas-vindas de volta'}</p>
-                <h2 className="mt-2 text-2xl font-extrabold">{step === 'signup' ? 'Crie sua conta' : 'Entre no AlvoPrompter'}</h2>
+                {!recovering && <>
+                  <p className="text-xs font-bold uppercase tracking-[.16em]" style={{ color: 'var(--brand-strong)' }}>{step === 'signup' ? 'Conta gratuita' : 'Boas-vindas de volta'}</p>
+                  <h2 className="mt-2 text-2xl font-extrabold">{step === 'signup' ? 'Crie sua conta' : 'Acesse sua conta'}</h2>
+                </>}
                 {requestedPlan ? <p className="mt-3 rounded-2xl px-3 py-2 text-xs font-bold" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}>Plano escolhido: {PLANS[requestedPlan].name}</p> : null}
-                <div className="mt-5"><AuthForm mode={step} onModeChange={setStep} /></div>
-                <button onClick={onContinueLocal} className="team-back mt-3 w-full text-center">Continuar no modo local</button>
+                <div className="mt-5"><AuthForm mode={step} onModeChange={setStep} onRecoveryChange={setRecovering} /></div>
+                <div className="mt-6 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+                  <button onClick={onContinueLocal} className="auth-link w-full text-center">Usar sem conta</button>
+                  <p className="mt-1 text-center text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Roteiros e vídeos apenas neste dispositivo.<br />Sem sincronização ou backup na nuvem.</p>
+                </div>
               </div>
             )}
           </div>

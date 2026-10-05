@@ -187,3 +187,24 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .video-editor details > summary + * { margin-top: .75rem; }
 .video-editor details { border: 1px solid var(--border); border-radius: 1rem; padding: 0 1rem 1rem; background: var(--panel); }
 .video-editor details:not([open]) { padding-bottom: 0; }
+
+/* Entry and account forms share a compact, accessible layout. */
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; padding: .25rem; border-radius: .875rem; background: var(--bg); border: 1px solid var(--border); }
+.auth-tabs button { min-height: 40px; border-radius: .65rem; font-size: .875rem; font-weight: 700; color: var(--muted); }
+.auth-tabs button[aria-pressed="true"] { background: var(--panel); color: var(--brand-strong); box-shadow: 0 2px 8px #0f172a12; }
+.auth-social { display: flex; align-items: center; justify-content: center; gap: .75rem; width: 100%; min-height: 48px; }
+.auth-divider { display: flex; align-items: center; gap: .75rem; margin: 1.25rem 0; font-size: .75rem; color: var(--muted); }
+.auth-divider::before, .auth-divider::after { content: ''; height: 1px; flex: 1; background: var(--border); }
+.auth-form .auth-password { position: relative; margin-top: .4rem; }
+.auth-password input { padding-right: 5rem; margin-top: 0; }
+.auth-password button { position: absolute; right: .35rem; top: 0; min-width: 64px; min-height: 48px; font-size: .75rem; font-weight: 700; color: var(--brand-strong); }
+.auth-link { min-height: 44px; font-size: .875rem; font-weight: 650; color: var(--brand-strong); }
+.auth-submit { min-height: 50px; box-shadow: 0 6px 18px #635bff20; }
+.auth-notice { padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--accent-soft); color: var(--text); font-size: .875rem; line-height: 1.6; text-align: left; overflow-wrap: anywhere; }
+.auth-error { border-color: var(--danger); color: var(--danger); background: var(--panel); }
+.auth-help { color: var(--muted); }
+.auth-recovery-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--accent-soft); color: var(--brand-strong); font-size: 1.5rem; }
+.auth-form button:focus-visible, .auth-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.welcome-story { flex-direction: column; justify-content: center; gap: 1.75rem; padding: 2.25rem; background: linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 84%, var(--panel)), color-mix(in srgb, #cffafe 42%, var(--panel))); }
+.welcome-prompter { padding: 1.5rem; border-radius: 1.5rem; background: linear-gradient(145deg, #20243e, #101727); box-shadow: 0 16px 30px #161b3830; transform: rotate(-2deg); }
+@media (max-width: 639px) { .welcome-story { padding: 1.5rem; } .welcome-prompter { transform: none; } }

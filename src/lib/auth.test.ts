@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { friendlyAuthError, isAuthCancellation, signupError } from './authMessages'
 const fake = vi.hoisted(() => {
   const user = { displayName: 'Test', getIdToken: vi.fn(async () => 'token') }
-  return { native: false, platform: 'web', plugin: false, user, auth: { currentUser: user }, popup: vi.fn(async () => ({ user })), credential: vi.fn(async () => ({ user })), google: vi.fn(), apple: vi.fn(), nativeOut: vi.fn(), webOut: vi.fn(), profile: vi.fn(), signIn: vi.fn(async () => ({ user })), scopes: vi.fn(), params: vi.fn(), additional: vi.fn(() => null as { isNewUser: boolean } | null), oauthCredential: vi.fn((value) => value), observe: vi.fn(), register: vi.fn(async () => ({ user })) }
+  return { native: false, platform: 'web', plugin: false, user, auth: { currentUser: user }, popup: vi.fn(async () => ({ user })), credential: vi.fn(async () => ({ user })), google: vi.fn(), apple: vi.fn(), nativeOut: vi.fn(), webOut: vi.fn(), profile: vi.fn(), signIn: vi.fn(async () => ({ user })), scopes: vi.fn(), params: vi.fn(), additional: vi.fn(() => null as { isNewUser: boolean } | null), oauthCredential: vi.fn((value) => value), observe: vi.fn(), register: vi.fn(async () => ({ user })), reset: vi.fn(async () => undefined) }
 })
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => fake.native, getPlatform: () => fake.platform, isPluginAvailable: () => fake.plugin } }))
 vi.mock('firebase/app', () => ({ initializeApp: () => ({}) }))
@@ -11,10 +11,10 @@ vi.mock('firebase/auth', () => ({
   GoogleAuthProvider: class { static credential(idToken: string) { return { idToken, provider: 'google' } }; setCustomParameters = fake.params },
   OAuthProvider: class { addScope = fake.scopes; credential = fake.oauthCredential },
   getAdditionalUserInfo: fake.additional, signInWithPopup: fake.popup, signInWithCredential: fake.credential, signInWithEmailAndPassword: fake.signIn, signOut: fake.webOut,
-  createUserWithEmailAndPassword: fake.register, onAuthStateChanged: fake.observe, sendEmailVerification: vi.fn(async () => undefined), sendPasswordResetEmail: vi.fn(), updateProfile: fake.profile,
+  createUserWithEmailAndPassword: fake.register, onAuthStateChanged: fake.observe, sendEmailVerification: vi.fn(async () => undefined), sendPasswordResetEmail: fake.reset, updateProfile: fake.profile,
 }))
 vi.mock('@capacitor-firebase/authentication', () => ({ FirebaseAuthentication: { signInWithGoogle: fake.google, signInWithApple: fake.apple, signOut: fake.nativeOut } }))
-const { signInSocial, socialAvailability, signUserOut, signIn, signUp, observeUser } = await import('./auth')
+const { signInSocial, socialAvailability, signUserOut, signIn, signUp, observeUser, resetPassword } = await import('./auth')
 beforeEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); fake.additional.mockReturnValue(null); fake.native = false; fake.platform = 'web'; fake.plugin = false; fake.google.mockResolvedValue({ credential: { idToken: 'google-token' } }); fake.apple.mockResolvedValue({ credential: { idToken: 'apple-token', nonce: 'nonce' } }); fake.nativeOut.mockResolvedValue(undefined) })
 describe('social authentication transport and session', () => {
   it('uses Firebase popup on web and requests account selection for Google', async () => {
@@ -97,5 +97,19 @@ describe('registration and understandable errors', () => {
     expect(isAuthCancellation({ code: 'auth/popup-closed-by-user' })).toBe(true)
     expect(friendlyAuthError({ code: 'auth/unauthorized-domain' })).toContain('ativado neste endereço')
     expect(friendlyAuthError({ code: 'auth/account-exists-with-different-credential' })).toContain('método que você já usou')
+  })
+})
+
+
+describe('password recovery', () => {
+  it('submits the trimmed address without looking up or exposing account existence', async () => {
+    await resetPassword('  ana@example.test  ')
+    expect(fake.reset).toHaveBeenCalledWith(fake.auth, 'ana@example.test')
+  })
+  it('propagates delivery request failures instead of reporting success', async () => {
+    fake.reset.mockRejectedValueOnce({ code: 'auth/too-many-requests' })
+    await expect(resetPassword('ana@example.test')).rejects.toMatchObject({ code: 'auth/too-many-requests' })
+    expect(friendlyAuthError({ code: 'auth/internal-error' }, 'recovery')).toContain('recuperação de senha')
+    expect(friendlyAuthError({ code: 'auth/network-request-failed' }, 'recovery')).toContain('conexão')
   })
 })

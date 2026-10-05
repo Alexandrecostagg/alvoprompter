@@ -1,5 +1,6 @@
-export function friendlyAuthError(error: unknown): string {
+export function friendlyAuthError(error: unknown, context: 'signin' | 'recovery' = 'signin'): string {
   const code = (error as { code?: string })?.code ?? ''
+  if (context === 'recovery' && ['auth/internal-error', 'auth/operation-not-allowed'].includes(code)) return 'A recuperação de senha está indisponível no momento. Tente novamente mais tarde ou entre com Google.'
   const messages: Record<string, string> = {
     'auth/invalid-credential': 'Não foi possível entrar. Confira seu e-mail e sua senha.',
     'auth/wrong-password': 'Não foi possível entrar. Confira seu e-mail e sua senha.',
@@ -17,6 +18,7 @@ export function friendlyAuthError(error: unknown): string {
     'auth/account-exists-with-different-credential': 'Entre pelo método que você já usou para criar esta conta. Não vinculamos contas automaticamente.',
     'auth/user-disabled': 'Esta conta está desativada.',
   }
+  if (context === 'recovery' && code && !messages[code]) return 'Não foi possível solicitar o e-mail de recuperação. Tente novamente em alguns minutos.'
   return messages[code] ?? (code ? 'Não foi possível concluir o login. Tente novamente ou use e-mail e senha.' : error instanceof Error ? error.message : 'Não foi possível concluir. Tente novamente.')
 }
 
