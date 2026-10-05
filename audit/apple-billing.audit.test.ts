@@ -90,6 +90,49 @@ describe('Apple subscription verification', () => {
     expect((await request('/billing/apple/verify', { transactionId: '654321' }))?.status).toBe(200)
     expect(sqlite.prepare('SELECT plan, status FROM subscriptions').get()).toMatchObject({ plan: 'studio', status: 'active' })
   })
+  it('reconciles renewal and preserves access after auto-renew is disabled until expiry', async () => {
+    const { sqlite, request } = setup()
+    let expiry = Date.now() + 86_400_000
+    let status = 1
+    let renewalEnabled = 1
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).includes('googleapis.com/robot')
+      ? new Response(JSON.stringify({ test: 'certificate' }))
+      : new Response(JSON.stringify({ data: [{ lastTransactions: [{ status, signedTransactionInfo: JSON.stringify({
+        appAccountToken: (sqlite.prepare('SELECT app_account_token FROM apple_accounts').get() as { app_account_token: string }).app_account_token,
+        bundleId: 'com.alvoprompt.app', environment: 'Production', originalTransactionId: '123456',
+        transactionId: '123457', productId: APPLE_PRODUCTS.creator, expiresDate: expiry,
+      }), signedRenewalInfo: JSON.stringify({ autoRenewStatus: renewalEnabled }) }] }] }))))
+    await request('/billing/apple/session')
+    await request('/billing/apple/verify', { transactionId: '123456' })
+    expiry += 86_400_000
+    expect((await request('/account'))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT current_period_end FROM subscriptions').get()?.current_period_end).toBe(new Date(expiry).toISOString())
+    renewalEnabled = 0
+    await request('/account')
+    expect(sqlite.prepare('SELECT status FROM subscriptions').get()?.status).toBe('active')
+    expiry = Date.now() - 1000
+    status = 2
+    await request('/account')
+    expect(sqlite.prepare('SELECT status FROM subscriptions').get()?.status).toBe('canceled')
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM subscriptions').get()?.n).toBe(1)
+  })
+  it.each([
+    { status: 5, revoked: true, expected: 'canceled' },
+    { status: 3, revoked: false, expected: 'past_due' },
+  ])('removes paid access for Apple state $status', async ({ status, revoked, expected }) => {
+    const { sqlite, request } = setup()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).includes('googleapis.com/robot')
+      ? new Response(JSON.stringify({ test: 'certificate' }))
+      : new Response(JSON.stringify({ data: [{ lastTransactions: [{ status, signedTransactionInfo: JSON.stringify({
+        appAccountToken: (sqlite.prepare('SELECT app_account_token FROM apple_accounts').get() as { app_account_token: string }).app_account_token,
+        bundleId: 'com.alvoprompt.app', environment: 'Production', originalTransactionId: '123456',
+        productId: APPLE_PRODUCTS.creator, expiresDate: Date.now() + 86_400_000,
+        ...(revoked ? { revocationDate: Date.now() } : {}),
+      }) }] }] }))))
+    await request('/billing/apple/session')
+    const result = await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(await result?.json()).toMatchObject({ plan: 'free', status: expected })
+  })
   it('refuses to replace a paid Asaas subscription with an Apple receipt', async () => {
     const { sqlite, request } = setup()
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ test: 'certificate' }))))
