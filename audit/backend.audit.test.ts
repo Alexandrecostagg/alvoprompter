@@ -86,6 +86,57 @@ describe('payment recovery and authorization', () => {
     expect(sqlite.prepare('SELECT asaas_subscription_id FROM subscriptions').get()?.asaas_subscription_id).toBe('sub-1')
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(0)
   })
+  it('links real checkout events without customer IDs through the payment checkoutSession', async () => {
+    const { env, sqlite } = setup()
+    const deliver = (body: object) => handleSaaSRequest(new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' }, body: JSON.stringify(body),
+    }), env)
+    await deliver({ id: 'sub-created', event: 'SUBSCRIPTION_CREATED', subscription: { id: 'sub-real', customer: 'cus-real' } })
+    const payment = { id: 'payment-confirmed', event: 'PAYMENT_CONFIRMED', payment: {
+      id: 'pay-real', subscription: 'sub-real', checkoutSession: 'checkout', dueDate: '2026-10-05',
+    } }
+    await deliver(payment)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(2)
+    await deliver({ id: 'checkout-paid-real', event: 'CHECKOUT_PAID', checkout: { id: 'checkout' } })
+    expect(sqlite.prepare('SELECT asaas_subscription_id, asaas_customer_id, status, current_period_end FROM subscriptions').get()).toEqual({
+      asaas_subscription_id: 'sub-real', asaas_customer_id: 'cus-real', status: 'active', current_period_end: '2026-11-05T12:00:00.000Z',
+    })
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(0)
+    expect(await (await deliver(payment))?.json()).toEqual({ ok: true, duplicate: true })
+    await deliver({ id: 'renewal', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay-next', subscription: 'sub-real', dueDate: '2026-11-05' } })
+    expect(sqlite.prepare('SELECT current_period_end FROM subscriptions').get()?.current_period_end).toBe('2026-12-05T12:00:00.000Z')
+    await deliver({ id: 'cancel', event: 'SUBSCRIPTION_DELETED', subscription: { id: 'sub-real' } })
+    expect(sqlite.prepare('SELECT status FROM subscriptions').get()?.status).toBe('canceled')
+  })
+  it('rolls back a failed payment link and retries without losing the event', async () => {
+    const { env, sqlite, failNextBatch } = setup()
+    await handleSaaSRequest(eventRequest(), env)
+    sqlite.exec('UPDATE subscriptions SET asaas_subscription_id = NULL')
+    const payment = () => new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id: 'link-failure', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay-1', subscription: 'sub-new', checkoutSession: 'checkout', customer: 'cus-1', dueDate: '2026-10-05' } }),
+    })
+    failNextBatch()
+    expect((await handleSaaSRequest(payment(), env))?.status).toBe(503)
+    expect(sqlite.prepare('SELECT asaas_subscription_id FROM subscriptions').get()?.asaas_subscription_id).toBeNull()
+    expect(sqlite.prepare("SELECT id FROM webhook_events WHERE id = 'link-failure'").get()).toBeUndefined()
+    expect((await handleSaaSRequest(payment(), env))?.status).toBe(200)
+    expect(sqlite.prepare('SELECT asaas_subscription_id, asaas_customer_id FROM subscriptions').get()).toEqual({ asaas_subscription_id: 'sub-new', asaas_customer_id: 'cus-1' })
+  })
+  it.each(['unknown-checkout', 'unpaid-checkout', 'apple', 'already-linked'])('does not bind a payment to %s', async (scenario) => {
+    const { env, sqlite } = setup()
+    await handleSaaSRequest(eventRequest(), env)
+    if (scenario !== 'already-linked') sqlite.exec('UPDATE subscriptions SET asaas_subscription_id = NULL')
+    if (scenario === 'apple') sqlite.exec("UPDATE subscriptions SET provider = 'apple'")
+    if (scenario === 'unpaid-checkout') sqlite.exec("UPDATE checkout_sessions SET status = 'pending'")
+    const before = sqlite.prepare('SELECT * FROM subscriptions').get()
+    const response = await handleSaaSRequest(new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id: 'invalid-link', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay-1', subscription: 'sub-new', checkoutSession: scenario === 'unknown-checkout' ? 'unknown' : 'checkout' } }),
+    }), env)
+    expect(await response?.json()).toEqual({ ok: true, deferred: true })
+    expect(sqlite.prepare('SELECT * FROM subscriptions').get()).toEqual(before)
+  })
   it('replays a new subscription despite older unrelated Asaas events', async () => {
     const { env, sqlite } = setup()
     for (let index = 0; index < 20; index++) {

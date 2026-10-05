@@ -343,7 +343,7 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database, ret
       subscription: event.subscription ? { id: event.subscription.id, customer: event.subscription.customer,
         externalReference: event.subscription.externalReference } : undefined,
       payment: event.payment ? { id: event.payment.id, subscription: event.payment.subscription,
-        checkoutSession: event.payment.checkoutSession, dueDate: event.payment.dueDate } : undefined,
+        checkoutSession: event.payment.checkoutSession, customer: event.payment.customer, dueDate: event.payment.dueDate } : undefined,
     }
     await db.prepare('INSERT OR IGNORE INTO pending_webhook_events (id, event_type, payload, received_at) VALUES (?, ?, ?, ?)')
       .bind(event.id!, event.event!, JSON.stringify(replay), new Date().toISOString()).run()
@@ -409,21 +409,38 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database, ret
   const subscriptionId = event.subscription?.id ?? event.payment?.subscription
   if (event.event === 'SUBSCRIPTION_CREATED' && event.subscription?.id) {
     const externalReference = event.subscription.externalReference
-    const checkout = externalReference
+    const linkedSubscription = await db.prepare("SELECT user_id FROM subscriptions WHERE asaas_subscription_id = ? AND provider = 'asaas'")
+      .bind(event.subscription.id).first<{ user_id: string }>()
+    const checkout = linkedSubscription ?? (externalReference
       ? await db.prepare('SELECT user_id, plan FROM checkout_sessions WHERE id = ? LIMIT 1').bind(externalReference).first<{ user_id: string; plan: SaaSPlan }>()
       : event.subscription.customer
         ? await db.prepare(`SELECT user_id, plan FROM checkout_sessions WHERE asaas_customer_id = ? AND status = 'paid' ORDER BY updated_at DESC LIMIT 1`).bind(event.subscription.customer).first<{ user_id: string; plan: SaaSPlan }>()
-        : null
+        : null)
     if (!checkout) return defer()
-    const activeSubscription = await db.prepare('SELECT id FROM subscriptions WHERE user_id = ?').bind(checkout.user_id).first()
+    const activeSubscription = await db.prepare("SELECT id FROM subscriptions WHERE user_id = ? AND provider = 'asaas' AND (asaas_subscription_id IS NULL OR asaas_subscription_id = ?)")
+      .bind(checkout.user_id, event.subscription.id).first()
     if (!activeSubscription) return defer()
-    statements.push(db.prepare(`UPDATE subscriptions SET asaas_subscription_id = ?, asaas_customer_id = ?, updated_at = ? WHERE user_id = ? AND provider = 'asaas'`)
-      .bind(event.subscription.id, event.subscription.customer ?? null, now, checkout.user_id))
+    statements.push(db.prepare(`UPDATE subscriptions SET asaas_subscription_id = ?, asaas_customer_id = COALESCE(?, asaas_customer_id), updated_at = ?
+      WHERE user_id = ? AND provider = 'asaas' AND (asaas_subscription_id IS NULL OR asaas_subscription_id = ?)`)
+      .bind(event.subscription.id, event.subscription.customer ?? null, now, checkout.user_id, event.subscription.id))
   }
 
   if (subscriptionId && /^(PAYMENT_|SUBSCRIPTION_(INACTIVATED|DELETED))/.test(event.event)) {
-    const linked = await db.prepare('SELECT id FROM subscriptions WHERE asaas_subscription_id = ?').bind(subscriptionId).first()
-    if (!linked) return defer()
+    const linked = await db.prepare("SELECT id FROM subscriptions WHERE asaas_subscription_id = ? AND provider = 'asaas'").bind(subscriptionId).first()
+    if (!linked) {
+      // Checkout events can omit customer/subscription IDs. The authenticated payment
+      // identifies the exact paid checkout, so no customer-based guess is needed.
+      const checkout = event.event.startsWith('PAYMENT_') && event.payment?.checkoutSession
+        ? await db.prepare(`SELECT s.id FROM subscriptions s JOIN checkout_sessions c ON c.user_id = s.user_id
+            WHERE c.asaas_checkout_id = ? AND c.status = 'paid' AND s.provider = 'asaas'
+              AND s.asaas_subscription_id IS NULL AND s.plan = c.plan`)
+          .bind(event.payment.checkoutSession).first<{ id: string }>()
+        : null
+      if (!checkout) return defer()
+      statements.push(db.prepare(`UPDATE subscriptions SET asaas_subscription_id = ?, asaas_customer_id = COALESCE(?, asaas_customer_id), updated_at = ?
+        WHERE id = ? AND provider = 'asaas' AND asaas_subscription_id IS NULL`)
+        .bind(subscriptionId, event.payment?.customer ?? null, now, checkout.id))
+    }
   }
 
   if (subscriptionId && ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'].includes(event.event)) {
