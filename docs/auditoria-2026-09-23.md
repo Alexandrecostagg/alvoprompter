@@ -4,7 +4,7 @@
 
 Escopo: código local do app, Worker Cloudflare, autenticação Firebase, autorização D1, KV/R2, dependências, histórico Git acessível e sondagens públicas somente de leitura. A lista enviada pelo usuário foi tratada como referência de auditoria. As alterações anteriores de produto foram preservadas.
 
-**Resultado: correções implementadas e verificadas localmente. Não houve publicação desta revisão na API, no site ou nas lojas.** A API pública ainda utiliza o comportamento anterior. Não equivale a uma auditoria externa de infraestrutura ou garantia de ausência de vulnerabilidades.
+**Resultado inicial: correções implementadas e verificadas localmente. Atualização posterior, por solicitação explícita de commit/deploy/push: migração 0008, API e site publicados em 08/10/2026.** Os binários das lojas ainda não incluem esta revisão de segurança. Não equivale a uma auditoria externa de infraestrutura ou garantia de ausência de vulnerabilidades.
 
 ### Achados corrigidos
 
@@ -48,7 +48,20 @@ Escopo: código local do app, Worker Cloudflare, autenticação Firebase, autori
 - Scanner de segredos no código versionado e pacote público, com saída sem valores. CI passa a executar scanner e `npm audit --audit-level=high`.
 - Sondagens públicas: `/account` sem token retorna 401; `/sync` sem frase retorna 400; mídia sem frase retorna 401. API ainda retorna CORS wildcard e não os novos headers. Site sem CSP; `.env` e `chaves-ia.local.txt` retornam HTML do aplicativo, sem conteúdo desses arquivos.
 
-### Publicação e limitações
+### Publicação confirmada em 08/10/2026
+
+- Commit de implementação: `dc4c0ed` (main).
+- Pages: https://0b7ce71d.alvoprompter.pages.dev, produção https://app.alvoprompter.com.br.
+- Migração `0008_security_rate_limits.sql`: aplicada no D1 `alvoprompter-saas`.
+- Worker: versão `edd890f5-ca65-4f85-ac17-939b1ca63270`, release `1.6.1-security-20261008`.
+- Configurações de Firebase, Gemini/Groq, Apple e Asaas preservadas; Asaas continua em sandbox. Pexels não possui segredo no Worker e sua busca permanece indisponível até configurá-lo.
+- Sondagens depois do deploy: health 200; account/sync/media sem token 401; origem não autorizada 403 sem header de permissão; respostas com nosniff/no-store. O HTML público referencia os mesmos assets do build e entrega CSP.
+- Navegador: início e tela de acesso carregaram sem erros de console. Não foram exercitadas compras nem geração autenticada nesta verificação.
+- Limpeza dos contadores usa tarefas limitadas em segundo plano durante o tráfego; não criou Cron Trigger, respeitando o limite já atingido na conta Cloudflare.
+- A política de privacidade alterada permanece rascunho no repositório: sua publicação requer a autorização específica solicitada devido ao bloqueio anterior da revisão automática.
+- AAB/IPA novos não foram gerados ou enviados nesta publicação web/API.
+
+### Publicação e limitações (estado inicial; publicação web/API confirmada abaixo)
 
 1. Aplicar **`0008_security_rate_limits.sql` antes do Worker**. Sem a tabela, a nova proteção falha fechada e impede chamadas protegidas.
 2. Publicar frontend atualizado e Worker de forma coordenada. Clientes antigos que não enviam token em sync/upload precisam atualizar. Publicar também `_headers` no Pages.

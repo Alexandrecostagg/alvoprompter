@@ -50,3 +50,18 @@ TestFlight interno: https://appstoreconnect.apple.com/teams/edfbb59a-11c0-4346-a
 - Distribuição final: Apple confirmou upload às 12:14:41 e a 1.6.1 (19) está **Em testes** no grupo interno Equipe AlvoPrompter. ID `51cf1c5d-7efc-436f-86df-42e4add50bf4`. No Google, pacote 19 processado e lançamento salvo na faixa existente; a visão geral mostra somente 19 como mudança nova pronta para revisão, enquanto 17 e a ficha continuam em análise. Reinício da análise aguarda autorização do titular. A compilação intermediária Android 18 foi substituída pela 19 no conjunto pendente.
 
 A compilação intermediária 18 foi recebida pela Apple, mas não foi atribuída a testadores; a final 19 inclui também a pausa manual no modo de compatibilidade iOS, validada no harness. O Google exige cancelar/reiniciar a análise existente para enviar a correção. A revisão automática bloqueou esse reinício pelo aumento potencial da espera; autorização específica solicitada ao titular, ainda pendente. A análise 1.6.0 e a nova logo não foram canceladas.
+
+
+## Publicação de segurança — 08/10/2026
+
+A pedido do titular (commit, deploy e push), o commit `dc4c0ed` consolida as alterações de IA, experiência de criação, gravação e segurança acumuladas no projeto. Validação: 217 testes, build web, tipos e scanner de segredos aprovados; `npm audit` sem alertas. Lint mantém três avisos preexistentes.
+
+- Site: https://0b7ce71d.alvoprompter.pages.dev, ativo em https://app.alvoprompter.com.br.
+- D1: migração `0008_security_rate_limits.sql` aplicada.
+- API: `edd890f5-ca65-4f85-ac17-939b1ca63270`, release `1.6.1-security-20261008`.
+- Pós-deploy: origens, headers, 401 sem autenticação e arquivos do frontend conferidos; início/conta abrem sem erros de console.
+- Segredos preservados, Asaas mantido em sandbox; Pexels continua sem chave configurada.
+- Política de privacidade permanece em rascunho aguardando autorização específica. Nenhuma publicação nas lojas nesta rodada.
+- A análise Google já em andamento não foi reiniciada; não houve alteração de testers, planos ou cobranças.
+
+Detalhamento no relatório de auditoria `docs/auditoria-2026-09-23.md`.
