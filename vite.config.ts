@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -25,7 +25,7 @@ function pwaPlugins(): Plugin[] {
       ],
     },
     workbox: {
-      globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,ttf}'],
+      globPatterns: ['**/*.{js,css,html,svg,png,webp,ico,woff2,ttf}'],
       navigateFallback: '/index.html',
       navigateFallbackDenylist: [/^\/media\//],
       runtimeCaching: [
@@ -57,14 +57,20 @@ function nativeServiceWorkerCleanup(): Plugin {
   }
 }
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), 'VITE_')
+  const privateName = Object.keys(env).find(name => env[name] && /KEY|SECRET|TOKEN|PASSWORD/i.test(name) && name !== 'VITE_FIREBASE_API_KEY')
+  if (privateName) throw new Error(`A variável ${privateName} não pode entrar no app. Configure o segredo no Worker.`)
+  return ({
   server: {
-    host: true,
-    allowedHosts: true,
+    host: '127.0.0.1',
+    allowedHosts: ['localhost'],
+    fs: { deny: ['.env', '.env.*', '**/.git/**', '**/*.{crt,pem,key,p12,p8,keystore}', '**/.dev.vars*', '**/chaves-ia*', '**/artifacts/**'] },
   },
   plugins: [
     react(),
     tailwindcss(),
     ...(mode === 'capacitor' ? [nativeServiceWorkerCleanup()] : pwaPlugins()),
   ],
-}))
+})
+})

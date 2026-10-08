@@ -132,10 +132,12 @@ export default function App() {
     // O Firebase pode demorar indefinidamente em WebViews sem rede. O app local
     // continua utilizável e o observador atualiza a sessão quando responder.
     const fallback = window.setTimeout(() => setAuthReady(true), 5000)
+    let previousUid: string | null = null
     const unsubscribe = observeUser((nextUser) => {
       window.clearTimeout(fallback)
       setUser(nextUser)
-      if (!nextUser) void useAppStore.getState().chooseCloudWorkspace(null)
+      if (previousUid !== (nextUser?.uid ?? null) || !nextUser) void useAppStore.getState().chooseCloudWorkspace(null)
+      previousUid = nextUser?.uid ?? null
       setAuthReady(true)
       if (nextUser) {
         localStorage.removeItem(LOCAL_ACCESS_KEY)
@@ -239,7 +241,7 @@ export default function App() {
       <header className="hidden min-h-16 items-center justify-between border-b px-6 lg:flex" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
         <button onClick={() => navigate('library')} aria-label="Ir para meus roteiros"><BrandMark /></button>
         <nav className="flex items-center gap-1" aria-label="Navegação principal">
-          <DesktopNavButton active={view === 'library'} onClick={() => navigate('library')}>Roteiros</DesktopNavButton>
+          <DesktopNavButton active={view === 'library'} onClick={() => navigate('library')}>Início</DesktopNavButton>
           <DesktopNavButton active={view === 'editor'} disabled={!currentScript} onClick={() => navigate('editor')}>Editor</DesktopNavButton>
           <DesktopNavButton onClick={openPrompterFlow}>Gravar</DesktopNavButton>
           <DesktopNavButton active={view === 'scheduling'} onClick={() => navigate('scheduling')}>Agenda</DesktopNavButton>
@@ -289,7 +291,7 @@ export default function App() {
       ) : null}
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t px-2 pb-[env(safe-area-inset-bottom)] pt-1 lg:hidden" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 96%, transparent)', boxShadow: '0 -12px 30px rgba(15,23,42,.08)' }} aria-label="Navegação principal">
-        <MobileNavButton icon="scripts" label="Roteiros" active={view === 'library'} onClick={() => navigate('library')} />
+        <MobileNavButton icon="scripts" label="Início" active={view === 'library'} onClick={() => navigate('library')} />
         <MobileNavButton icon="edit" label="Editor" active={view === 'editor'} disabled={!currentScript} onClick={() => navigate('editor')} />
         <MobileNavButton icon="record" label="Gravar" primary onClick={openPrompterFlow} />
         <MobileNavButton icon="calendar" label="Agenda" active={view === 'scheduling'} onClick={() => navigate('scheduling')} />

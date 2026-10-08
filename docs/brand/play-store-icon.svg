@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>AlvoPrompter</title>
+  <defs>
+    <linearGradient id="background" x1="50" y1="15" x2="456" y2="497" gradientUnits="userSpaceOnUse"><stop stop-color="#00CFE8"/><stop offset=".34" stop-color="#235EFF"/><stop offset=".72" stop-color="#672BFF"/><stop offset="1" stop-color="#EF19CB"/></linearGradient>
+    <linearGradient id="fold" x1="287" y1="135" x2="364" y2="383" gradientUnits="userSpaceOnUse"><stop stop-color="#DCD7FF"/><stop offset=".65" stop-color="#FFFFFF"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="0" fill="url(#background)"/>
+  <path fill-rule="evenodd" d="M98 386 216 147Q225 130 245 130H283Q299 130 307 148L416 387Q424 404 406 404H356Q340 404 334 390L312 340H168Q155 340 153 350Q151 361 165 361H291Q302 361 294 373L285 384Q282 388 275 390L112 415Q90 419 98 400ZM244 207 196 307H289Z" fill="#FFFFFF"/>
+  <path d="M283 130Q299 130 307 148L416 387Q424 404 406 404H356Q340 404 334 390L244 207 272 147Q277 135 283 130Z" fill="url(#fold)"/>
+</svg>

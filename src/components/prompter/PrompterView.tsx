@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { StatusBar, Style } from '@capacitor/status-bar'
 import { useAppStore } from '../../store/useAppStore'
 import { splitWords } from '../../lib/text'
 import { usePrompterEngine } from '../../hooks/usePrompterEngine'
@@ -16,6 +18,7 @@ import AspectGuide from './AspectGuide'
 
 const ACTIVE_WORD_CLASS = 'word-active'
 const WORD_CLASS = 'prompter-word'
+const isAppleMobile = () => Capacitor.getPlatform() === 'ios' || /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 
 export default function PrompterView() {
   const currentScript = useAppStore((s) => s.currentScript)
@@ -23,6 +26,9 @@ export default function PrompterView() {
   const updateSettings = useAppStore((s) => s.updateSettings)
   const setView = useAppStore((s) => s.setView)
 
+  const [immersive, setImmersive] = useState(false)
+  const [nativeTop, setNativeTop] = useState(0)
+  const iosCamera = isAppleMobile() && settings.cameraOn
   const [showSettings, setShowSettings] = useState(false)
   const [showResult, setShowResult] = useState(false)
   const [progressPct, setProgressPct] = useState(0)
@@ -34,6 +40,19 @@ export default function PrompterView() {
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
   const [voiceFallback, setVoiceFallback] = useState(false)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    let disposed = false
+    let previous: Style | undefined
+    void StatusBar.getInfo().then(async (info) => {
+      if (disposed) return
+      previous = info.style
+      setNativeTop(info.height || 0)
+      await StatusBar.setStyle({ style: Style.Dark })
+      if (disposed) await StatusBar.setStyle({ style: info.style })
+    }).catch(() => undefined)
+    return () => { disposed = true; if (previous) void StatusBar.setStyle({ style: previous }).catch(() => undefined) }
+  }, [])
   const transAbortRef = useRef<AbortController | null>(null)
 
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -172,7 +191,7 @@ export default function PrompterView() {
   const voice = useVoiceTrack({
     words,
     enabled:
-      settings.mode === 'voice' && (engine.state === 'running' || engine.state === 'paused'),
+      settings.mode === 'voice' && !iosCamera && (engine.state === 'running' || engine.state === 'paused'),
     lang: settings.voiceLang,
     sensitivity: settings.voiceSensitivity,
     onWordMatch: (i) => engine.seekToWord(i),
@@ -199,13 +218,13 @@ export default function PrompterView() {
       setVoiceFallback(false)
       return
     }
-    if ((!voice.supported || voice.error) && (engine.state === 'running' || engine.state === 'paused')) {
+    if (!voiceFallbackRef.current && (iosCamera || !voice.supported || voice.error) && (engine.state === 'running' || engine.state === 'paused')) {
       pausedByVoiceRef.current = false
       voiceFallbackRef.current = true
       setVoiceFallback(true)
       startEngine('fixed')
     }
-  }, [engine.state, settings.mode, startEngine, voice.error, voice.supported])
+  }, [engine.state, settings.mode, startEngine, voice.error, voice.supported, iosCamera])
 
   const handleShareRecording = async () => {
     if (!recorder.videoBlob || shareBusy) return
@@ -232,7 +251,7 @@ export default function PrompterView() {
 
   const stopRecording = useCallback(() => {
     recorder.stop()
-    trackEvent('record_start')
+    engine.pause()
     const start = recStartRef.current
     if (start) {
       recordSeconds('record_end', (performance.now() - start) / 1000)
@@ -241,6 +260,35 @@ export default function PrompterView() {
     setSrtText(buildSrt(captionRef.current) || null)
     setShowResult(true)
   }, [recorder])
+
+  useEffect(() => {
+    if (recorder.videoBlob || recorder.status === 'error') {
+      engine.pause()
+      setShowResult(true)
+    }
+  }, [recorder.videoBlob, recorder.status, engine.pause])
+
+  const startTake = () => {
+    // Reset done/paused progress before starting the encoder, so the automatic
+    // end-of-script effect cannot stop a brand new take on its first render.
+    engine.stop()
+    voice.stop()
+    voice.reset()
+    transcription.stop()
+    if (!recorder.start()) { setShowResult(true); return }
+    recStartRef.current = performance.now()
+    captionRef.current = []
+    setSrtText(null)
+    setTranslatedSrt(null)
+    setShareMsg(null)
+    setShowResult(false)
+    trackEvent('record_start')
+    const fallback = settings.mode === 'voice' && (iosCamera || !voice.supported)
+    voiceFallbackRef.current = fallback
+    setVoiceFallback(fallback)
+    engine.start(fallback ? 'fixed' : undefined)
+    if (settings.mode === 'voice' && !fallback) voice.start()
+  }
 
   const handleTranslate = useCallback(async () => {
     if (!srtText || translating) return
@@ -337,6 +385,8 @@ export default function PrompterView() {
   useEffect(() => {
     if (engine.state === 'done' && !settings.openMic && recorder.isRecording) {
       stopRecording()
+    } else if (engine.state === 'done' && !recorder.isRecording && !recorder.isFinishing) {
+      setShowResult(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine.state, settings.openMic, recorder.isRecording])
@@ -349,10 +399,10 @@ export default function PrompterView() {
       transStop()
       return
     }
-    if (!transSupported) return
+    if (!transSupported || iosCamera) return
     transStart(settings.voiceLang, (text) => pushCaption(text))
     return () => transStop()
-  }, [recorder.isRecording, settings.mode, transSupported, settings.voiceLang, pushCaption, transStart, transStop])
+  }, [recorder.isRecording, settings.mode, transSupported, settings.voiceLang, pushCaption, transStart, transStop, iosCamera])
 
   const handlePrimary = useCallback(() => {
     if (engine.state === 'running') {
@@ -365,13 +415,13 @@ export default function PrompterView() {
       return
     }
     voice.reset()
-    const fallbackToAutomatic = settings.mode === 'voice' && !voice.supported
+    const fallbackToAutomatic = settings.mode === 'voice' && (iosCamera || !voice.supported)
     pausedByVoiceRef.current = false
     voiceFallbackRef.current = fallbackToAutomatic
     setVoiceFallback(fallbackToAutomatic)
     engine.start(fallbackToAutomatic ? 'fixed' : undefined)
-    if (settings.mode === 'voice' && voice.supported) voice.start()
-  }, [engine, voice, settings.mode])
+    if (settings.mode === 'voice' && voice.supported && !iosCamera) voice.start()
+  }, [engine, voice, settings.mode, iosCamera])
 
   const refs = useRef({ handlePrimary, showSettings, settings, updateSettings, setView })
   refs.current = { handlePrimary, showSettings, settings, updateSettings, setView }
@@ -422,9 +472,17 @@ export default function PrompterView() {
     return () => window.removeEventListener('keydown', onKey)
   }, [engine])
 
-  const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) void document.exitFullscreen()
-    else void document.documentElement.requestFullscreen()
+  const toggleFullscreen = useCallback(async () => {
+    // iPhone's native fullscreen adds system controls over our toolbar and can
+    // report zero safe-area insets. Keep the app viewport on Apple mobile.
+    if (isAppleMobile() || !document.documentElement.requestFullscreen) {
+      setImmersive((value) => !value)
+      return
+    }
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen()
+      else await document.documentElement.requestFullscreen()
+    } catch { setImmersive((value) => !value) }
   }, [])
 
   if (!currentScript || words.length === 0) {
@@ -610,7 +668,7 @@ export default function PrompterView() {
   )
 
   return (
-    <div data-theme="dark" className="relative flex h-full flex-col" style={{ background: settings.bgColor }}>
+    <div data-theme="dark" className="prompter-screen relative flex h-[100dvh] min-h-0 flex-col overflow-hidden" style={{ color: 'var(--text)', background: settings.bgColor, paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}>
       {settings.bgVideo && !isFullscreenCam ? (
         <>
           <video
@@ -632,12 +690,12 @@ export default function PrompterView() {
       ) : null}
       {cameraFullscreen}
       <div
-        className="relative z-10 grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 pb-2 pt-2 sm:px-4"
-        style={{ borderColor: 'var(--border)', background: showScrim ? 'rgba(0,0,0,0.45)' : 'rgba(10,12,18,0.94)', backdropFilter: showScrim ? 'blur(6px)' : undefined, paddingTop: 'max(.5rem, env(safe-area-inset-top))' }}
+        className="relative z-10 grid shrink-0 min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 pb-2 pt-2 sm:px-4"
+        style={{ borderColor: 'var(--border)', background: showScrim ? 'rgba(0,0,0,0.45)' : 'rgba(10,12,18,0.94)', backdropFilter: showScrim ? 'blur(6px)' : undefined, paddingTop: `calc(.5rem + max(env(safe-area-inset-top, 0px), ${nativeTop}px))` }}
       >
         <button onClick={() => { if (recorder.isRecording) stopRecording(); else setView('editor') }} className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold" style={{ borderColor: 'rgba(255,255,255,.28)', color: '#fff', background: 'rgba(255,255,255,.08)' }} aria-label={recorder.isRecording ? 'Parar e revisar gravação' : 'Voltar ao roteiro'}>←</button>
         <div className="min-w-0 text-center">
-          <p className="truncate text-sm font-semibold text-white on-dark">{currentScript.title || 'Sem título'}</p>
+          {!immersive && <p className="truncate text-sm font-semibold text-white on-dark">{currentScript.title || 'Sem título'}</p>}
           <span
             className={`mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${recorder.isRecording ? 'animate-pulse' : ''}`}
             style={{
@@ -656,9 +714,9 @@ export default function PrompterView() {
             onClick={toggleFullscreen}
             className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold"
             style={{ borderColor: 'rgba(255,255,255,.28)', color: '#fff', background: 'rgba(255,255,255,.08)' }}
-            aria-label="Alternar tela cheia"
+            aria-label={immersive ? "Sair da tela cheia" : "Alternar tela cheia"} aria-pressed={immersive}
           >
-            ⛶
+            {immersive ? '✕' : '⛶'}
           </button>
           <button
             onClick={() => setShowSettings(true)}
@@ -671,15 +729,15 @@ export default function PrompterView() {
         </div>
       </div>
 
-      {settings.mode === 'voice' && (!voice.supported || voice.error) ? (
+      {settings.mode === 'voice' && (iosCamera || !voice.supported || voice.error) ? (
         <div className="relative z-10 border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'var(--border)', background: 'rgba(251,191,36,.12)', color: 'var(--warn)' }} role="status">
-          {voice.error
+          {iosCamera ? 'No iPhone, a câmera usa rolagem automática para preservar o áudio da gravação.' : voice.error
             ? `${voice.error} A rolagem automática foi ativada.`
             : 'Rolagem por voz indisponível neste aparelho. A velocidade automática será usada.'}
         </div>
       ) : null}
 
-      {settings.mode === 'voice' && voice.supported && !voice.error && voice.mode === 'audio-level' ? (
+      {settings.mode === 'voice' && !iosCamera && voice.supported && !voice.error && voice.mode === 'audio-level' ? (
         <div className="relative z-10 border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'rgba(34,211,238,.3)', background: 'rgba(34,211,238,.1)', color: '#a5f3fc' }} role="status">
           Modo compatível com Android: o texto avança enquanto o microfone detecta sua fala e pausa no silêncio.
         </div>
@@ -700,10 +758,10 @@ export default function PrompterView() {
       {settings.cameraPosition === 'bottom' && cameraBlock}
 
       <div
-        className="relative z-10 border-t px-3 pb-3 pt-2 sm:px-4"
+        className="relative z-10 shrink-0 border-t px-3 pb-3 pt-2 sm:px-4"
         style={{ borderColor: 'var(--border)', background: showScrim ? 'rgba(0,0,0,0.45)' : 'rgba(10,12,18,0.94)', backdropFilter: showScrim ? 'blur(6px)' : undefined, paddingBottom: 'max(.75rem, env(safe-area-inset-bottom))' }}
       >
-        <div className="mx-auto mb-2 flex max-w-4xl items-center gap-2">
+        <div className={`${immersive ? 'hidden' : 'flex'} mx-auto mb-2 max-w-4xl items-center gap-2`}>
           <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}>
             <div className="h-full rounded-full transition-[width] duration-200" style={{ width: `${progressPct}%`, background: 'var(--accent)' }} />
           </div>
@@ -738,17 +796,7 @@ export default function PrompterView() {
           {!settings.cameraOn && <button onClick={() => updateSettings({ cameraOn: true })} className="min-h-12 rounded-2xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)' }}>Ligar câmera</button>}
           {settings.cameraOn && (
             <button
-              onClick={() => {
-                if (recorder.isRecording) {
-                  stopRecording()
-                } else {
-                  recStartRef.current = performance.now()
-                  captionRef.current = []
-                  setSrtText(null)
-                  setShowResult(false)
-                  recorder.start()
-                }
-              }}
+              onClick={() => { if (recorder.isRecording) stopRecording(); else startTake() }}
               disabled={recorder.status !== 'ready' && !recorder.isRecording}
               className="flex h-12 shrink-0 items-center gap-2 rounded-2xl border px-3 text-sm font-semibold"
               style={{
@@ -770,6 +818,7 @@ export default function PrompterView() {
             </button>
           )}
         </div>
+        {!showResult && !recorder.isRecording && !recorder.isFinishing && (recorder.videoUrl || recorder.error) && <button className="mx-auto mt-3 block min-h-11 rounded-xl border px-4 text-sm" onClick={() => setShowResult(true)}>{recorder.error ? 'Resolver problema da gravação' : 'Ver último vídeo'}</button>}
         <p className="mt-2 hidden text-center text-[11px] sm:block" style={{ color: 'var(--muted)' }}>
           Espaço: iniciar/pausar · ↑↓: ajustar posição · M: espelhar · Esc: sair
           {gamepadConnected && ' · Pedal: ▶=botão 1 · ⟲=botão 2 · ↑↓=botões 3/4'}
@@ -780,14 +829,32 @@ export default function PrompterView() {
         <SettingsPanel settings={settings} isRecording={recorder.isRecording} wordCount={words.length} onClose={() => setShowSettings(false)} />
       )}
 
-      {showResult && recorder.videoUrl && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 sm:items-center sm:p-6">
+      {showResult && (
+        <div className="prompter-result-overlay fixed inset-0 z-50 flex items-end justify-center bg-black/80 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="recording-result-title">
           <div
-            className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[2rem] border p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:max-w-2xl sm:rounded-2xl sm:pb-5"
+            className="max-h-full w-full overflow-y-auto rounded-t-[2rem] border p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:max-w-2xl sm:rounded-2xl sm:pb-5"
             style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
           >
-            <h3 className="mb-3 font-semibold text-white on-dark">Gravação concluída</h3>
-            <video src={recorder.videoUrl} controls className="mb-4 w-full rounded-lg" />
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 id="recording-result-title" className="font-semibold text-white on-dark">{recorder.isFinishing ? 'Salvando gravação…' : recorder.error ? 'Não foi possível salvar o vídeo' : recorder.videoUrl ? 'Gravação concluída' : 'Leitura concluída'}</h3>
+              {!recorder.isFinishing && <button onClick={() => setShowResult(false)} className="min-h-11 shrink-0 rounded-xl border px-3 text-sm" style={{ borderColor: 'var(--border)' }}>Fechar</button>}
+            </div>
+            {recorder.isFinishing ? <p role="status" className="py-6 text-sm">Aguarde enquanto o aparelho finaliza o vídeo.</p> : recorder.error ? <div role="alert" className="space-y-4">
+              <p className="text-sm leading-relaxed">{recorder.error}</p>
+              <div className="flex flex-wrap gap-2">
+                <button className="min-h-11 rounded-xl px-4 font-semibold" style={{ background: 'var(--accent)', color: '#111' }} onClick={() => { setShowResult(false); engine.stop(); void recorder.retry() }}>Preparar nova gravação</button>
+                <button className="min-h-11 rounded-xl border px-4" onClick={() => setView('editor')}>Voltar ao roteiro</button>
+              </div>
+            </div> : recorder.videoUrl ? <video src={recorder.videoUrl} controls playsInline className="mb-4 max-h-[45dvh] w-full rounded-lg" /> : <div className="space-y-4">
+              <p className="text-sm">Você terminou o ensaio. Agora pode gravar ou ajustar o roteiro.</p>
+              <div className="flex flex-wrap gap-2">
+                <button className="min-h-11 rounded-xl border px-4" onClick={() => { engine.stop(); setShowResult(false); if (!settings.cameraOn) updateSettings({ cameraOn: true }) }}>Preparar gravação</button>
+                <button className="min-h-11 rounded-xl border px-4" onClick={() => { engine.stop(); setShowResult(false) }}>Ensaiar novamente</button>
+                <button className="min-h-11 rounded-xl border px-4" onClick={() => setView('editor')}>Editar roteiro</button>
+              </div>
+            </div>}
+            {recorder.videoUrl && !recorder.isFinishing && !recorder.error && <>
+
             {srtText && (
               <div
                 className="mb-4 rounded-lg border p-3"
@@ -898,18 +965,18 @@ export default function PrompterView() {
             )}
             <div className="flex flex-wrap justify-end gap-2">
               <button
-                onClick={() => setShowResult(false)}
+                onClick={() => { engine.stop(); setShowResult(false) }}
                 className="rounded-lg border px-4 py-2 text-sm"
                 style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
               >
-                Continuar
+                Gravar novamente
               </button>
               <button
                 onClick={() => {
                   if (!recorder.videoBlob || !recorder.videoUrl) return
                   useAppStore.getState().setRecording({
                     blob: recorder.videoBlob,
-                    url: recorder.videoUrl,
+                    url: URL.createObjectURL(recorder.videoBlob),
                     srt: srtText,
                     utterances: captionRef.current.slice(),
                   })
@@ -931,13 +998,14 @@ export default function PrompterView() {
               </button>
               <a
                 href={recorder.videoUrl}
-                download={`alvoprompter-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.webm`}
+                download={`alvoprompter-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${recorder.videoBlob?.type.includes('mp4') ? 'mp4' : 'webm'}`}
                 className="rounded-lg px-4 py-2 text-sm font-semibold text-black"
                 style={{ background: 'var(--accent)' }}
               >
                 Baixar vídeo
               </a>
             </div>
+            </>}
           </div>
         </div>
       )}

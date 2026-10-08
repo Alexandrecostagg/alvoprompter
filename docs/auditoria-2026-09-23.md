@@ -1,4 +1,68 @@
-# AlvoPrompter — auditoria de produto e funcionalidades
+# AlvoPrompter — auditorias de produto e segurança
+
+## Atualização — auditoria de segurança de 08/10/2026
+
+Escopo: código local do app, Worker Cloudflare, autenticação Firebase, autorização D1, KV/R2, dependências, histórico Git acessível e sondagens públicas somente de leitura. A lista enviada pelo usuário foi tratada como referência de auditoria. As alterações anteriores de produto foram preservadas.
+
+**Resultado: correções implementadas e verificadas localmente. Não houve publicação desta revisão na API, no site ou nas lojas.** A API pública ainda utiliza o comportamento anterior. Não equivale a uma auditoria externa de infraestrutura ou garantia de ausência de vulnerabilidades.
+
+### Achados corrigidos
+
+| Prioridade | Achado | Correção e evidência |
+|---|---|---|
+| Crítica | Capacitor Android/iOS 8.5.0 afetados por carregamento de conteúdo remoto na origem do app | Atualização para 8.5.3 e sincronização dos projetos nativos. A correção só chega aos aparelhos com novo binário instalado. |
+| Alta | Rotas legadas `/sync`, `/schedules`, `/workspaces` e `/media` dependiam apenas da frase-chave | Agora exigem JWT Firebase validado; o namespace é derivado de UID + frase, calculado no servidor. Testes confirmam isolamento mesmo com frase e nome de arquivo iguais. |
+| Alta | Modelo de integração Pexels colocava sua chave em `VITE_PEXELS_API_KEY` | Busca migrou para `/broll` autenticado; chave `PEXELS_API_KEY` somente no Worker. Build recusa variáveis VITE de segredos, exceto identificador público Firebase. |
+| Alta | Upload confiava apenas em um Content-Length opcional | PUT exige tamanho, limite de 100 MiB, tipo de mídia permitido e `FixedLengthStream`. Runtime local confirmou que excesso/truncamento não deixam objeto gravado. GET privado força download; CSP/nosniff impedem interpretação ativa. A validação de tipo é por MIME declarado, sem antivírus ou análise completa de codecs. |
+| Alta | Importação de URL seguia redirecionamentos após validar só a URL inicial | HTTPS e domínios aprovados, validação a cada salto, cinco saltos no máximo, timeout e limite de 2 MiB. Domínios arbitrários não são buscados pelo servidor. |
+| Média | Exceções de provedor/banco/JWT podiam aparecer ao usuário | Respostas públicas genéricas, sem SQL, detalhes criptográficos ou mensagem bruta do provedor. |
+| Média | CORS retornava wildcard e faltavam headers consistentes | Origem exata autorizada, Vary, no-store, nosniff, CSP, HSTS e proteção de frames; aplicados também às falhas e respostas de autenticação. Headers do frontend preparados em `public/_headers`. |
+| Média | Limites por KV usavam leitura/incremento sujeitos a corrida | Contadores atômicos D1, limite prévio de 120 tentativas/minuto por IP, limites por usuário nas rotas protegidas e limites diários. Limpeza limitada em segundo plano remove contadores expirados durante o tráfego, sem exigir novo Cron Trigger. Cotas de IA existentes continuam atômicas. |
+| Média | JSON/multipart podia ser lido sem limite efetivo se faltasse tamanho no header | Leitura limitada pelo total real de bytes antes dos parsers: JSON 1 MiB; áudio 26 MiB incluindo envelope, com arquivo limitado a 25 MiB. Objetos/tipos/idiomas validados. |
+| Média | Validação manual Firebase não exigia todos os campos de tempo; cache de certificados não expirava | JWT exige assinatura RS256, issuer, audience, sub, exp, iat e auth_time; limite de idade e cache com validade/timeout. Testes usam assinatura real para tokens falsificados/expirados/outro projeto. |
+| Média | Vite aceitava qualquer host e escutava em toda a rede | Desenvolvimento restrito a loopback/localhost; bloqueio explícito de arquivos de chaves, artefatos, `.env`, `.dev.vars` e material de assinatura. |
+| Preventiva | Troca direta de conta podia manter seleção de workspace anterior | Seleção de workspace é limpa quando o UID muda. |
+
+### Cobertura da lista enviada
+
+| Itens | Resultado |
+|---|---|
+| 1–3: chaves, .env e senhas no código | Gemini/Groq continuam no servidor; Pexels corrigido. Scanner não encontrou padrões de credenciais privadas no histórico local acessível nem no pacote. Configuração Firebase pública não é chave administrativa. Não foi inferida a validade de segredos remotos. |
+| 4–7: login, servidor, IDs e isolamento | JWT real, RBAC, UID derivado do token e consultas filtradas por membro; testes de invasor e de mesma frase em duas contas. |
+| 8–10: banco, storage e admin | D1/R2 acessados por bindings; SQL parametrizado; membros/admin/owner conferidos no backend. Firestore local restringe roteiros a `/users/{uid}/scripts`; regras implantadas/IAM dos consoles não foram inspecionados. Não há integração Supabase/Firebase Storage neste fluxo. |
+| 11–12: debug e erros | Sem source maps no build padrão; erros internos tratados. Desenvolvimento agora local. Lint tem três avisos anteriores nas telas/harness do prompter, sem novos erros. |
+| 13–16: validação, conteúdo, upload e SQL | Limites reais de corpo, sanitização por coleção, React renderizando textos sem injeção HTML, upload limitado e binds SQL. DOCX usa extração de texto, não inserção do HTML recebido. |
+| 17: limites | Contador D1 atômico com teste concorrente. Login/senha é delegado ao Firebase; configurações remotas de proteção contra abuso não foram auditadas. |
+| 18: histórico Git | 1.323 objetos enumerados; blobs de até 3 MB examinados por padrões conhecidos, sem correspondências privadas. Scan não substitui revogação se algum segredo tiver sido compartilhado fora do repositório. |
+| 19: headers/CORS | Ajustes locais na API e em Cloudflare Pages. Publicação pendente. |
+| 20–21: teste externo e auditoria | Testes adversariais locais + sondagens públicas de leitura; limites e pendências discriminados abaixo. |
+
+### Verificações realizadas
+
+- `npm test`: **217 testes aprovados em 24 arquivos**, dos quais 39 novos nesta auditoria.
+- `npm run typecheck`, build web, build Capacitor e `cap sync`: aprovados.
+- `npm run lint`: termina com sucesso, com três avisos preexistentes do prompter/harness.
+- `npm audit`: **16 alertas inicialmente; zero após atualizações**. Capacitor 8.5.3, sharp e dependências transitivas corrigidos. Overrides específicos: gRPC do Firestore, UUID do Xcode e argparse do Mammoth; não foi usado `audit fix --force`.
+- Compatibilidade adicional: leitura do projeto Xcode e geração de UUID; CLI Mammoth `--help`; extração de texto de DOCX de teste.
+- Runtime Cloudflare local + R2 local: upload de 4 bytes aceito; corpos de 3 e 5 bytes declarando 4 rejeitados, sem objeto persistido.
+- Scanner de segredos no código versionado e pacote público, com saída sem valores. CI passa a executar scanner e `npm audit --audit-level=high`.
+- Sondagens públicas: `/account` sem token retorna 401; `/sync` sem frase retorna 400; mídia sem frase retorna 401. API ainda retorna CORS wildcard e não os novos headers. Site sem CSP; `.env` e `chaves-ia.local.txt` retornam HTML do aplicativo, sem conteúdo desses arquivos.
+
+### Publicação e limitações
+
+1. Aplicar **`0008_security_rate_limits.sql` antes do Worker**. Sem a tabela, a nova proteção falha fechada e impede chamadas protegidas.
+2. Publicar frontend atualizado e Worker de forma coordenada. Clientes antigos que não enviam token em sync/upload precisam atualizar. Publicar também `_headers` no Pages.
+3. Backups antigos por frase **não são atribuídos automaticamente à primeira conta que conhecer a frase**. Isso permitiria apropriação. As cópias locais permanecem e podem ser reenviadas ao namespace da conta; dados antigos não foram apagados nem lidos nesta auditoria. Workspaces SaaS com RBAC mantêm seu formato atual. Páginas de vídeo já compartilhadas continuam públicas pelo link, como antes.
+4. Configurar `PEXELS_API_KEY` no Worker para ativar busca. Nenhuma chave deve ser copiada para VITE. Outros domínios de importação só podem ser liberados pelo operador em `IMPORT_ALLOWED_HOSTS`, com nomes exatos de serviços confiáveis; arquivos/texto continuam como alternativa.
+5. Gerar/publicar novos binários para que a correção nativa chegue aos aparelhos. **Esta rodada não gerou AAB/IPA nem enviou versões às lojas.** Sincronização/build web nativo não substituem compilação nativa e teste físico.
+6. O acesso com um ID token já emitido segue sua validade, até uma hora; não foi adicionada consulta de revogação imediata de conta a cada chamada. Dados locais permanecem no aparelho, sem criptografia adicional por conta.
+7. Configurações remotas de Firebase, IAM, bucket R2 público, App Check, restrições da chave pública e proteção contra abuso/cadastro precisam de inspeção nos consoles para uma conclusão de infraestrutura. Não foram alteradas nesta rodada. Limites por IP/conta não substituem gestão de armazenamento total e monitoramento de custos.
+
+Referências primárias consultadas: [verificação de tokens Firebase](https://firebase.google.com/docs/auth/admin/verify-id-tokens), [orientações OWASP para SSRF](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html), [segurança de hosts no Vite](https://vite.dev/config/server-options). As conclusões de implementação e os números acima vêm dos testes locais e das sondagens descritas.
+
+---
+
+## Registro histórico de produto — 23/09/2026
 
 Data: 23/09/2026. Versão declarada: 1.2.8.
 

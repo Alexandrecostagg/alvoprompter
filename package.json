@@ -1,7 +1,7 @@
 {
   "name": "alvoprompter",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.1",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
@@ -17,12 +17,13 @@
     "preview": "vite preview",
     "cap:sync": "npm run build:native && cap sync",
     "android": "npm run cap:sync && cap open android",
-    "ios": "npm run cap:sync && cap open ios"
+    "ios": "npm run cap:sync && cap open ios",
+    "security:secrets": "node scripts/check-secrets.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.5.2",
     "@capacitor/app": "^8.1.1",
-    "@capacitor/core": "^8.5.0",
+    "@capacitor/core": "^8.5.3",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/share": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.2",
@@ -42,9 +43,9 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.5.0",
-    "@capacitor/cli": "^8.5.0",
-    "@capacitor/ios": "^8.5.0",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
     "@cloudflare/workers-types": "^5.20260923.1",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
@@ -57,5 +58,16 @@
     "vite": "^8.2.0",
     "vite-plugin-pwa": "^1.3.0",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "^1.14.6"
+    },
+    "xcode": {
+      "uuid": "^11.1.1"
+    },
+    "mammoth": {
+      "argparse": "^2.0.1"
+    }
   }
 }

@@ -32,11 +32,13 @@ export function clearSyncPass(): void {
 }
 
 async function syncFetch(init: RequestInit, pass: string, path = '/sync'): Promise<unknown> {
+  const token = await (await import('./auth')).getIdToken()
   const res = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
       'x-sync-pass': pass.trim(),
+      Authorization: `Bearer ${token}`,
       ...(init.headers as Record<string, string> | undefined),
     },
   })

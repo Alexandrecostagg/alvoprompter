@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { PrompterSettings } from '../../lib/types'
 import { BEAUTY_OPTIONS } from '../../lib/beauty'
-import { hasBrollKey, searchBroll, type BrollClip } from '../../lib/broll'
+import { searchBroll, type BrollClip } from '../../lib/broll'
 import { useAppStore } from '../../store/useAppStore'
 
 const FONT_OPTIONS = [
@@ -134,11 +134,11 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:justify-end">
+    <div className="prompter-settings-overlay fixed inset-0 z-40 flex items-end sm:justify-end" role="dialog" aria-modal="true" aria-label="Ajustes do prompter">
       <button aria-label="Fechar configurações" onClick={onClose} className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 flex max-h-[92dvh] w-full flex-col rounded-t-[2rem] border sm:h-full sm:max-h-none sm:max-w-sm sm:rounded-none sm:border-l" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
+      <div className="relative z-10 flex max-h-full w-full flex-col rounded-t-[2rem] border sm:h-full sm:max-w-sm sm:rounded-none sm:border-l" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
         <span className="mx-auto mt-3 block h-1 w-12 rounded-full sm:hidden" style={{ background: 'var(--border)' }} aria-hidden="true" />
-        <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: 'var(--border)' }}>
           <div><h2 className="font-semibold text-white">Ajustes do prompter</h2><p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>Veja o resultado enquanto configura.</p></div>
           <button
             onClick={onClose}
@@ -149,11 +149,11 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
           </button>
         </div>
 
-        <div className="mx-5 mt-4 overflow-hidden rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: settings.bgColor }} aria-label="Prévia do texto do prompter">
-          <p className="truncate text-center" style={{ color: settings.fontColor, fontFamily: settings.fontFamily, fontSize: Math.min(settings.fontSize, 28), lineHeight: settings.lineHeight, letterSpacing: settings.letterSpacing, transform: settings.mirror ? 'scaleX(-1)' : undefined }}>Seu roteiro aparece assim na tela</p>
+        <div className="prompter-settings-preview mx-5 mt-4 shrink-0 rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: settings.bgColor }} aria-label="Prévia do texto do prompter">
+          <p className="break-words whitespace-normal text-center" style={{ color: settings.fontColor, fontFamily: settings.fontFamily, fontSize: Math.min(settings.fontSize, 28), lineHeight: settings.lineHeight, letterSpacing: settings.letterSpacing, transform: settings.mirror ? 'scaleX(-1)' : undefined }}>Seu texto, no seu ritmo.</p>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <section>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
               Rolagem
@@ -429,18 +429,13 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void runBrollSearch()
                   }}
-                  placeholder={
-                    hasBrollKey()
-                      ? 'Buscar B-roll (ex.: cidade, café, escritório)...'
-                      : 'Sem chave do Pexels — use upload ou URL acima'
-                  }
-                  disabled={!hasBrollKey()}
+                  placeholder="Buscar B-roll (ex.: cidade, café, escritório)..."
                   className="min-w-0 flex-1 rounded-lg border bg-transparent px-3 py-1.5 text-xs outline-none disabled:opacity-50"
                   style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
                 />
                 <button
                   onClick={() => void runBrollSearch()}
-                  disabled={!hasBrollKey() || brollBusy || !brollQuery.trim()}
+                  disabled={brollBusy || !brollQuery.trim()}
                   className="rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
                   style={{ background: 'var(--accent)', color: 'black' }}
                 >
@@ -471,8 +466,7 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
                 </div>
               )}
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-                O vídeo fica atrás do texto, em loop e sem som. A chave gratuita do Pexels
-                (<code>VITE_PEXELS_API_KEY</code>) habilita a busca de clipes.
+                O vídeo fica atrás do texto, em loop e sem som. Entre na sua conta para buscar clipes do Pexels.
               </p>
             </div>
             <Row label="Fonte">
@@ -526,7 +520,7 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
             )}
             {settings.cameraPosition === 'fullscreen' && (
               <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                A câmera vira o vídeo em tela cheia e o texto rola por cima — como no BIGVU. O
+                A câmera vira o vídeo em tela cheia e o texto rola por cima. O
                 texto ganha uma sombra para continuar legível.
               </p>
             )}

@@ -4,12 +4,14 @@ import { estimateDurationMinutes, wordCount } from '../../lib/text'
 import { formatElapsed } from '../../hooks/useRecorder'
 import { IMPORTABLE_EXT, extractTextFromFile, extractTextFromUrl, fileNameFromImport } from '../../lib/importers'
 import { transcribeAudio } from '../../lib/cloudflare'
+import CreatorVisual from '../CreatorVisual'
 import type { Script } from '../../lib/types'
 
-type LibraryIconName = 'document' | 'sparkles' | 'import' | 'play' | 'search' | 'text' | 'clock'
+type LibraryIconName = 'document' | 'sparkles' | 'import' | 'play' | 'search' | 'text' | 'clock' | 'avatar'
 
 function LibraryIcon({ name, className = 'h-5 w-5' }: { name: LibraryIconName; className?: string }) {
   const paths = {
+    avatar: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0M20 3v4M18 5h4" /></>,
     document: <><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></>,
     sparkles: <><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z" /><path d="m18 14 .8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14Z" /></>,
     import: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14" /></>,
@@ -131,31 +133,24 @@ export default function ScriptLibrary() {
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8">
-      <div className="mb-5 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--brand-strong)' }}>{useAppStore.getState().cloudWorkspace?.name ?? 'Neste dispositivo'}</p>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Seus roteiros</h1>
-          <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{scripts.length ? `${scripts.length} roteiro${scripts.length === 1 ? '' : 's'} · escolha um para continuar` : 'Do seu texto ao próximo vídeo.'}</p>
-        </div>
-        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createNew} className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-bold text-white" style={{ background: 'var(--brand-gradient)' }}>＋ Novo</button>
-      </div>
+      <div className="studio-greeting"><div><p className="studio-eyebrow">SEU ESTÚDIO DE CRIAÇÃO</p><h1>Vamos dar vida à sua ideia?</h1></div><span className="studio-workspace">{useAppStore.getState().cloudWorkspace?.name ?? 'Espaço pessoal'}</span></div>
+      {currentScript?.content.trim() ? (
+        <button onClick={() => setView('editor')} className="mb-5 flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left" style={{ borderColor: 'var(--border)', background: 'var(--accent-soft)' }}>
+          <span className="min-w-0"><span className="block text-xs font-semibold" style={{ color: 'var(--brand-strong)' }}>Continuar de onde parou</span><strong className="mt-1 block truncate text-sm">{currentScript.title || 'Sem título'}</strong></span>
+          <span aria-hidden="true">→</span>
+        </button>
+      ) : null}
 
-      <div className="library-actions mb-5 grid grid-cols-3 gap-2 sm:gap-3" aria-label="Criar ou importar roteiro">
-        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createWithAi} className="group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
-          <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl text-white shadow-lg" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))', boxShadow: '0 8px 18px rgba(128,82,255,.32)' }}><LibraryIcon name="sparkles" /></span>
-          <strong className="block text-sm">Gerar com IA</strong>
-          <span className="mt-1 block text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Conte o tema e receba um roteiro pronto no seu tom.</span>
-        </button>
-        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createNew} className="group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
-          <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="document" /></span>
-          <strong className="block text-sm">Novo roteiro</strong>
-          <span className="mt-1 block text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Comece do zero e escreva direto no editor.</span>
-        </button>
-        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={() => { setLinkError(null); setShowImportMenu(true) }} className="group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5" style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}>
-          <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: '#e5f6f1', color: 'var(--ok)' }}><LibraryIcon name="import" /></span>
-          <strong className="block text-sm">{audioBusy ? 'Importando…' : 'Importar'}</strong>
-          <span className="mt-1 block text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Arquivo, áudio (transcrição) ou link da web.</span>
-        </button>
+      <section className="studio-hero" aria-label="Comece seu próximo vídeo">
+        <div className="studio-hero-copy"><span className="studio-hero-tag">DO ROTEIRO AO REC</span><h2>Seu próximo<br />vídeo começa aqui.</h2><p>Prepare o roteiro e grave<br className="hidden sm:block" /> com mais confiança.</p><button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createNew}>Criar meu roteiro <span aria-hidden="true">↗</span></button></div>
+        <CreatorVisual compact />
+      </section>
+      <div className="studio-section-heading"><h2>O que vamos criar?</h2><span>Escolha por onde começar</span></div>
+      <div className="studio-tools" aria-label="Ferramentas de criação">
+        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createWithAi}><span className="studio-tool-icon tool-violet"><LibraryIcon name="sparkles" /></span><strong>Roteiro com IA</strong><small>Da ideia ao texto</small></button>
+        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={createNew}><span className="studio-tool-icon tool-peach"><LibraryIcon name="document" /></span><strong>Escrever roteiro</strong><small>Comece do seu jeito</small></button>
+        <button disabled={useAppStore.getState().cloudWorkspace?.role === 'viewer'} onClick={() => { setLinkError(null); setShowImportMenu(true) }}><span className="studio-tool-icon tool-mint"><LibraryIcon name="import" /></span><strong>{audioBusy ? 'Importando…' : 'Importar'}</strong><small>Texto, áudio ou link</small></button>
+        <button onClick={() => setView('ai-twin')}><span className="studio-tool-icon tool-blue"><LibraryIcon name="avatar" /></span><strong>Avatar com voz</strong><small>Dê voz a uma foto</small></button>
         <input
           ref={fileRef}
           type="file"
@@ -180,13 +175,7 @@ export default function ScriptLibrary() {
         />
       </div>
 
-      {currentScript?.content.trim() ? (
-        <button onClick={() => setView('editor')} className="mb-5 flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left" style={{ borderColor: 'var(--border)', background: 'var(--accent-soft)' }}>
-          <span className="min-w-0"><span className="block text-xs font-semibold" style={{ color: 'var(--brand-strong)' }}>Continuar de onde parou</span><strong className="mt-1 block truncate text-sm">{currentScript.title || 'Sem título'}</strong></span>
-          <span aria-hidden="true">→</span>
-        </button>
-      ) : null}
-
+      <div className="studio-section-heading"><h2>Meus roteiros <span className="studio-count">{scripts.length}</span></h2><span>Seu próximo take está aqui</span></div>
       {scripts.length > 0 ? (
         <label className="mb-4 flex min-h-12 items-center gap-3 rounded-2xl border px-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
           <span style={{ color: 'var(--muted)' }}><LibraryIcon name="search" /></span>
@@ -217,9 +206,9 @@ export default function ScriptLibrary() {
           style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
         >
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl" style={{ background: 'var(--accent-soft)', color: 'var(--brand-strong)' }}><LibraryIcon name="document" /></div>
-          <p className="mt-4 font-bold">Nenhum roteiro ainda</p>
+          <p className="mt-4 font-bold">Seu primeiro roteiro começa com uma ideia.</p>
           <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>
-            Use uma das três opções acima para começar. Você poderá revisar tudo antes de abrir o prompter.
+            Escreva sua primeira ideia ou peça uma ajuda à IA. Você revisa o roteiro antes de gravar.
           </p>
         </div>
       ) : visibleScripts.length === 0 ? (
@@ -236,7 +225,7 @@ export default function ScriptLibrary() {
             return (
               <li
                 key={script.id}
-                className="group relative flex items-center gap-3 rounded-3xl border p-3.5 transition-colors sm:p-4"
+                className="studio-script group relative flex items-center gap-3 rounded-2xl border p-3.5 transition-colors sm:p-4"
                 style={{ borderColor: 'var(--border)', background: 'var(--panel)', boxShadow: 'var(--shadow-sm)' }}
               >
                 <span className="hidden h-11 w-11 shrink-0 place-items-center rounded-2xl sm:grid" style={{ background: 'linear-gradient(135deg, var(--accent-soft), #ffecc9)', color: 'var(--brand-strong)' }} aria-hidden="true"><LibraryIcon name="document" className="h-5 w-5" /></span>

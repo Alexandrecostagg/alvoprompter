@@ -760,7 +760,7 @@ export default function VideoEditor() {
                         onChange={(e) => setEyeContact(e.target.checked)}
                         className="h-4 w-4 accent-cyan-400"
                       />
-                      Eye contact fix — olhos no terço superior
+                      Enquadrar olhos no terço superior
                     </label>
                   )}
                 </>

@@ -186,10 +186,10 @@ export function readingStats(content: string, wpm = 150): ReadingStats {
   const words = tokens.length
 
   const sentenceParts = content
-    .split(/([.!?…]+(?:\s+|$)|\n+)/)
+    .split(/(?:[.!?…]+(?:\s+|$)|\n+)/)
     .map((p) => p.trim())
     .filter(Boolean)
-  const sentences = Math.max(1, sentenceParts.length)
+  const sentences = sentenceParts.length
 
   const freq = new Map<string, number>()
   for (const t of tokens) {

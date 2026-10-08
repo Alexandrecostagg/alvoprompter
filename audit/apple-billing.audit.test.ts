@@ -6,7 +6,7 @@ import { testDatabase } from './d1-test-db'
 vi.mock('jose', () => ({
   decodeProtectedHeader: () => ({ alg: 'RS256', kid: 'test' }),
   importX509: async () => ({}),
-  jwtVerify: async () => ({ payload: { sub: 'apple-user', email: 'apple@example.test', email_verified: true } }),
+  jwtVerify: async () => ({ payload: { auth_time: 1, sub: 'apple-user', email: 'apple@example.test', email_verified: true } }),
   importPKCS8: async () => ({}),
   decodeJwt: (value: string) => JSON.parse(value),
   SignJWT: class { setProtectedHeader() { return this } setIssuer() { return this } setAudience() { return this } setIssuedAt() { return this } setExpirationTime() { return this } async sign() { return 'signed-test-token' } },

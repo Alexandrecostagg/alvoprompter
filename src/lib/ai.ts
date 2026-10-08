@@ -1,4 +1,5 @@
 import { apiBase } from './cloudflare'
+import { readChatStream } from './chatStream'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -43,39 +44,8 @@ export async function chatStream(messages: ChatMessage[], opts: StreamOptions = 
     throw new Error(message)
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('Resposta sem corpo. Tente novamente.')
-
-  const decoder = new TextDecoder()
-  let full = ''
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-      const data = trimmed.slice(5).trim()
-      if (data === '[DONE]') continue
-      try {
-        const json = JSON.parse(data)
-        const token: string | undefined = json.choices?.[0]?.delta?.content
-        if (token) {
-          full += token
-          opts.onToken?.(full)
-        }
-      } catch {
-        // chunk incompleto ou keep-alive; ignora
-      }
-    }
-  }
-
-  if (!full) throw new Error('A IA não retornou conteúdo. Tente novamente.')
-  return full
+  if (!response.body) throw new Error('Resposta sem corpo. Tente novamente.')
+  return readChatStream(response.body, opts.onToken)
 }
 
 export async function chat(messages: ChatMessage[], opts: StreamOptions = {}): Promise<string> {

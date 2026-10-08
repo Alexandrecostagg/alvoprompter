@@ -30,7 +30,7 @@ export function usePrompterEngine({ mode, wordCount, wpm, onFrame }: EngineOptio
       if (lastTsRef.current === 0) lastTsRef.current = ts
       const dt = Math.min((ts - lastTsRef.current) / 1000, 0.25)
       lastTsRef.current = ts
-      if (wordCount > 1) {
+      if (wordCount > 0) {
         const perSecond = wpm / (wordCount * 60)
         fractionRef.current = Math.min(1, fractionRef.current + perSecond * dt)
         if (ts - lastPaintTsRef.current >= 1000 / 30 || fractionRef.current >= 1) {

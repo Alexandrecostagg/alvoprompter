@@ -21,10 +21,14 @@ id = "7f2df53777804be2aefce83dd26e3945"
 # Publicar: npx wrangler deploy
 # Origens autorizadas. Adicione o domínio público real antes do deploy.
 [vars]
-RELEASE = "1.5.0"
-AI_PROVIDER = "carcara"
-AI_MODEL = "Carcara-3.8-27B"
-CARCARA_API_BASE = "https://tunel.harpyacore.com/v1"
+RELEASE = "1.6.1-security-20261008"
+# Texto: Gemini primeiro; Groq assume em falhas antes de entregar conteúdo.
+# GEMINI_API_KEY e GROQ_API_KEY devem ser cadastradas como secrets.
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+GROQ_MODEL = "openai/gpt-oss-120b"
+# Voz: usa a mesma GEMINI_API_KEY; cotas e gratuidade dependem do projeto Google.
+GEMINI_TTS_MODEL = "gemini-3.8-flash-lite-tts"
+GEMINI_TTS_VOICE = "Kore"
 CORS_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost,https://localhost,https://alvoprompter.com.br,https://www.alvoprompter.com.br,https://app.alvoprompter.com.br"
 FIREBASE_PROJECT_ID = "alvoprompt"
 APP_URL = "https://app.alvoprompter.com.br"

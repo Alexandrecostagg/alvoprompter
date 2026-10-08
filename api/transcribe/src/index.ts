@@ -1,11 +1,14 @@
+import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits } from './security'
 import { billingAvailability } from './billing'
 import { appleBillingConfigured } from './appleBilling'
+import { cascadeChat, chatHealth, type ChatEnv } from './chat'
+import { generateSpeech, ttsHealth, type TtsEnv } from './tts'
 /**
- * AlvoPrompter API — Cloudflare Worker com Workers AI (plano gratuito).
+ * AlvoPrompter API — Cloudflare Worker com Gemini, Groq e Workers AI.
  *
  * Endpoints:
  *   POST /transcribe  multipart: audio=<arquivo>, lang=<código ISO>  → { result: { text, words } }
- *   POST /tts         JSON: { text, lang }                            → áudio (MeloTTS → Grok TTS em PT-BR)
+ *   POST /tts         JSON: { text, lang }                            → áudio WAV (Gemini TTS)
  *   POST /translate   JSON: { text, sourceLang, targetLang }          → { translated_text }
  *   POST /import-url  JSON: { url }                                   → { text, title } (YouTube/GDocs/URL genérica)
  *   POST /avatar      JSON: { prompt }                                → imagem PNG (Flux)
@@ -19,18 +22,15 @@ import { appleBillingConfigured } from './appleBilling'
  */
 import { authorizeAiAction, refundAiAction, handleSaaSRequest, replayAsaasWebhookEvent, requireUser, type SaaSEnv, type AiCharge } from './saas'
 
-export interface Env {
+export interface Env extends ChatEnv, TtsEnv {
   AI: {
     run(model: string, input: unknown, options?: { returnRawResponse?: boolean }): Promise<unknown>
   }
   alvoprompt_media: R2Bucket
   ALVOPROMPT_SYNC: KVNamespace
   CORS_ORIGIN?: string
-  DEEPSEEK_API_KEY?: string
-  CARCARA_API_KEY?: string
-  CARCARA_API_BASE?: string
-  AI_PROVIDER?: string
-  AI_MODEL?: string
+  PEXELS_API_KEY?: string
+  IMPORT_ALLOWED_HOSTS?: string
   RELEASE?: string
   DB?: D1Database
   BILLING_QUEUE?: Queue<{ id: string }>
@@ -54,11 +54,6 @@ const CORS_HEADERS = {
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024
 const MIN_SYNC_PASS_LENGTH = 12
-const DEEPSEEK_MODEL = 'deepseek-v4-flash'
-function chatProvider(env: Env) {
-  const carcara = env.AI_PROVIDER === 'carcara' || (!env.AI_PROVIDER && Boolean(env.CARCARA_API_KEY))
-  return { name: carcara ? 'carcara' : 'deepseek', key: carcara ? env.CARCARA_API_KEY : env.DEEPSEEK_API_KEY, base: carcara ? (env.CARCARA_API_BASE || 'https://tunel.harpyacore.com/v1') : 'https://api.deepseek.com', model: env.AI_MODEL || (carcara ? 'Carcara-3.8-27B' : DEEPSEEK_MODEL) }
-}
 
 function allowedOrigin(request: Request, env: Env): boolean {
   const origin = request.headers.get('Origin')
@@ -76,6 +71,7 @@ async function enforceRateLimit(
   bucket: string,
   dailyLimit: number,
 ): Promise<Response | null> {
+  if (env.DB) return await takeRateLimit(env.DB, `daily:${bucket}:${request.headers.get('CF-Connecting-IP') ?? 'local'}`, dailyLimit, 86400) ? null : json({ error: 'Limite diário atingido. Tente novamente amanhã.' }, 429)
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local'
   const day = new Date().toISOString().slice(0, 10)
   const key = `rate:${bucket}:${day}:${ip}`
@@ -108,12 +104,6 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
-function toArrayBuffer(arr: number[]): ArrayBuffer {
-  const out = new Uint8Array(arr.length)
-  for (let i = 0; i < arr.length; i++) out[i] = arr[i]
-  return out.buffer
-}
-
 async function syncKey(pass: string, prefix = 'sync'): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pass))
   const hex = Array.from(new Uint8Array(digest))
@@ -138,12 +128,13 @@ async function handleCollection(
   prefix: string,
   field: string,
   sanitize: (rec: Record<string, unknown>) => Record<string, unknown>,
+  uid: string,
 ): Promise<Response> {
   const pass = (request.headers.get('x-sync-pass') ?? '').trim()
   if (pass.length < MIN_SYNC_PASS_LENGTH) {
     return json({ error: `Frase-chave muito curta (mínimo ${MIN_SYNC_PASS_LENGTH} caracteres).` }, 400)
   }
-  const key = await syncKey(pass, prefix)
+  const key = await syncKey(JSON.stringify([uid, pass]), prefix)
 
   if (request.method === 'GET') {
     const raw = await kv.get(key)
@@ -231,8 +222,8 @@ function sanitizeWorkspace(rec: Record<string, unknown>): Record<string, unknown
 
 function youtubeVideoId(target: string): string | null {
   const u = new URL(target)
-  if (/(youtu\.be)/i.test(u.hostname)) return u.pathname.slice(1).split('/')[0] || null
-  if (/(youtube\.com)/i.test(u.hostname)) {
+  if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('/')[0] || null
+  if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(u.hostname)) {
     if (u.pathname.startsWith('/shorts/')) return u.pathname.split('/')[2] ?? null
     return u.searchParams.get('v')
   }
@@ -260,16 +251,6 @@ function htmlToText(html: string): string {
   return t
 }
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, ms = 15000): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), ms)
-  try {
-    return await fetch(input, { ...init, signal: controller.signal })
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
 async function extractYouTubeTranscript(target: string): Promise<{ text: string; title: string }> {
   const id = youtubeVideoId(target)
   if (!id) throw new Error('Não consegui identificar o vídeo do YouTube.')
@@ -287,7 +268,7 @@ async function extractYouTubeTranscript(target: string): Promise<{ text: string;
 
   let html = ''
   for (const attempt of attempts) {
-    const res = await fetchWithTimeout(attempt.url, { headers: attempt.headers })
+    const res = await fetchImport(attempt.url, { headers: attempt.headers })
     if (res.ok) {
       html = await res.text()
       break
@@ -317,7 +298,7 @@ async function extractYouTubeTranscript(target: string): Promise<{ text: string;
   const baseUrl = track?.baseUrl
   if (!baseUrl) throw new Error('Legendas indisponíveis para esse vídeo.')
 
-  const captionsRes = await fetchWithTimeout(baseUrl.replace(/\\u0026/g, '&'))
+  const captionsRes = await fetchImport(baseUrl.replace(/\\u0026/g, '&'))
   if (!captionsRes.ok) throw new Error('Falha ao baixar as legendas (HTTP ' + captionsRes.status + ').')
   const xml = await captionsRes.text()
 
@@ -336,7 +317,7 @@ async function extractGoogleDocs(target: string): Promise<{ text: string; title:
   const m = u.pathname.match(/\/d\/([^/]+)/)
   if (!m) throw new Error('Link de Google Docs inválido. Use um link de documento (docs.google.com/document/d/...).')
   const id = m[1]!
-  const exportRes = await fetchWithTimeout(
+  const exportRes = await fetchImport(
     `https://docs.google.com/document/d/${id}/export?format=txt`,
     { headers: { 'Accept-Language': 'pt-BR,pt;q=0.8' } },
   )
@@ -350,10 +331,10 @@ async function extractGoogleDocs(target: string): Promise<{ text: string; title:
   return { text, title: `Google Docs ${id.slice(0, 8)}` }
 }
 
-async function extractGenericText(target: string): Promise<{ text: string; title: string }> {
-  const res = await fetchWithTimeout(target, {
+async function extractGenericText(target: string, allowedHosts = ''): Promise<{ text: string; title: string }> {
+  const res = await fetchImport(target, {
     headers: { 'User-Agent': 'Mozilla/5.0 AlvoPrompter', 'Accept-Language': 'pt-BR,pt;q=0.8' },
-  })
+  }, allowedHosts)
   if (!res.ok) throw new Error(`Falha ao buscar o link (HTTP ${res.status}).`)
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('application/pdf')) {
@@ -424,7 +405,7 @@ function importUrlBlocked(target: string): string | null {
 }
 
 const api = {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, uid?: string): Promise<Response> {
     if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS })
     const url = new URL(request.url)
@@ -439,7 +420,8 @@ const api = {
         service: 'AlvoPrompter API',
         release: env.RELEASE || 'development',
         protocol: 2,
-        ai: { provider: chatProvider(env).name, configured: Boolean(chatProvider(env).key), model: chatProvider(env).model },
+        ai: chatHealth(env),
+        tts: ttsHealth(env),
         auth: { projectId: env.FIREBASE_PROJECT_ID || null, configured: Boolean(env.FIREBASE_PROJECT_ID && !env.FIREBASE_PROJECT_ID.startsWith('configure-')) },
         billing: billingAvailability(env),
         appleBilling: { configured: appleBillingConfigured(env) },
@@ -448,11 +430,22 @@ const api = {
     }
 
 
+    if (url.pathname === '/broll' && request.method === 'GET') {
+      if (!env.PEXELS_API_KEY) return json({ error: 'A busca de clipes está temporariamente indisponível. Use um vídeo do aparelho.' }, 503)
+      const query = url.searchParams.get('query')?.trim() ?? ''
+      if (!query || query.length > 200) return json({ error: 'Informe uma busca com até 200 caracteres.' }, 400)
+      const params = new URLSearchParams({ query, orientation: 'landscape', per_page: String(Math.min(24, Math.max(1, Number(url.searchParams.get('per_page')) || 12))) })
+      const result = await fetch(`https://api.pexels.com/videos/search?${params}`, {
+        headers: { Authorization: env.PEXELS_API_KEY }, signal: AbortSignal.timeout(10_000), redirect: 'error',
+      })
+      if (!result.ok) return json({ error: 'Não foi possível buscar clipes agora.' }, 502)
+      const bytes = await readLimited(result.body, 2 * 1024 * 1024)
+      return json(JSON.parse(new TextDecoder().decode(bytes)))
+    }
+
     if (url.pathname === '/chat' && request.method === 'POST') {
       const limited = await enforceRateLimit(request, env, 'chat', 100)
       if (limited) return limited
-      const provider = chatProvider(env)
-      if (!provider.key) return json({ error: 'Serviço de IA não configurado.' }, 503)
       if (requestTooLarge(request, 128 * 1024)) return json({ error: 'Solicitação muito grande.' }, 413)
       const input = (await request.json().catch(() => null)) as {
         messages?: { role?: string; content?: string }[]
@@ -460,56 +453,24 @@ const api = {
         max_tokens?: number
         response_format?: { type?: string }
       } | null
-      if (!input?.messages?.length || input.messages.length > 30) {
+      if (!Array.isArray(input?.messages) || !input.messages.length || input.messages.length > 30 || input.messages.some((message) => !message || typeof message.content !== 'string')) {
 
         return json({ error: 'Conversa inválida.' }, 400)
       }
       const messages = input.messages.map((message) => ({
-        role: ['system', 'user', 'assistant'].includes(message.role ?? '') ? message.role : 'user',
+        role: ['system', 'user', 'assistant'].includes(message.role ?? '') ? message.role! : 'user',
         content: String(message.content ?? '').slice(0, 20_000),
       }))
-      try {
-        const upstream = await fetch(`${provider.base.replace(/\/$/, '')}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${provider.key}`,
-          },
-          body: JSON.stringify({
-            model: provider.model,
-            messages,
-            stream: true,
-            ...(provider.name === 'deepseek' ? { thinking: { type: 'disabled' } } : {}),
-            temperature: Math.min(1.5, Math.max(0, input.temperature ?? 0.7)),
-            max_tokens: 8_000,
-            ...(input.response_format?.type === 'json_object'
-              ? { response_format: { type: 'json_object' } }
-              : {}),
-          }),
-          signal: request.signal,
-        })
-        if (!upstream.ok) {
-          const message =
-            upstream.status === 401 || upstream.status === 403
-              ? 'O provedor de IA recusou a autenticação. Verifique a configuração do serviço.'
-              : upstream.status === 402
-                ? 'A conta do provedor de IA está sem saldo disponível.'
-                : upstream.status === 400 || upstream.status === 404
-                  ? 'O modelo configurado não está disponível neste provedor de IA.'
-                  : upstream.status === 429
-                    ? 'O provedor de IA está limitando as solicitações. Aguarde um momento e tente novamente.'
-                    : 'O provedor de IA não respondeu corretamente. Tente novamente.'
-          return json({ error: message }, upstream.status)
-        }
-        const body = upstream.body
-        return new Response(body, {
-          status: upstream.status,
-          headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', ...CORS_HEADERS },
-        })
-      } catch {
-
-        return json({ error: 'A IA está temporariamente indisponível.' }, 502)
-      }
+      const response = await cascadeChat({
+        messages,
+        temperature: Number.isFinite(input.temperature) ? Math.min(1.5, Math.max(0, input.temperature!)) : 0.7,
+        // Leave room for reasoning as well as the spoken script, as in the existing endpoint.
+        max_tokens: 8_000,
+        ...(input.response_format?.type === 'json_object' ? { response_format: { type: 'json_object' as const } } : {}),
+      }, env, request.signal)
+      const headers = new Headers(response.headers)
+      for (const [key, value] of Object.entries(CORS_HEADERS)) headers.set(key, value)
+      return new Response(response.body, { status: response.status, headers })
     }
 
     if (url.pathname === '/transcribe' && request.method === 'POST') {
@@ -518,7 +479,8 @@ const api = {
       if (requestTooLarge(request, MAX_AUDIO_BYTES + 1024 * 1024)) return json({ error: 'Áudio acima do limite de 25 MB.' }, 413)
       const form = await request.formData()
       const audio = form.get('audio')
-      const lang = (form.get('lang') as string | null) ?? 'pt'
+      const lang = form.get('lang') ?? 'pt'
+      if (typeof lang !== 'string' || !/^[a-z]{2,3}(-[A-Za-z]{2,8})?$/.test(lang)) return json({ error: 'Idioma inválido.' }, 400)
       if (!(audio instanceof File)) return json({ error: 'Campo "audio" ausente.' }, 400)
       if (audio.size > MAX_AUDIO_BYTES) return json({ error: 'Áudio acima do limite de 25 MB.' }, 413)
       const bytes = new Uint8Array(await audio.arrayBuffer())
@@ -538,80 +500,18 @@ const api = {
         }
         const words = (result.segments ?? []).flatMap((s) => s.words ?? [])
         return json({ result: { text: result.text ?? '', words } })
-      } catch (err) {
-        return json({ error: (err as Error).message }, 500)
+      } catch {
+        return json({ error: 'O serviço não conseguiu concluir a operação. Tente novamente.' }, 502)
       }
     }
 
     if (url.pathname === '/tts' && request.method === 'POST') {
       const limited = await enforceRateLimit(request, env, 'tts', 50)
       if (limited) return limited
-      const { text, lang } = (await request.json()) as { text?: string; lang?: string }
-      if (!text) return json({ error: 'Campo "text" ausente.' }, 400)
-      if (text.length > 5_000) return json({ error: 'Texto acima do limite de 5.000 caracteres.' }, 413)
-      const requestedLang = (lang ?? 'pt-BR').trim().replace('_', '-') || 'pt-BR'
-      const langCode = requestedLang.toLowerCase().split('-')[0] || 'pt'
-
-      try {
-        const result = (await env.AI.run('@cf/myshell-ai/melotts', {
-          prompt: text,
-          lang: langCode,
-        })) as { audio: number[] }
-        return new Response(toArrayBuffer(result.audio), {
-          headers: { 'Content-Type': 'audio/wav', ...CORS_HEADERS },
-        })
-      } catch {
-        // Aura 1 tem vozes em inglês. Para outros idiomas, falhar é melhor
-        // do que entregar ao usuário uma pronúncia inglesa incorreta.
-      }
-
-      if (langCode === 'pt') {
-        try {
-          const language = requestedLang.toLowerCase() === 'pt-pt' ? 'pt-PT' : 'pt-BR'
-          const result = (await env.AI.run('xai/grok-tts', {
-            text,
-            language,
-            voice_id: 'ara',
-            text_normalization: true,
-            output_format: { codec: 'mp3', sample_rate: 24000, bit_rate: 128000 },
-          })) as { audio?: string; result?: { audio?: string } }
-          const audioUrl = result.audio ?? result.result?.audio
-          if (!audioUrl) throw new Error('O provedor não retornou o arquivo de áudio.')
-          const audio = await fetch(audioUrl)
-          if (!audio.ok || !audio.body) throw new Error(`Falha ao obter o áudio (${audio.status}).`)
-          return new Response(audio.body, {
-            headers: {
-              'Content-Type': audio.headers.get('Content-Type') ?? 'audio/mpeg',
-              ...CORS_HEADERS,
-            },
-          })
-        } catch (err) {
-          return json(
-            { error: `A voz em português está temporariamente indisponível: ${(err as Error).message}` },
-            503,
-          )
-        }
-      }
-
-      if (langCode !== 'en') {
-        return json({ error: `Ainda não há uma voz configurada para o idioma “${requestedLang}”.` }, 422)
-      }
-
-      try {
-        const resp = (await env.AI.run(
-          '@cf/deepgram/aura-1',
-          { text, container: 'wav', encoding: 'linear16', sample_rate: 24000, speaker: 'asteria' },
-          { returnRawResponse: true },
-        )) as Response
-        const headers = new Headers(resp.headers)
-        headers.set('Access-Control-Allow-Origin', '*')
-        return new Response(resp.body, { status: resp.status, headers })
-      } catch {
-        return json(
-          { error: 'Dublagem indisponível no momento. O modelo MeloTTS está fora do ar nesta conta e o Aura não respondeu. Tente mais tarde ou use a leitura do navegador.' },
-          503,
-        )
-      }
+      const response = await generateSpeech(request, env)
+      const headers = new Headers(response.headers)
+      for (const [name, value] of Object.entries(CORS_HEADERS)) headers.set(name, value)
+      return new Response(response.body, { status: response.status, headers })
     }
 
     if (url.pathname === '/translate' && request.method === 'POST') {
@@ -622,7 +522,7 @@ const api = {
         sourceLang?: string
         targetLang?: string
       }
-      if (!text || !targetLang) return json({ error: 'Campos "text" e "targetLang" obrigatórios.' }, 400)
+      if (typeof text !== 'string' || typeof targetLang !== 'string' || !text || !/^[a-z]{2,3}(-[A-Za-z]{2,8})?$/.test(targetLang) || (sourceLang !== undefined && (typeof sourceLang !== 'string' || !/^[a-z]{2,3}(-[A-Za-z]{2,8})?$/.test(sourceLang)))) return json({ error: 'Campos "text" e "targetLang" obrigatórios.' }, 400)
       if (text.length > 15_000) return json({ error: 'Texto acima do limite de 15.000 caracteres.' }, 413)
       try {
         const result = (await env.AI.run('@cf/meta/m2m100-1.2b', {
@@ -631,8 +531,8 @@ const api = {
           target_lang: targetLang,
         })) as { translated_text?: string }
         return json({ result })
-      } catch (err) {
-        return json({ error: (err as Error).message }, 500)
+      } catch {
+        return json({ error: 'O serviço não conseguiu concluir a operação. Tente novamente.' }, 502)
       }
     }
 
@@ -640,9 +540,9 @@ const api = {
       const limited = await enforceRateLimit(request, env, 'import', 60)
       if (limited) return limited
       const { url: target } = (await request.json()) as { url?: string }
-      if (!target) return json({ error: 'Campo "url" ausente.' }, 400)
+      if (typeof target !== 'string' || !target) return json({ error: 'Campo "url" ausente.' }, 400)
       if (target.length > 2_048) return json({ error: 'URL acima do limite permitido.' }, 413)
-      const blocked = importUrlBlocked(target)
+      const blocked = importUrlBlocked(target) || (!importAllowed(target, env.IMPORT_ALLOWED_HOSTS) ? 'Este domínio não está habilitado para importação. Importe o texto como arquivo.' : null)
       if (blocked) return json({ error: blocked }, 400)
       let parsed: URL
       try {
@@ -651,15 +551,15 @@ const api = {
         return json({ error: 'URL inválida.' }, 400)
       }
       try {
-        if (/(youtube\.com|youtu\.be)/i.test(parsed.hostname)) {
+        if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(parsed.hostname)) {
           return json({ result: await extractYouTubeTranscript(target) })
         }
-        if (/docs\.google\.com/i.test(parsed.hostname)) {
+        if (parsed.hostname === 'docs.google.com') {
           return json({ result: await extractGoogleDocs(target) })
         }
-        return json({ result: await extractGenericText(target) })
+        return json({ result: await extractGenericText(target, env.IMPORT_ALLOWED_HOSTS) })
       } catch (err) {
-        return json({ error: (err as Error).message }, 502)
+        return json({ error: err instanceof RequestError ? err.message : 'Não foi possível importar o link. Confira se ele é público e tente novamente.' }, err instanceof RequestError ? err.status : 502)
       }
     }
 
@@ -667,7 +567,7 @@ const api = {
       const limited = await enforceRateLimit(request, env, 'avatar', 10)
       if (limited) return limited
       const { prompt } = (await request.json()) as { prompt?: string }
-      if (!prompt) return json({ error: 'Campo "prompt" ausente.' }, 400)
+      if (typeof prompt !== 'string' || !prompt) return json({ error: 'Campo "prompt" ausente.' }, 400)
       if (prompt.length > 800) return json({ error: 'Descrição acima do limite de 800 caracteres.' }, 413)
       try {
         const result = (await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
@@ -693,8 +593,8 @@ const api = {
         return new Response(bytes, {
           headers: { 'Content-Type': isPng ? 'image/png' : 'image/jpeg', ...CORS_HEADERS },
         })
-      } catch (err) {
-        return json({ error: (err as Error).message }, 500)
+      } catch {
+        return json({ error: 'O serviço não conseguiu concluir a operação. Tente novamente.' }, 502)
       }
     }
 
@@ -706,7 +606,7 @@ const api = {
       if (pass.length < MIN_SYNC_PASS_LENGTH) {
         return json({ error: `Frase-chave muito curta (mínimo ${MIN_SYNC_PASS_LENGTH} caracteres).` }, 400)
       }
-      const key = await syncKey(pass)
+      const key = await syncKey(JSON.stringify([uid, pass]))
 
       if (request.method === 'GET') {
         const raw = await env.ALVOPROMPT_SYNC.get(key)
@@ -750,7 +650,7 @@ const api = {
     if (url.pathname === '/schedules') {
       const limited = await enforceRateLimit(request, env, 'schedules', 500)
       if (limited) return limited
-      return handleCollection(request, env.ALVOPROMPT_SYNC, 'schedules', 'posts', sanitizePost)
+      return handleCollection(request, env.ALVOPROMPT_SYNC, 'schedules', 'posts', sanitizePost, uid!)
     }
     if (url.pathname === '/workspaces') {
       const limited = await enforceRateLimit(request, env, 'workspaces', 500)
@@ -761,6 +661,7 @@ const api = {
         'workspaces',
         'workspaces',
         sanitizeWorkspace,
+        uid!,
       )
     }
 
@@ -843,6 +744,8 @@ const api = {
       if (!title || !mediaKey || !/^[a-zA-Z0-9._-]{1,128}$/.test(mediaKey)) {
         return json({ error: 'Título e arquivo de vídeo são obrigatórios.' }, 400)
       }
+      const media = await env.alvoprompt_media.head(`${await syncKey(JSON.stringify([uid, pass]), 'media')}:${mediaKey}`)
+      if (!media || !media.httpMetadata?.contentType?.startsWith('video/')) return json({ error: 'Envie um vídeo da sua conta antes de criar a página.' }, 400)
       const id = crypto.randomUUID()
       const page = {
         id,
@@ -850,7 +753,7 @@ const api = {
         description: String(body?.description ?? '').trim().slice(0, 500),
         author,
         mediaKey,
-        passHash: await syncKey(pass, 'media'),
+        passHash: await syncKey(JSON.stringify([uid, pass]), 'media'),
         createdAt: new Date().toISOString(),
         views: 0,
       }
@@ -875,10 +778,20 @@ const api = {
       if (pass.length < MIN_SYNC_PASS_LENGTH) return json({ error: 'Frase-chave obrigatória para acessar mídia.' }, 401)
       const rawKey = decodeURIComponent(mediaMatch[1]!)
       if (!/^[a-zA-Z0-9._-]{1,128}$/.test(rawKey)) return json({ error: 'Chave de mídia inválida.' }, 400)
-      const key = `${await syncKey(pass, 'media')}:${rawKey}`
+      const key = `${await syncKey(JSON.stringify([uid, pass]), 'media')}:${rawKey}`
       if (request.method === 'PUT') {
         if (requestTooLarge(request, MAX_MEDIA_BYTES)) return json({ error: 'Mídia acima do limite de 100 MB.' }, 413)
-        await env.alvoprompt_media.put(key, request.body)
+        const length = Number(request.headers.get('Content-Length'))
+        if (!Number.isSafeInteger(length) || length <= 0) return json({ error: 'Informe o tamanho do arquivo para enviar mídia.', code: 'LENGTH_REQUIRED' }, 411)
+        const type = (request.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase()
+        if (!['video/mp4', 'video/webm', 'video/quicktime', 'audio/mpeg', 'audio/mp4', 'audio/webm', 'audio/wav', 'image/png', 'image/jpeg', 'image/webp'].includes(type)) return json({ error: 'Tipo de mídia não permitido.' }, 415)
+        if (!request.body) return json({ error: 'Arquivo vazio.' }, 400)
+        // Cloudflare's fixed-length stream aborts on both overflow and truncation;
+        // an incomplete object is not committed to R2.
+        const bounded = new FixedLengthStream(length)
+        const piping = request.body.pipeTo(bounded.writable)
+        const saving = env.alvoprompt_media.put(key, bounded.readable, { httpMetadata: { contentType: type } })
+        await Promise.all([piping, saving])
         return json({ ok: true, key: rawKey })
       }
       if (request.method === 'GET') {
@@ -888,6 +801,7 @@ const api = {
         object.writeHttpMetadata(headers)
         headers.set('Content-Type', object.httpMetadata?.contentType ?? 'application/octet-stream')
         headers.set('ETag', object.httpEtag)
+        headers.set('Content-Disposition', 'attachment')
         return new Response(object.body, { headers })
       }
       if (request.method === 'DELETE') {
@@ -943,23 +857,54 @@ export default {
     }
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
-    if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
+    const finish = (response: Response) => secureResponse(response, request, env.CORS_ORIGIN)
+    if (!allowedOrigin(request, env)) return finish(json({ error: 'Origem não autorizada.' }, 403))
+    if (request.method === 'OPTIONS') return finish(new Response(null, { headers: CORS_HEADERS }))
     const path = new URL(request.url).pathname
     let charge: AiCharge | undefined
-    if (request.method === 'POST' && ['/chat', '/transcribe', '/tts', '/translate', '/avatar'].includes(path)) {
-      const blocked = await authorizeAiAction(request, env, (value) => { charge = value })
-      if (blocked) return blocked
-    }
     let response: Response
-    try { response = await api.fetch(request, env) }
-    catch { response = json({ error: 'Não foi possível concluir a solicitação. Tente novamente.' }, 502) }
-    if (charge && (!response.ok || !response.body)) await refundAiAction(charge, env)
-    else if (charge && path === '/chat' && response.body) {
+    try {
+      const protectedPath = ['/sync', '/schedules', '/workspaces', '/import-url', '/broll'].includes(path)
+        || path.startsWith('/media/') || (path === '/videopages' && request.method === 'POST')
+      // Limit attempts before JWT verification, database writes or provider calls.
+      if (env.DB && path !== '/health') {
+        cleanupRateLimits(env.DB, ctx)
+        if (!await takeRateLimit(env.DB, `attempt:${request.headers.get('CF-Connecting-IP') ?? 'local'}`, 120)) {
+          return finish(json({ error: 'Muitas tentativas. Aguarde um minuto.' }, 429))
+        }
+      }
+      let uid: string | undefined
+      if (protectedPath) {
+        try { uid = (await requireUser(request, env)).uid }
+        catch { return finish(json({ error: 'Entre novamente na sua conta para continuar.' }, 401)) }
+        if (!await takeRateLimit(env.DB!, `user:${uid}`, 120)) return finish(json({ error: 'Muitas solicitações. Aguarde um minuto.' }, 429))
+      }
+      if (request.body && !path.startsWith('/media/')) {
+        const max = path === '/transcribe' ? MAX_AUDIO_BYTES + 1024 * 1024 : 1024 * 1024
+        if (requestTooLarge(request, max)) throw new RequestError('Conteúdo acima do limite permitido.', 413)
+        const bytes = await readLimited(request.body, max)
+        if (bytes.length && path !== '/transcribe') {
+          const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
+          if (!value || typeof value !== 'object' || Array.isArray(value)) throw new RequestError('Envie um objeto JSON válido.', 400)
+        }
+        request = new Request(request.url, { method: request.method, headers: request.headers, body: bytes, signal: request.signal })
+      }
+      if (request.method === 'POST' && ['/chat', '/transcribe', '/tts', '/translate', '/avatar'].includes(path)) {
+        const blocked = await authorizeAiAction(request, env, (value) => { charge = value })
+        if (blocked) return finish(blocked)
+      }
+      response = await api.fetch(request, env, uid)
+    } catch (error) {
+      response = json({ error: error instanceof RequestError ? error.message : 'Não foi possível concluir a solicitação. Tente novamente.' }, error instanceof RequestError ? error.status : error instanceof SyntaxError ? 400 : 502)
+    }
+    if (charge && (!response.ok || !response.body)) {
+      try { await refundAiAction(charge, env) } catch { /* No internal database detail reaches the client. */ }
+    } else if (charge && path === '/chat' && response.body) {
       const [client, audit] = response.body.tee()
       const verification = checkChatOutput(audit, charge, env).catch(() => undefined)
       ctx?.waitUntil(verification)
-      return new Response(client, response)
+      response = new Response(client, response)
     }
-    return response
+    return finish(response)
   },
 }

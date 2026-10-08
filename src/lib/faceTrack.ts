@@ -103,7 +103,7 @@ export async function computeFacePath(
 /**
  * Crop que mantém o rosto centralizado no reframe, interpolando entre as amostras.
  * Com `eyeContact: true`, centraliza na linha dos olhos (em vez do centro do rosto)
- * mantendo o olhar na faixa superior do quadro — aproximação offline do "eye contact fix".
+ * mantendo os olhos na faixa superior do quadro. Não altera a direção do olhar.
  * Sem amostras válidas, cai no crop central padrão (computeCrop).
  */
 export function cropCenteredOnFace(

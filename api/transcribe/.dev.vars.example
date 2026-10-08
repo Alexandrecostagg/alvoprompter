@@ -1,0 +1,5 @@
+# Apenas desenvolvimento local. Copie para .dev.vars (ignorado pelo Git).
+# Produção: use wrangler secret put para cada chave, sem prefixo VITE_.
+GEMINI_API_KEY=
+GROQ_API_KEY=
+PEXELS_API_KEY=

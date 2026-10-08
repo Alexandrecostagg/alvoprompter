@@ -9,6 +9,7 @@ export function fileNameFromImport(name: string): string {
 }
 
 export async function extractTextFromFile(file: File): Promise<string> {
+  if (file.size > 20 * 1024 * 1024) throw new Error('Importe um documento de até 20 MB.')
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'pdf' || file.type === 'application/pdf') {
     return extractPdf(file)
@@ -82,8 +83,9 @@ export async function extractTextFromUrl(rawUrl: string): Promise<string> {
   } catch {
     throw new Error('Link inválido. Informe uma URL completa (ex.: https://exemplo.com/texto).')
   }
-  const isYouTube = /(youtube\.com|youtu\.be)/i.test(u.hostname)
-  const isGoogleDocs = /docs\.google\.com/i.test(u.hostname)
+  if (!['https:', 'http:'].includes(u.protocol) || u.username || u.password) throw new Error('Use um link público HTTP ou HTTPS, sem credenciais.')
+  const isYouTube = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(u.hostname)
+  const isGoogleDocs = u.hostname === 'docs.google.com'
   if (isYouTube || isGoogleDocs) {
     const { text } = await fetchRemoteText(rawUrl)
     return text

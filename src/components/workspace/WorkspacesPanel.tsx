@@ -172,8 +172,8 @@ export default function WorkspacesPanel() {
         <div className="mb-6 rounded-xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
           <p className="text-sm" style={{ color: 'var(--text)' }}>
             {connected
-              ? 'Workspaces sincronizados entre dispositivos com a mesma frase-chave.'
-              : 'Compartilhe os workspaces com a equipe usando uma frase-chave (sem cadastro).'}
+              ? 'Workspaces sincronizados entre aparelhos da mesma conta e frase-chave.'
+              : 'Entre na mesma conta nos seus aparelhos para sincronizar. Para compartilhar com outras pessoas, use a equipe na nuvem.'}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <input

@@ -389,7 +389,7 @@ export default function AiTwin() {
       setMsg({
         type: 'err',
         text: source === 'tts'
-          ? 'A prévia em português funciona com a voz do aparelho. Para exportar vídeo com áudio, escolha uma gravação do prompter ou uma amostra da sua voz.'
+          ? `${(err as Error).message} Você também pode escolher uma gravação do prompter ou uma amostra da sua voz.`
           : (err as Error).message,
       })
     }
@@ -650,7 +650,8 @@ export default function AiTwin() {
                 autoCorrect="on"
                 autoCapitalize="sentences"
                 rows={4}
-                placeholder="Texto que o avatar deve falar em português"
+                maxLength={5000}
+                placeholder="Texto que o avatar deve falar em português (até 5.000 caracteres)"
                 className="w-full resize-y rounded-lg border bg-transparent px-3 py-2 text-sm outline-none"
                 style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
               />

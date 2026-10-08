@@ -53,6 +53,13 @@ export default function AiPanel({ tab }: AiPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current!
+    dialog.showModal()
+    return () => dialog.close()
+  }, [])
 
   useEffect(() => setActiveTab(tab), [tab])
 
@@ -86,6 +93,8 @@ export default function AiPanel({ tab }: AiPanelProps) {
     setGenerating(false)
     setImproving(false)
     setSuggesting(false)
+    setGenerated('')
+    setImproved('')
   }
 
   const handleGenerate = async () => {
@@ -106,14 +115,18 @@ export default function AiPanel({ tab }: AiPanelProps) {
           audience: audience.trim() || undefined,
           notes: notes.trim() || undefined,
         },
-        { onToken: (full) => setGenerated(full), signal: controller.signal },
+        { onToken: (full) => { if (!controller.signal.aborted) setGenerated(full) }, signal: controller.signal },
       )
     } catch (err) {
+      if (abortRef.current !== controller) return
+      setGenerated('')
       if ((err as Error).name !== 'AbortError') setError((err as Error).message)
     } finally {
-      setBusy(false)
-      setGenerating(false)
-      abortRef.current = null
+      if (abortRef.current === controller) {
+        setBusy(false)
+        setGenerating(false)
+        abortRef.current = null
+      }
     }
   }
 
@@ -130,17 +143,21 @@ export default function AiPanel({ tab }: AiPanelProps) {
         currentScript.content,
         improveAction,
         {
-          onToken: (full) => setImproved(full),
+          onToken: (full) => { if (!controller.signal.aborted) setImproved(full) },
           signal: controller.signal,
           toneInstruction,
         },
       )
     } catch (err) {
+      if (abortRef.current !== controller) return
+      setImproved('')
       if ((err as Error).name !== 'AbortError') setError((err as Error).message)
     } finally {
-      setBusy(false)
-      setImproving(false)
-      abortRef.current = null
+      if (abortRef.current === controller) {
+        setBusy(false)
+        setImproving(false)
+        abortRef.current = null
+      }
     }
   }
 
@@ -154,13 +171,16 @@ export default function AiPanel({ tab }: AiPanelProps) {
     abortRef.current = controller
     try {
       const result = await suggestTitlesAndHooks(currentScript.content, { signal: controller.signal })
-      setSuggestions(result)
+      if (!controller.signal.aborted) setSuggestions(result)
     } catch (err) {
+      if (abortRef.current !== controller) return
       if ((err as Error).name !== 'AbortError') setError((err as Error).message)
     } finally {
-      setBusy(false)
-      setSuggesting(false)
-      abortRef.current = null
+      if (abortRef.current === controller) {
+        setBusy(false)
+        setSuggesting(false)
+        abortRef.current = null
+      }
     }
   }
 
@@ -185,8 +205,10 @@ export default function AiPanel({ tab }: AiPanelProps) {
   const tabButton = (value: AiPanelTab, label: string) => (
     <button
       key={value}
-      onClick={() => setActiveTab(value)}
-      className="flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors"
+      onClick={() => { setActiveTab(value); setError(null) }}
+      disabled={busy}
+      aria-pressed={activeTab === value}
+      className="min-h-11 min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors"
       style={
         activeTab === value
           ? { background: 'var(--accent-soft)', color: 'var(--accent-strong)' }
@@ -201,38 +223,46 @@ export default function AiPanel({ tab }: AiPanelProps) {
     <button
       onClick={() => { if (!currentUser()) { closeAiPanel(); requestAccount(); return } onClick() }}
       disabled={Boolean(currentUser()) && disabled}
-      className="w-full rounded-lg py-2.5 text-sm font-semibold text-black disabled:opacity-40"
-      style={{ background: 'var(--accent)' }}
+      className="min-h-11 w-full rounded-xl px-3 py-3 text-sm font-semibold text-white disabled:opacity-40"
+      style={{ background: 'var(--brand-gradient)' }}
     >
       {currentUser() ? label : 'Entrar para usar IA'}
     </button>
   )
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="ai-assistant-title"
+      className="ai-assistant-dialog"
+      onCancel={closeAiPanel}
+      onClick={(event) => { if (event.target === event.currentTarget) closeAiPanel() }}
+    >
       <div
-        className="flex h-full w-full max-w-md flex-col border-l"
+        className="ai-assistant-sheet flex h-full min-h-0 w-full max-w-md flex-col border-l"
         style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
       >
         <div
-          className="flex items-center justify-between border-b px-5 py-4"
+          className="ai-assistant-header flex shrink-0 items-center justify-between gap-3 border-b px-5 py-4"
           style={{ borderColor: 'var(--border)' }}
         >
-          <h2 className="flex items-center gap-2 font-semibold text-white">
+          <h2 id="ai-assistant-title" className="flex items-center gap-2 font-semibold text-[var(--text)]">
             <span className="grid h-6 w-6 place-items-center rounded-lg text-xs" style={{ background: 'var(--brand-gradient)', color: '#fff', boxShadow: '0 3px 8px rgba(128,82,255,.35)' }}>✦</span>
             Assistente IA
           </h2>
           <button
+            autoFocus
             onClick={closeAiPanel}
-            className="rounded-lg border px-3 py-1 text-sm"
+            aria-label="Fechar assistente IA"
+            className="min-h-11 shrink-0 rounded-xl border px-3 py-2 text-sm font-semibold"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
           >
-            Fechar (Esc)
+            Fechar <span aria-hidden="true">✕</span>
           </button>
         </div>
 
         <div
-          className="mx-5 mt-4 flex rounded-lg border p-1"
+          className="mx-5 mt-4 flex shrink-0 rounded-xl border p-1"
           style={{ borderColor: 'var(--border)' }}
         >
           {tabButton('generate', 'Gerar roteiro')}
@@ -240,9 +270,10 @@ export default function AiPanel({ tab }: AiPanelProps) {
           {tabButton('titles', 'Títulos & ganchos')}
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div className="ai-assistant-content min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
           {error && (
             <div
+              role="alert"
               className="rounded-lg border px-3 py-2 text-xs"
               style={{ borderColor: 'var(--danger)', color: 'var(--danger)', background: 'rgba(248,113,113,0.08)' }}
             >
@@ -552,11 +583,6 @@ export default function AiPanel({ tab }: AiPanelProps) {
           )}
         </div>
       </div>
-      <button
-        aria-label="Fechar assistente IA"
-        onClick={closeAiPanel}
-        className="absolute inset-0 -z-10 cursor-default"
-      />
-    </div>
+    </dialog>
   )
 }

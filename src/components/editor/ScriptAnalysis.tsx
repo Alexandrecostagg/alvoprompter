@@ -56,7 +56,7 @@ export default function ScriptAnalysis({ content, wpm, onApplyClean, onClose }: 
       style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
     >
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white">📊 Análise do roteiro</h3>
+        <h3 className="text-sm font-semibold ">Análise do roteiro</h3>
         <button
           onClick={onClose}
           className="rounded-md px-2 py-1 text-xs"
@@ -69,19 +69,19 @@ export default function ScriptAnalysis({ content, wpm, onApplyClean, onClose }: 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>Palavras</p>
-          <p className="mt-0.5 text-lg font-semibold text-white">{stats.words}</p>
+          <p className="mt-0.5 text-lg font-semibold ">{stats.words}</p>
         </div>
         <div>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>Frases</p>
-          <p className="mt-0.5 text-lg font-semibold text-white">{stats.sentences}</p>
+          <p className="mt-0.5 text-lg font-semibold ">{stats.sentences}</p>
         </div>
         <div>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>Média por frase</p>
-          <p className="mt-0.5 text-lg font-semibold text-white">{stats.avgWordsPerSentence}</p>
+          <p className="mt-0.5 text-lg font-semibold ">{stats.avgWordsPerSentence}</p>
         </div>
         <div>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>Duração ({wpm} wpm)</p>
-          <p className="mt-0.5 text-lg font-semibold text-white">
+          <p className="mt-0.5 text-lg font-semibold ">
             {formatElapsed(stats.durationMinutes * 60)}
           </p>
         </div>
@@ -109,7 +109,7 @@ export default function ScriptAnalysis({ content, wpm, onApplyClean, onClose }: 
       <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-medium text-white">
+            <p className="text-sm font-medium ">
               Vícios de linguagem{' '}
               {fillers.total > 0 && (
                 <span
@@ -137,7 +137,7 @@ export default function ScriptAnalysis({ content, wpm, onApplyClean, onClose }: 
                 className="rounded-lg px-3 py-1.5 text-xs font-semibold text-black"
                 style={{ background: 'var(--accent)' }}
               >
-                {confirmClean ? 'Confirmar? (fillers)' : `Remover fillers (${fillers.removableCount})`}
+                {confirmClean ? 'Confirmar remoção?' : `Remover vícios (${fillers.removableCount})`}
               </button>
               <button
                 onClick={() => {
@@ -147,7 +147,7 @@ export default function ScriptAnalysis({ content, wpm, onApplyClean, onClose }: 
                 className="rounded-lg border px-3 py-1.5 text-xs"
                 style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
               >
-                {confirmMarkers ? 'Confirmar? (todos)' : 'Remover fillers + marcadores'}
+                {confirmMarkers ? 'Confirmar? (todos)' : 'Remover vícios e marcadores'}
               </button>
             </div>
           )}

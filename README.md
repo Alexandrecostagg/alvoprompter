@@ -95,18 +95,27 @@ O Firebase identifica a pessoa. O Worker valida o ID token e consulta o papel no
 O núcleo de roteiro, prompter e gravação é local. Geração de texto, transcrição, tradução, TTS, avatar e sincronização usam o Worker em `api/transcribe`.
 
 1. Copie `.env.example` para `.env.local` e configure `VITE_CLOUDFLARE_API_BASE`.
-2. Configure a chave do Carcará somente como secret do Worker:
+2. Crie chaves exclusivas para o AlvoPrompter no Google AI Studio e na Groq. Cadastre ambas somente como secrets do Worker:
 
 ```bash
 cd api/transcribe
-npx wrangler secret put CARCARA_API_KEY
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put GROQ_API_KEY
 ```
 
 3. Em `api/transcribe/wrangler.toml`, substitua `CORS_ORIGIN` pelos domínios públicos reais antes de publicar.
 
-Depois do deploy, `GET /health` informa versão, protocolo, projeto de login, provedor/modelo de IA e disponibilidade da cobrança, sem expor segredos. O padrão foi alinhado à API publicada: `AI_PROVIDER=carcara`, modelo `Carcara-3.8-27B`. DeepSeek continua disponível mediante configuração explícita de provedor, modelo e segredo correspondente.
+O código de texto usa **Gemini → Groq**, com modelos configuráveis por `GEMINI_MODEL` e `GROQ_MODEL`. O Carcará foi retirado da integração. Cadastre as novas chaves antes do deploy; esta alteração local não ativa os serviços em produção. Para desenvolvimento, copie `api/transcribe/.dev.vars.example` para `.dev.vars` na mesma pasta (ignorado pelo Git).
 
-O Worker aplica limites diários por IP, limites de payload, isolamento de mídia por frase-chave e exige frases de sincronização com pelo menos 12 caracteres. A frase-chave permanece apenas como compatibilidade do sync antigo; novos workspaces SaaS usam conta e RBAC.
+Cada pedido tenta o Gemini primeiro e usa a Groq em falhas de rede, timeout, autenticação/configuração, limite, indisponibilidade ou resposta vazia, somente antes de entregar texto. São até 20 segundos por provedor para iniciar a resposta e 30 segundos de espera entre blocos durante a geração. Cancelamento, pedido inválido e recusa de conteúdo não disparam a cascata. Se uma resposta já começou, não misturamos textos de provedores diferentes. Uma falha é sinalizada ao app; versões anteriores do app podem exibir o texto parcial. A cota mensal é consumida uma vez, com devolução quando nenhum provedor entrega conteúdo; os custos dos provedores seguem suas próprias regras de cobrança.
+
+Depois do deploy, `GET /health` informa versão, protocolo, projeto de login, os dois provedores/modelos e disponibilidade da cobrança, sem expor segredos. `ai.providers[].configured` informa apenas a presença de cada chave, não sua validade; `ai.fallbackReady` exige as duas chaves. Verifique chamadas reais de geração, melhoria e títulos antes de considerar a migração concluída. Publique também a política de privacidade atualizada em `api/privacy`.
+
+Esta cascata é para geração de texto. A narração (`POST /tts`) usa a mesma `GEMINI_API_KEY`, com `GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts` e `GEMINI_TTS_VOICE=Kore`. Retorna WAV PCM mono de 24 kHz, aceita até 5.000 caracteres e aguarda até 90 segundos, sem repetir pedidos nem recorrer a outro provedor. Falhas devolvem a cota mensal do app. As cotas gratuitas e a cobrança do Google dependem do projeto da chave: confirme o Free tier no AI Studio antes de usar como serviço gratuito. A requisição usa `store: false`; isso impede a recuperação posterior da interação, mas não substitui as condições de uso de dados do plano Google.
+
+Transcrição e tradução continuam no Cloudflare Workers AI. A leitura de ensaio no editor usa a voz disponibilizada pelo aparelho ou navegador, sem chamadas à API e sem gerar arquivo exportável. Essa leitura local depende da atualização do app instalada no aparelho.
+
+O Worker exige login Firebase e isola mídia/sync legado por UID + frase-chave (mínimo 12 caracteres). Workspaces SaaS usam conta e RBAC. Limites de tentativa e uso são atômicos em D1; aplique a migração `0008_security_rate_limits.sql` antes de publicar o Worker. Clientes de sync/upload precisam enviar o token. Backups legados sem titular não são reivindicados automaticamente; reenvie a cópia local pela conta. Veja a atualização de segurança de 08/10 em `docs/auditoria-2026-09-23.md`.
 
 ## Privacidade e retenção
 
@@ -115,7 +124,7 @@ O Worker aplica limites diários por IP, limites de payload, isolamento de mídi
 - O Asaas recebe os dados necessários ao checkout e processa a cobrança recorrente.
 - Roteiros, agenda e identidade visual dos workspaces da conta ficam no Cloudflare D1. Vídeos permanecem no dispositivo; o plano sincroniza conteúdo textual e metadados, não arquivos de vídeo.
 - O conteúdo legado por frase-chave continua no KV com expiração em 90 dias.
-- Solicitações de texto são processadas pelo provedor configurado (atualmente Carcará/Harpyacore); transcrição e outras funções usam Cloudflare Workers AI.
+- Solicitações de texto são enviadas ao Google Gemini e, em caso de falha antes de entregar conteúdo, podem ser reenviadas à Groq; transcrição e outras funções usam Cloudflare Workers AI.
 - Áudios enviados para transcrição são processados pelo Cloudflare Workers AI.
 - O vídeo do avatar é renderizado localmente.
 
@@ -147,3 +156,7 @@ android/ e ios/       projetos Capacitor
 ## Validação de mídia
 
 Com `npm run dev`, abra `/audit/media-harness.html`. A bancada usa os módulos reais de gravação, edição e compartilhamento com vídeo/áudio sintéticos. Não entra no build de produção. O relatório de entrega discrimina testes automatizados, navegador e aparelhos físicos.
+
+### Verificação de segurança
+
+Execute `npm run security:secrets` após o build e `npm audit`. Não configure segredos com prefixo `VITE_`; Pexels usa `PEXELS_API_KEY` no Worker. `public/_headers` configura as proteções do Pages; a API aplica seus próprios headers. O importador do servidor aceita apenas HTTPS e serviços aprovados, inclusive em redirecionamentos. A auditoria local não confirma regras/IAM remotos nem publica correções automaticamente.

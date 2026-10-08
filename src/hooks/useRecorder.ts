@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { startRecordingSession, type RecordingSession } from '../lib/recordingSession'
 import { createRecordingPipeline, type RecordingPipeline } from '../lib/recordingPipeline'
 
-type RecorderStatus = 'idle' | 'requesting' | 'ready' | 'recording' | 'error'
-
-const MIME_CANDIDATES = [
-  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-  'video/mp4',
-  'video/webm;codecs=vp9,opus',
-  'video/webm;codecs=vp8,opus',
-  'video/webm',
-]
+type RecorderStatus = 'idle' | 'requesting' | 'ready' | 'recording' | 'finishing' | 'error'
 
 export function useRecorder() {
   const [status, setStatus] = useState<RecorderStatus>('idle')
@@ -20,7 +13,7 @@ export function useRecorder() {
 
   const streamRef = useRef<MediaStream | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
-  const recorderRef = useRef<MediaRecorder | null>(null)
+  const recorderRef = useRef<RecordingSession | null>(null)
   const videoElRef = useRef<HTMLVideoElement | null>(null)
   const timerRef = useRef<number | null>(null)
   const urlRef = useRef<string | null>(null)
@@ -29,6 +22,8 @@ export function useRecorder() {
   const appliedFilterRef = useRef<string | null>(null)
   const pendingEnableRef = useRef<Promise<void> | null>(null)
   const cameraGeneration = useRef(0)
+  const mountedRef = useRef(true)
+  const disablingRef = useRef<Promise<void> | null>(null)
 
   const attachVideo = useCallback((el: HTMLVideoElement | null) => {
     const previous = videoElRef.current
@@ -67,6 +62,7 @@ export function useRecorder() {
   }, [applyFilter])
 
   const enable = useCallback((): Promise<void> => {
+    if (disablingRef.current) return disablingRef.current.then(() => enable())
     if (pendingEnableRef.current) return pendingEnableRef.current
     if (cameraStreamRef.current) return Promise.resolve()
     const generation = ++cameraGeneration.current
@@ -96,94 +92,91 @@ export function useRecorder() {
     return request
   }, [applyFilter])
 
-  const start = useCallback(() => {
-    if (!streamRef.current || recorderRef.current) return
-    try { applyFilter() } catch (error) { setError((error as Error).message); return }
-    const stream = streamRef.current
-    setError(null)
-    let recorder: MediaRecorder
-    try {
-      const mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m))
-      recorder = mime
-        ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 })
-        : new MediaRecorder(stream)
-    } catch {
-      setStatus('error')
-      setError('Este aparelho não conseguiu iniciar a gravação com a câmera selecionada.')
-      return
-    }
-    const chunks: Blob[] = []
-    let failed = false
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data)
-    }
-    recorder.onstop = () => {
-      if (recorderRef.current !== recorder) return
-      const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' })
-      recorderRef.current = null
-      if (timerRef.current != null) window.clearInterval(timerRef.current)
-      timerRef.current = null
-      if (failed) return
-      if (!blob.size) { setStatus('error'); setError('A gravação ficou vazia. Verifique a câmera e tente novamente.'); return }
-      setVideoBlob(blob)
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
-      const url = URL.createObjectURL(blob)
-      urlRef.current = url
-      setVideoUrl(url)
-      setStatus(streamRef.current ? 'ready' : 'idle')
-    }
-    recorder.onerror = () => {
-      failed = true
-      if (timerRef.current != null) window.clearInterval(timerRef.current)
-      timerRef.current = null
-      setStatus('error')
-      setError('A gravação foi interrompida pelo aparelho. Tente novamente com um vídeo menor.')
-    }
-    try { recorder.start(1500) } catch { setStatus('error'); setError('Não foi possível iniciar a gravação.'); return }
-    recorderRef.current = recorder
-    setElapsed(0)
-    timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000)
-    setStatus('recording')
-  }, [applyFilter])
-
-  const stop = useCallback(() => {
-    if (timerRef.current != null) {
-      window.clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-    const recorder = recorderRef.current
-    if (recorder && recorder.state !== 'inactive') recorder.stop()
-    // Retain the recorder until onstop flushes its final chunk.
+  const clearTimer = useCallback(() => {
+    if (timerRef.current != null) window.clearInterval(timerRef.current)
+    timerRef.current = null
   }, [])
 
-  const disable = useCallback(() => {
+  const start = useCallback((): boolean => {
+    if (!streamRef.current || recorderRef.current || disablingRef.current) return false
+    try {
+      applyFilter()
+      const session = startRecordingSession(streamRef.current)
+      recorderRef.current = session
+      setError(null)
+      setVideoBlob(null)
+      setVideoUrl(null)
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+      urlRef.current = null
+      setElapsed(0)
+      timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000)
+      setStatus('recording')
+      void session.result.then((blob) => {
+        if (!mountedRef.current || recorderRef.current !== session) return
+        setVideoBlob(blob)
+        const url = URL.createObjectURL(blob)
+        urlRef.current = url
+        setVideoUrl(url)
+        setStatus(streamRef.current ? 'ready' : 'idle')
+      }, (error: Error) => {
+        if (!mountedRef.current || recorderRef.current !== session) return
+        setStatus('error')
+        setError(error.message)
+      }).finally(() => {
+        if (recorderRef.current === session) { recorderRef.current = null; clearTimer() }
+      })
+      return true
+    } catch (error) {
+      setStatus('error')
+      setError(error instanceof Error ? error.message : 'Não foi possível iniciar a gravação.')
+      return false
+    }
+  }, [applyFilter, clearTimer])
+
+  const stop = useCallback(() => {
+    clearTimer()
+    const session = recorderRef.current
+    if (session) {
+      setStatus('finishing')
+      session.stop()
+    }
+  }, [clearTimer])
+
+  const disable = useCallback((): Promise<void> => {
+    if (disablingRef.current) return disablingRef.current
     cameraGeneration.current++
     pendingEnableRef.current = null
-    stop()
-    teardownPipeline()
-    cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
-    cameraStreamRef.current = null
-    streamRef.current = null
-    if (videoElRef.current) videoElRef.current.srcObject = null
-    setStatus('idle')
-  }, [stop, teardownPipeline])
-
-  useEffect(
-    () => () => {
-      cameraGeneration.current++
-      pendingEnableRef.current = null
-      if (recorderRef.current) { recorderRef.current.onstop = null; recorderRef.current.ondataavailable = null; recorderRef.current.onerror = null }
-      stop()
-      recorderRef.current = null
+    const session = recorderRef.current
+    if (session) { clearTimer(); session.stop() }
+    const release = () => {
       teardownPipeline()
       cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
       cameraStreamRef.current = null
       streamRef.current = null
       if (videoElRef.current) videoElRef.current.srcObject = null
+      if (mountedRef.current) setStatus('idle')
+    }
+    if (!session) { release(); return Promise.resolve() }
+    const pending = session.result.catch(() => undefined).then(release).finally(() => {
+      if (disablingRef.current === pending) disablingRef.current = null
+    })
+    disablingRef.current = pending
+    return pending
+  }, [clearTimer, teardownPipeline])
+
+  const retry = useCallback(async () => {
+    await disable()
+    if (mountedRef.current) await enable()
+  }, [disable, enable])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      void disable()
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
-    },
-    [stop, teardownPipeline],
-  )
+    }
+  }, [disable])
 
   return {
     status,
@@ -191,6 +184,8 @@ export function useRecorder() {
     videoUrl,
     videoBlob,
     elapsed,
+    isFinishing: status === 'finishing',
+    retry,
     isRecording: status === 'recording',
     enable,
     start,

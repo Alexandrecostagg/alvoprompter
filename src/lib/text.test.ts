@@ -22,6 +22,14 @@ describe('text utilities', () => {
     expect(estimateDurationMinutes(300, 150)).toBe(2)
     const stats = readingStats('Roteiro claro. Roteiro direto.', 120)
     expect(stats.words).toBe(4)
+    expect(stats.sentences).toBe(2)
+    expect(stats.avgWordsPerSentence).toBe(2)
     expect(stats.keywords[0]).toEqual({ word: 'roteiro', count: 2 })
+  })
+
+  it('conta frases sem incluir pontuação ou linhas vazias', () => {
+    expect(readingStats('Olá! Como vai?\nTudo bem… Vamos gravar.').sentences).toBe(4)
+    expect(readingStats('  \n ').sentences).toBe(0)
+    expect(readingStats('  \n ').avgWordsPerSentence).toBe(0)
   })
 })

@@ -15,8 +15,8 @@ function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 60) || 'video'
 }
 
-async function optionalToken(): Promise<string | null> {
-  return (await import('./auth')).getOptionalIdToken()
+async function requiredToken(): Promise<string> {
+  return (await import('./auth')).getIdToken()
 }
 
 /** Cria uma página de vídeo compartilhável: envia o vídeo ao R2 e registra a página. */
@@ -29,10 +29,11 @@ export async function createVideoPage(opts: {
   const pass = savedSyncPass()
   if (!pass) throw new Error('Defina a frase-chave de sincronização para criar uma página de vídeo.')
 
+  const token = await requiredToken()
   const mediaKey = `${Date.now()}-${sanitizeName(opts.fileName)}`
   const upload = await fetch(`${apiBase()}/media/${encodeURIComponent(mediaKey)}`, {
     method: 'PUT',
-    headers: { 'x-sync-pass': pass, 'Content-Type': opts.blob.type || 'video/webm' },
+    headers: { Authorization: `Bearer ${token}`, 'x-sync-pass': pass, 'Content-Type': opts.blob.type || 'video/webm' },
     body: opts.blob,
   })
   if (!upload.ok) {
@@ -40,7 +41,6 @@ export async function createVideoPage(opts: {
     throw new Error(body?.error ?? 'Falha ao enviar o vídeo.')
   }
 
-  const token = await optionalToken()
   const res = await fetch(`${apiBase()}/videopages`, {
     method: 'POST',
     headers: {

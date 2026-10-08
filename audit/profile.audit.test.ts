@@ -4,7 +4,7 @@ import { testDatabase } from './d1-test-db'
 const identity = vi.hoisted(() => ({ uid: 'profile-a' }))
 vi.mock('jose', () => ({
   decodeProtectedHeader: () => ({ alg: 'RS256', kid: 'profile-test' }), importX509: async () => ({}),
-  jwtVerify: async () => ({ payload: { sub: identity.uid, email: `${identity.uid}@example.test`, email_verified: true, name: 'Original' } }),
+  jwtVerify: async () => ({ payload: { auth_time: 1, sub: identity.uid, email: `${identity.uid}@example.test`, email_verified: true, name: 'Original' } }),
 }))
 afterEach(() => vi.unstubAllGlobals())
 beforeEach(() => { identity.uid = 'profile-a'; vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ 'profile-test': 'certificate' })))) })

@@ -1,3 +1,4 @@
+import { apiBase } from './cloudflare'
 export interface BrollClip {
   id: number
   url: string
@@ -8,21 +9,14 @@ export interface BrollClip {
   user?: string
 }
 
-const PEXELS_KEY = (import.meta.env.VITE_PEXELS_API_KEY as string | undefined)?.trim() ?? ''
-
-export function hasBrollKey(): boolean {
-  return PEXELS_KEY.length > 0
-}
-
 export async function searchBroll(query: string, perPage = 12): Promise<BrollClip[]> {
-  if (!hasBrollKey()) {
-    throw new Error('Sem chave do Pexels configurada (VITE_PEXELS_API_KEY).')
+  const token = await (await import('./auth')).getIdToken()
+  const params = new URLSearchParams({ query, per_page: String(perPage) })
+  const res = await fetch(`${apiBase()}/broll?${params}`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) {
+    const result = await res.json().catch(() => null) as { error?: string } | null
+    throw new Error(result?.error ?? 'Não foi possível buscar clipes agora.')
   }
-  const params = new URLSearchParams({ query, per_page: String(perPage), orientation: 'landscape' })
-  const res = await fetch(`https://api.pexels.com/videos/search?${params}`, {
-    headers: { Authorization: PEXELS_KEY },
-  })
-  if (!res.ok) throw new Error(`Erro na busca de B-roll (${res.status}).`)
   const data = (await res.json()) as {
     videos: {
       id: number

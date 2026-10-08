@@ -4,7 +4,7 @@ import { asaasFailureCode, billingAvailability } from '../api/transcribe/src/bil
 import { testDatabase } from './d1-test-db'
 vi.mock('jose', () => ({
   decodeProtectedHeader: () => ({ alg: 'RS256', kid: 'test' }), importX509: async () => ({}),
-  jwtVerify: async () => ({ payload: { sub: 'checkout-user', email: 'checkout@example.test', email_verified: true } }),
+  jwtVerify: async () => ({ payload: { auth_time: 1, sub: 'checkout-user', email: 'checkout@example.test', email_verified: true } }),
 }))
 afterEach(() => vi.unstubAllGlobals())
 function setup(overrides: Partial<SaaSEnv> = {}, reply: unknown = { id: 'checkout-123' }, status = 200) {

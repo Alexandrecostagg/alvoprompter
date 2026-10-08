@@ -41,7 +41,8 @@ const PLAN_CONFIG = {
   studio: { price: 79.9, workspaces: 5, members: 5, aiActionsMonthly: 300 },
 } as const
 
-const firebaseKeys = new Map<string, CryptoKey>()
+let firebaseCertificates: { values: Record<string, string>; expires: number } | null = null
+let certificatesLoading: Promise<Record<string, string>> | null = null
 
 function responseJson(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -60,16 +61,20 @@ function requireDb(env: SaaSEnv): D1Database {
 }
 
 async function firebasePublicKey(kid: string): Promise<CryptoKey> {
-  const cached = firebaseKeys.get(kid)
-  if (cached) return cached
-  const response = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com')
-  if (!response.ok) throw new Error('Não foi possível validar a sessão.')
-  const certificates = (await response.json()) as Record<string, string>
-  const certificate = certificates[kid]
-  if (!certificate) throw new Error('Sessão inválida.')
-  const key = await importX509(certificate, 'RS256')
-  firebaseKeys.set(kid, key)
-  return key
+  if (!firebaseCertificates || firebaseCertificates.expires <= Date.now()) {
+    certificatesLoading ??= (async () => {
+      const response = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com', { signal: AbortSignal.timeout(10_000) })
+      if (!response.ok) throw new Error('Não foi possível validar a sessão.')
+      const values = await response.json() as Record<string, string>
+      const maxAge = Number(response.headers.get('Cache-Control')?.match(/max-age=(\d+)/)?.[1] ?? 300)
+      firebaseCertificates = { values, expires: Date.now() + Math.min(maxAge, 3600) * 1000 }
+      return values
+    })()
+    try { await certificatesLoading } finally { certificatesLoading = null }
+  }
+  const certificate = firebaseCertificates?.values[kid]
+  if (typeof certificate !== 'string') throw new Error('Sessão inválida.')
+  return importX509(certificate, 'RS256')
 }
 
 async function authenticate(request: Request, env: SaaSEnv): Promise<AuthUser> {
@@ -78,21 +83,26 @@ async function authenticate(request: Request, env: SaaSEnv): Promise<AuthUser> {
   const authorization = request.headers.get('Authorization') ?? ''
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   if (!token) throw new Error('Entre na sua conta para continuar.')
-  const header = decodeProtectedHeader(token)
-  if (header.alg !== 'RS256' || !header.kid) throw new Error('Sessão inválida.')
-  const key = await firebasePublicKey(header.kid)
-  const { payload } = await jwtVerify(token, key, {
-    algorithms: ['RS256'],
-    audience: projectId,
-    issuer: `https://securetoken.google.com/${projectId}`,
-  })
-  if (!payload.sub || typeof payload.email !== 'string') throw new Error('Sessão sem identidade válida.')
-  return {
-    uid: payload.sub,
-    email: payload.email.toLowerCase(),
-    name: typeof payload.name === 'string' ? payload.name : payload.email.split('@')[0]!,
-    emailVerified: payload.email_verified === true,
-  }
+  try {
+    if (token.length > 16_384) throw new Error('Sessão inválida.')
+    const header = decodeProtectedHeader(token)
+    if (header.alg !== 'RS256' || !header.kid) throw new Error('Sessão inválida.')
+    const key = await firebasePublicKey(header.kid)
+    const { payload } = await jwtVerify(token, key, {
+      algorithms: ['RS256'],
+      requiredClaims: ['sub', 'exp', 'iat', 'auth_time'],
+      maxTokenAge: '1h',
+      audience: projectId,
+      issuer: `https://securetoken.google.com/${projectId}`,
+    })
+    if (!payload.sub || payload.sub.length > 128 || typeof payload.auth_time !== 'number' || !Number.isFinite(payload.auth_time) || payload.auth_time > Date.now() / 1000 || typeof payload.email !== 'string') throw new Error('Sessão sem identidade válida.')
+    return {
+      uid: payload.sub,
+      email: payload.email.toLowerCase(),
+      name: typeof payload.name === 'string' ? payload.name : payload.email.split('@')[0]!,
+      emailVerified: payload.email_verified === true,
+    }
+  } catch { throw new Error('Sessão inválida ou expirada. Entre novamente.') }
 }
 
 async function syncUser(db: D1Database, user: AuthUser): Promise<void> {
@@ -577,7 +587,7 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     const message = (error as Error).message
     const authError = /^(Entre na sua conta|Sessão|Login não configurado|Token)/i.test(message)
     const forbiddenPurchase = /não pertence à sua conta|vinculada a outra conta/i.test(message)
-    return responseJson({ error: message }, authError ? 401 : forbiddenPurchase ? 403 : 503)
+    return responseJson({ error: authError ? 'Entre novamente na sua conta para continuar.' : forbiddenPurchase ? 'Esta compra não pertence à sua conta.' : 'O serviço está temporariamente indisponível. Tente novamente.' }, authError ? 401 : forbiddenPurchase ? 403 : 503)
   }
 }
 
@@ -623,7 +633,8 @@ export async function authorizeAiAction(request: Request, env: SaaSEnv, onCharge
     return null
   } catch (error) {
     const message = (error as Error).message
-    return responseJson({ error: message }, /sessão|conta|login|token/i.test(message) ? 401 : 503)
+    const authError = /sessão|conta|login|token/i.test(message)
+    return responseJson({ error: authError ? 'Entre novamente na sua conta para continuar.' : 'O serviço está temporariamente indisponível. Tente novamente.' }, authError ? 401 : 503)
   }
 }
 

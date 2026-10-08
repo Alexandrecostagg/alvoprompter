@@ -6,7 +6,7 @@ import { testDatabase } from './d1-test-db'
 vi.mock('jose', () => ({
   decodeProtectedHeader: () => ({ alg: 'RS256', kid: 'test' }),
   importX509: async () => ({}),
-  jwtVerify: async (token: string) => ({ payload: { sub: token, email: `${token}@example.test`, name: token, email_verified: true } }),
+  jwtVerify: async (token: string) => ({ payload: { auth_time: 1, sub: token, email: `${token}@example.test`, name: token, email_verified: true } }),
 }))
 afterEach(() => vi.unstubAllGlobals())
 function setup() {
