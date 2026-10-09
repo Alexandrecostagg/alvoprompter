@@ -4,7 +4,7 @@
 
 Escopo: código local do app, Worker Cloudflare, autenticação Firebase, autorização D1, KV/R2, dependências, histórico Git acessível e sondagens públicas somente de leitura. A lista enviada pelo usuário foi tratada como referência de auditoria. As alterações anteriores de produto foram preservadas.
 
-**Resultado inicial: correções implementadas e verificadas localmente. Atualização posterior, por solicitação explícita de commit/deploy/push: migração 0008, API e site publicados em 08/10/2026.** Os binários das lojas ainda não incluem esta revisão de segurança. Não equivale a uma auditoria externa de infraestrutura ou garantia de ausência de vulnerabilidades.
+**Resultado inicial: correções implementadas e verificadas localmente. Atualização posterior, por solicitação explícita de commit/deploy/push: migração 0008, API e site publicados em 08/10/2026. Em 09/10, binários 1.6.2 (20) com esta revisão foram gerados e enviados às duas lojas.** A atualização deve ser instalada nos aparelhos para aplicar a correção nativa. Estado de distribuição registrado em `docs/entrega/release-1.6.0.md`. Não equivale a uma auditoria externa de infraestrutura ou garantia de ausência de vulnerabilidades.
 
 ### Achados corrigidos
 

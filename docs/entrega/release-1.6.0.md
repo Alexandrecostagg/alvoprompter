@@ -65,3 +65,13 @@ A pedido do titular (commit, deploy e push), o commit `dc4c0ed` consolida as alt
 - A análise Google já em andamento não foi reiniciada; não houve alteração de testers, planos ou cobranças.
 
 Detalhamento no relatório de auditoria `docs/auditoria-2026-09-23.md`.
+
+## Binários de segurança 1.6.2 (20) — 09/10/2026
+
+- Versões Android/iOS e npm alinhadas em 1.6.2; código/build 20. Inclui a revisão de segurança publicada no site/API em 08/10, Capacitor 8.5.3 e as correções de gravação da 1.6.1.
+- Validação desta entrega: `cap:sync`, build web nativo, scanner de segredos, Gradle `bundleRelease` e Xcode archive concluídos com sucesso. Certificado Android preservado. Não houve nova homologação de câmera em aparelho físico.
+- AAB: `artifacts/alvoprompter-1.6.2-code20.aab`, SHA-256 `9f388a23a1d15a91dbb844ee584aace3ca6250e37c7722e19c9ab760facf7ca1`.
+- Archive Apple: `artifacts/AlvoPrompter-1.6.2-20.xcarchive`; envio direto pelo Xcode confirmado com `Upload succeeded` às 12:18:45. Log: `artifacts/ios-upload-1.6.2-20.log`.
+- Google: 1.6.2 (20) enviada para análise na faixa de teste fechado existente. Painel confirmou **Alterações em análise**. Nenhuma perda de compatibilidade; único aviso é a ausência de arquivo de desofuscação, com `minifyEnabled false`. O pacote 20 substitui a mudança pendente 19. A análise anterior de 17 e da ficha já havia terminado, sem precisar de cancelamento/reinício.
+- Apple: 1.6.2 (20) processada, notas de teste salvas e compilação adicionada ao grupo interno Equipe AlvoPrompter. Status **Em testes** confirmado, com um tester e validade de 90 dias. ID `42dadcf7-9b4f-4db8-8217-69ae21041d05`. Assinatura do archive validada por `codesign --verify --deep --strict` com acesso aos certificados do sistema.
+- Mantidos os canais de teste, participantes, territórios, preços e credenciais. Política de privacidade permanece rascunho; esta entrega não publica a versão pública na App Store.
