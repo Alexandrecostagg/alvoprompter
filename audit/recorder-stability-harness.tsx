@@ -5,9 +5,12 @@ import { useRecorder } from '../src/hooks/useRecorder'
 // Test-only camera and microphone: never request the user's hardware.
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 let requests = 0, captures = 0, previewAssignments = 0, requestDelay = 0
+let failFilterCapture = false
+const audioSession = { type: 'auto' }
+Object.defineProperty(navigator, 'audioSession', { value: audioSession, configurable: true })
 const sessions: { stream: MediaStream; close: () => void }[] = []
 const captureStream = HTMLCanvasElement.prototype.captureStream
-HTMLCanvasElement.prototype.captureStream = function (fps) { captures++; return captureStream.call(this, fps) }
+HTMLCanvasElement.prototype.captureStream = function (fps) { captures++; if (failFilterCapture) throw new Error('Filtro indisponível'); return captureStream.call(this, fps) }
 navigator.mediaDevices.getUserMedia = async () => {
   requests++
   const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360
@@ -16,7 +19,8 @@ navigator.mediaDevices.getUserMedia = async () => {
   const draw = () => { ctx.fillStyle = '#1355aa'; ctx.fillRect(0, 0, 640, 360); ctx.fillStyle = '#ff6611'; ctx.fillRect(30 + (++position % 450), 80, 60, 80) }
   draw()
   const animation = setInterval(draw, 33)
-  const stream = canvas.captureStream(30)
+  captures++
+  const stream = captureStream.call(canvas, 30)
   const audio = new AudioContext(); await audio.resume()
   const oscillator = audio.createOscillator(); oscillator.frequency.value = 440
   const gain = audio.createGain(); gain.gain.value = .01
@@ -75,12 +79,14 @@ export function Harness() {
     setBusy(true); setReport('Testando…')
     const lines: string[] = []
     try {
-      for (const filter of [null, 'brightness(1.05) contrast(1.03)']) {
-        latest.current.disable()
+      for (const filter of [null, 'brightness(1.05) contrast(1.03)', 'brightness(1.1)']) {
+        await latest.current.disable()
+        failFilterCapture = filter === 'brightness(1.1)'
         setCss(filter); latest.current.setFilter(filter)
         const before = { requests, captures, previewAssignments }
         await Promise.all([latest.current.enable(), latest.current.enable()])
         await delay(250)
+        if (audioSession.type !== 'play-and-record') throw new Error('Sessão de captura não foi preparada')
         latest.current.start()
         await waitFor(() => latest.current.isRecording)
         const renders = setInterval(() => setTick((value) => value + 1), 40)
@@ -92,8 +98,12 @@ export function Harness() {
         const previous = latest.current.videoBlob
         latest.current.stop()
         await waitFor(() => Boolean(latest.current.videoBlob && latest.current.videoBlob !== previous))
+        if (input.getTracks().some((track) => track.readyState !== 'ended')) throw new Error('Microfone ficou aberto durante a reprodução')
+        if (String(audioSession.type) !== 'playback') throw new Error('Sessão não voltou para reprodução')
+        if (latest.current.error) throw new Error(`Efeito opcional bloqueou gravação: ${latest.current.error}`)
+        if (failFilterCapture && !latest.current.filterUnavailable) throw new Error('Filtro incompatível não foi sinalizado')
         const recording = await inspectRecording(latest.current.videoBlob!)
-        lines.push(`PASS ${filter ? 'com filtro' : 'sem filtro'}: uma câmera, uma ligação da prévia, vídeo contínuo. ${JSON.stringify(recording)}`)
+        lines.push(`PASS ${failFilterCapture ? 'filtro incompatível: fallback sem filtro' : filter ? 'com filtro' : 'sem filtro'}: vídeo contínuo, microfone encerrado antes da reprodução. ${JSON.stringify(recording)}`)
         latest.current.disable(); sessions.at(-1)!.close()
       }
       requestDelay = 200

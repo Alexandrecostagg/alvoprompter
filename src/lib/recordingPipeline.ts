@@ -4,6 +4,14 @@ export interface RecordingPipeline {
   dispose: () => void
 }
 
+export function supportsRecordingFilters(): boolean {
+  try {
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+    return Boolean(context && 'filter' in context && typeof canvas.captureStream === 'function')
+  } catch { return false }
+}
+
 /** One canvas track per camera session; changing the effect never replaces it. */
 export function createRecordingPipeline(camera: MediaStream, css: string): RecordingPipeline {
   const settings = camera.getVideoTracks()[0]?.getSettings()

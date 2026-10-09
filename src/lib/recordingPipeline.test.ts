@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createRecordingPipeline } from './recordingPipeline'
+import { createRecordingPipeline, supportsRecordingFilters } from './recordingPipeline'
 
 function setup(decodedFrames = true) {
   const video = { getSettings: () => ({ width: 1280, height: 720 }), stop: vi.fn(), kind: 'video' }
@@ -20,6 +20,13 @@ function setup(decodedFrames = true) {
 beforeEach(() => vi.clearAllMocks())
 afterEach(() => vi.unstubAllGlobals())
 describe('stable filtered recording stream', () => {
+  it('detects a browser without canvas filter support before offering effects', () => {
+    const scene = setup()
+    expect(supportsRecordingFilters()).toBe(true)
+    Reflect.deleteProperty(scene.context, 'filter')
+    expect(supportsRecordingFilters()).toBe(false)
+    expect(scene.capture).not.toHaveBeenCalled()
+  })
   it('keeps the same encoder track across filter and intensity changes, preserving audio', () => {
     const scene = setup()
     const pipeline = createRecordingPipeline(scene.camera, 'brightness(1.05)')

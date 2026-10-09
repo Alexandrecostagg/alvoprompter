@@ -201,10 +201,13 @@ export default function PrompterView() {
 
   const recorder = useRecorder()
   const transcription = useTranscription()
+  const pauseEngine = engine.pause
+  const stopVoice = voice.stop
+  const stopTranscription = transcription.stop
   voiceModeRef.current = voice.mode
 
   const { setFilter: setRecorderFilter } = recorder
-  const beautyCss = beautyFilterCss(settings.beauty, settings.beautyIntensity)
+  const beautyCss = recorder.filterUnavailable ? null : beautyFilterCss(settings.beauty, settings.beautyIntensity)
   useEffect(() => {
     setRecorderFilter(beautyCss)
   }, [setRecorderFilter, beautyCss])
@@ -251,7 +254,7 @@ export default function PrompterView() {
 
   const stopRecording = useCallback(() => {
     recorder.stop()
-    engine.pause()
+    pauseEngine()
     const start = recStartRef.current
     if (start) {
       recordSeconds('record_end', (performance.now() - start) / 1000)
@@ -259,14 +262,24 @@ export default function PrompterView() {
     }
     setSrtText(buildSrt(captionRef.current) || null)
     setShowResult(true)
-  }, [recorder])
+  }, [recorder, pauseEngine])
 
   useEffect(() => {
-    if (recorder.videoBlob || recorder.status === 'error') {
-      engine.pause()
+    if (recorder.videoBlob) {
+      stopVoice()
+      stopTranscription()
+      pauseEngine()
       setShowResult(true)
     }
-  }, [recorder.videoBlob, recorder.status, engine.pause])
+  }, [recorder.videoBlob, pauseEngine, stopVoice, stopTranscription])
+
+  useEffect(() => {
+    if (recorder.status !== 'error') return
+    stopVoice()
+    stopTranscription()
+    pauseEngine()
+    setShowResult(true)
+  }, [recorder.status, pauseEngine, stopVoice, stopTranscription])
 
   const startTake = () => {
     // Reset done/paused progress before starting the encoder, so the automatic
@@ -342,14 +355,14 @@ export default function PrompterView() {
   }, [words, settings.fontSize, settings.lineHeight, settings.letterSpacing, measure, applyFrame, engine.fraction])
 
   useEffect(() => {
-    if (settings.cameraOn) void recorder.enable()
-    else recorder.disable()
+    if (settings.cameraOn && !showResult) void recorder.enable()
+    else void recorder.disable()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.cameraOn])
+  }, [settings.cameraOn, showResult])
 
   const visibilityActionsRef = useRef({
     isRecording: recorder.isRecording,
-    cameraOn: settings.cameraOn,
+    cameraOn: settings.cameraOn && !showResult,
     stopRecording,
     stopVoice: voice.stop,
     disableRecorder: recorder.disable,
@@ -358,7 +371,7 @@ export default function PrompterView() {
   })
   visibilityActionsRef.current = {
     isRecording: recorder.isRecording,
-    cameraOn: settings.cameraOn,
+    cameraOn: settings.cameraOn && !showResult,
     stopRecording,
     stopVoice: voice.stop,
     disableRecorder: recorder.disable,
@@ -538,11 +551,6 @@ export default function PrompterView() {
           Solicitando câmera...
         </div>
       )}
-      {recorder.error && (
-        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
-          {recorder.error}
-        </div>
-      )}
       {settings.eyeContactDot && (
         <div
           className="absolute left-1/2 top-1/2 z-20 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90"
@@ -570,11 +578,6 @@ export default function PrompterView() {
           Solicitando câmera...
         </div>
       )}
-      {recorder.error && (
-        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
-          {recorder.error}
-        </div>
-      )}
       {settings.eyeContactDot && (
         <div
           className="absolute left-1/2 top-1/2 z-20 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90"
@@ -600,11 +603,6 @@ export default function PrompterView() {
       {recorder.status === 'requesting' && (
         <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
           Solicitando câmera...
-        </div>
-      )}
-      {recorder.error && (
-        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--danger)' }}>
-          {recorder.error}
         </div>
       )}
       {settings.eyeContactDot && (
@@ -729,9 +727,16 @@ export default function PrompterView() {
         </div>
       </div>
 
+      {settings.cameraOn && recorder.filterUnavailable && settings.beauty !== 'none' && (
+        <div className="relative z-10 shrink-0 border-b bg-slate-900 px-4 py-2 text-xs text-slate-200" style={{ borderColor: 'var(--border)' }} role="status">
+          Filtro indisponível neste aparelho. O vídeo será gravado sem filtro.
+          <button className="ml-2 min-h-8 underline" onClick={() => updateSettings({ beauty: 'none' })}>Entendi</button>
+        </div>
+      )}
+
       {settings.mode === 'voice' && (iosCamera || !voice.supported || voice.error) ? (
-        <div className="relative z-10 border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'var(--border)', background: 'rgba(251,191,36,.12)', color: 'var(--warn)' }} role="status">
-          {iosCamera ? 'No iPhone, a câmera usa rolagem automática para preservar o áudio da gravação.' : voice.error
+        <div className="relative z-10 border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'var(--border)', background: iosCamera ? 'rgba(148,163,184,.10)' : 'rgba(251,191,36,.12)', color: iosCamera ? '#cbd5e1' : 'var(--warn)' }} role="status">
+          {iosCamera ? 'Rolagem automática com a câmera ligada. Ajuste a velocidade em ⚙.' : voice.error
             ? `${voice.error} A rolagem automática foi ativada.`
             : 'Rolagem por voz indisponível neste aparelho. A velocidade automática será usada.'}
         </div>
@@ -826,7 +831,7 @@ export default function PrompterView() {
       </div>
 
       {showSettings && (
-        <SettingsPanel settings={settings} isRecording={recorder.isRecording} wordCount={words.length} onClose={() => setShowSettings(false)} />
+        <SettingsPanel settings={settings} filterUnavailable={recorder.filterUnavailable} isRecording={recorder.isRecording} wordCount={words.length} onClose={() => setShowSettings(false)} />
       )}
 
       {showResult && (
@@ -836,7 +841,7 @@ export default function PrompterView() {
             style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 id="recording-result-title" className="font-semibold text-white on-dark">{recorder.isFinishing ? 'Salvando gravação…' : recorder.error ? 'Não foi possível salvar o vídeo' : recorder.videoUrl ? 'Gravação concluída' : 'Leitura concluída'}</h3>
+              <h3 id="recording-result-title" className="font-semibold text-white on-dark">{recorder.isFinishing ? 'Salvando gravação…' : recorder.error ? 'Precisamos ajustar a gravação' : recorder.videoUrl ? 'Gravação concluída' : 'Leitura concluída'}</h3>
               {!recorder.isFinishing && <button onClick={() => setShowResult(false)} className="min-h-11 shrink-0 rounded-xl border px-3 text-sm" style={{ borderColor: 'var(--border)' }}>Fechar</button>}
             </div>
             {recorder.isFinishing ? <p role="status" className="py-6 text-sm">Aguarde enquanto o aparelho finaliza o vídeo.</p> : recorder.error ? <div role="alert" className="space-y-4">

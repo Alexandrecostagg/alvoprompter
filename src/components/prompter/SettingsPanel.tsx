@@ -29,6 +29,7 @@ interface SettingsPanelProps {
   settings: PrompterSettings
   wordCount: number
   isRecording?: boolean
+  filterUnavailable?: boolean
   onClose: () => void
 }
 
@@ -96,7 +97,7 @@ function Segmented<T extends string>({
   )
 }
 
-export default function SettingsPanel({ settings, wordCount, isRecording = false, onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, wordCount, isRecording = false, filterUnavailable = false, onClose }: SettingsPanelProps) {
   const updateSettings = useAppStore((s) => s.updateSettings)
   const resetSettings = useAppStore((s) => s.resetSettings)
   const bgFileRef = useRef<HTMLInputElement>(null)
@@ -544,15 +545,15 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
             </Row>
             {settings.cameraOn && (
               <>
-                <fieldset disabled={isRecording} className="min-w-0 disabled:opacity-60">
+                <fieldset disabled={isRecording || filterUnavailable} className="min-w-0 disabled:opacity-60">
                 <Row label="Filtro de beleza">
                   <Segmented
-                    value={settings.beauty}
+                    value={filterUnavailable ? 'none' : settings.beauty}
                     options={BEAUTY_OPTIONS}
                     onChange={(beauty) => updateSettings({ beauty })}
                   />
                 </Row>
-                {settings.beauty !== 'none' && (
+                {!filterUnavailable && settings.beauty !== 'none' && (
                   <>
                     <Row label={`Intensidade: ${settings.beautyIntensity}%`}>
                       <input
@@ -572,6 +573,7 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
                   </>
                 )}
                 </fieldset>
+                {filterUnavailable && <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Os filtros não estão disponíveis para gravação neste aparelho. Câmera e áudio funcionam sem filtro.</p>}
                 {isRecording ? <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Finalize a gravação para mudar o filtro de beleza.</p> : null}
                 <Row label="Ponto de contato visual">
                   <Toggle

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { startRecordingSession, type RecordingSession } from '../lib/recordingSession'
-import { createRecordingPipeline, type RecordingPipeline } from '../lib/recordingPipeline'
+import { createRecordingPipeline, supportsRecordingFilters, type RecordingPipeline } from '../lib/recordingPipeline'
+import { setRecordingAudioMode } from '../lib/recordingAudio'
 
 type RecorderStatus = 'idle' | 'requesting' | 'ready' | 'recording' | 'finishing' | 'error'
 
@@ -10,6 +11,7 @@ export function useRecorder() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null)
   const [elapsed, setElapsed] = useState(0)
+  const [filterUnavailable, setFilterUnavailable] = useState(() => !supportsRecordingFilters())
 
   const streamRef = useRef<MediaStream | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
@@ -24,6 +26,7 @@ export function useRecorder() {
   const cameraGeneration = useRef(0)
   const mountedRef = useRef(true)
   const disablingRef = useRef<Promise<void> | null>(null)
+  const filterFailedRef = useRef(filterUnavailable)
 
   const attachVideo = useCallback((el: HTMLVideoElement | null) => {
     const previous = videoElRef.current
@@ -39,17 +42,35 @@ export function useRecorder() {
     appliedFilterRef.current = null
   }, [])
 
+  const releaseCapture = useCallback(() => {
+    const hadCamera = Boolean(cameraStreamRef.current)
+    teardownPipeline()
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop())
+    cameraStreamRef.current = null
+    streamRef.current = null
+    if (videoElRef.current) videoElRef.current.srcObject = null
+    // Stop every input BEFORE switching category or mounting the result player.
+    if (hadCamera) setRecordingAudioMode('playback')
+  }, [teardownPipeline])
+
   const applyFilter = useCallback(() => {
     const camera = cameraStreamRef.current
     if (!camera) return
     const css = filterRef.current
     if (pipelineRef.current) {
       pipelineRef.current.setFilter(css)
-    } else if (css) {
+    } else if (css && !filterFailedRef.current) {
       // Never replace a MediaRecorder input track while a recording is active.
       if (recorderRef.current) return
-      pipelineRef.current = createRecordingPipeline(camera, css)
-      streamRef.current = pipelineRef.current.stream
+      try {
+        pipelineRef.current = createRecordingPipeline(camera, css)
+        streamRef.current = pipelineRef.current.stream
+      } catch {
+        // An optional effect must never prevent saving the original camera/audio.
+        filterFailedRef.current = true
+        setFilterUnavailable(true)
+        streamRef.current = camera
+      }
     }
     appliedFilterRef.current = css
   }, [])
@@ -57,8 +78,7 @@ export function useRecorder() {
   const setFilter = useCallback((css: string | null) => {
     if (filterRef.current === css && appliedFilterRef.current === css) return
     filterRef.current = css
-    try { applyFilter(); setError(null) }
-    catch (error) { setError((error as Error).message) }
+    applyFilter()
   }, [applyFilter])
 
   const enable = useCallback((): Promise<void> => {
@@ -70,18 +90,24 @@ export function useRecorder() {
     setStatus('requesting')
     const request = (async () => {
       try {
+        setRecordingAudioMode('play-and-record')
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
           audio: { echoCancellation: true, noiseSuppression: true },
         })
-        if (generation !== cameraGeneration.current) { stream.getTracks().forEach((track) => track.stop()); return }
+        if (generation !== cameraGeneration.current) {
+          stream.getTracks().forEach((track) => track.stop())
+          if (!cameraStreamRef.current && !pendingEnableRef.current) setRecordingAudioMode('playback')
+          return
+        }
         cameraStreamRef.current = stream
         streamRef.current = stream
-        try { applyFilter() } catch (error) { setError((error as Error).message) }
+        applyFilter()
         if (videoElRef.current && videoElRef.current.srcObject !== stream) videoElRef.current.srcObject = stream
         setStatus('ready')
       } catch (err) {
         if (generation !== cameraGeneration.current) return
+        setRecordingAudioMode('playback')
         setStatus('error')
         setError(err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Permissão de câmera/microfone negada.' : 'Não foi possível acessar a câmera.')
@@ -113,13 +139,15 @@ export function useRecorder() {
       setStatus('recording')
       void session.result.then((blob) => {
         if (!mountedRef.current || recorderRef.current !== session) return
+        releaseCapture()
         setVideoBlob(blob)
         const url = URL.createObjectURL(blob)
         urlRef.current = url
         setVideoUrl(url)
-        setStatus(streamRef.current ? 'ready' : 'idle')
+        setStatus('idle')
       }, (error: Error) => {
         if (!mountedRef.current || recorderRef.current !== session) return
+        releaseCapture()
         setStatus('error')
         setError(error.message)
       }).finally(() => {
@@ -131,7 +159,7 @@ export function useRecorder() {
       setError(error instanceof Error ? error.message : 'Não foi possível iniciar a gravação.')
       return false
     }
-  }, [applyFilter, clearTimer])
+  }, [applyFilter, clearTimer, releaseCapture])
 
   const stop = useCallback(() => {
     clearTimer()
@@ -144,17 +172,14 @@ export function useRecorder() {
 
   const disable = useCallback((): Promise<void> => {
     if (disablingRef.current) return disablingRef.current
+    if (pendingEnableRef.current && !cameraStreamRef.current) setRecordingAudioMode('playback')
     cameraGeneration.current++
     pendingEnableRef.current = null
     const session = recorderRef.current
     if (session) { clearTimer(); session.stop() }
     const release = () => {
-      teardownPipeline()
-      cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
-      cameraStreamRef.current = null
-      streamRef.current = null
-      if (videoElRef.current) videoElRef.current.srcObject = null
-      if (mountedRef.current) setStatus('idle')
+      releaseCapture()
+      if (mountedRef.current) setStatus((current) => current === 'error' ? current : 'idle')
     }
     if (!session) { release(); return Promise.resolve() }
     const pending = session.result.catch(() => undefined).then(release).finally(() => {
@@ -162,7 +187,7 @@ export function useRecorder() {
     })
     disablingRef.current = pending
     return pending
-  }, [clearTimer, teardownPipeline])
+  }, [clearTimer, releaseCapture])
 
   const retry = useCallback(async () => {
     await disable()
@@ -181,6 +206,7 @@ export function useRecorder() {
   return {
     status,
     error,
+    filterUnavailable,
     videoUrl,
     videoBlob,
     elapsed,

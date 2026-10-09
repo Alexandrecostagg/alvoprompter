@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import PrompterView from '../src/components/prompter/PrompterView'
 import VideoEditor from '../src/components/editor/VideoEditor'
@@ -12,6 +13,10 @@ if (query.has('iphone')) {
   style.textContent = '.prompter-screen > div:first-child { padding-top: 55px !important; } .prompter-settings-overlay,.prompter-result-overlay { padding-top:55px !important; }'
   document.head.append(style)
 }
+const audioSession = { type: 'auto' }
+Object.defineProperty(navigator, 'audioSession', { value: audioSession, configurable: true })
+const streams: MediaStream[] = []
+if (query.has('unsupported-filter')) Reflect.deleteProperty(CanvasRenderingContext2D.prototype, 'filter')
 // Synthetic camera only: this harness never requests camera/microphone hardware.
 navigator.mediaDevices.getUserMedia = async () => {
   const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360
@@ -25,7 +30,10 @@ navigator.mediaDevices.getUserMedia = async () => {
   const source = audio.createOscillator(); const gain = audio.createGain(); gain.gain.value = .01
   const destination = audio.createMediaStreamDestination(); source.connect(gain).connect(destination); source.start()
   destination.stream.getAudioTracks().forEach(track => stream.addTrack(track))
-  stream.getVideoTracks()[0].addEventListener('ended', () => { clearInterval(timer); void audio.close() })
+  const track = stream.getVideoTracks()[0]
+  const stop = track.stop.bind(track)
+  track.stop = () => { stop(); clearInterval(timer); void audio.close() }
+  streams.push(stream)
   return stream
 }
 if (query.has('empty')) {
@@ -40,9 +48,14 @@ if (query.has('empty')) {
   }
   Object.defineProperty(window, 'MediaRecorder', { value: EmptyEncoder })
 }
-useAppStore.setState({ view: 'prompter', currentScript: { id: 991, title: 'Teste de gravação', content: 'Primeiro prepare seu roteiro. Depois olhe para a câmera e fale com calma.', createdAt: Date.now(), updatedAt: Date.now() }, settings: { ...DEFAULT_SETTINGS, cameraOn: !query.has('reading'), mode: query.has('voice') ? 'voice' : 'fixed', wpm: 300, fontSize: 48 } })
+useAppStore.setState({ view: 'prompter', currentScript: { id: 991, title: 'Teste de gravação', content: 'Primeiro prepare seu roteiro. Depois olhe para a câmera e fale com calma.', createdAt: Date.now(), updatedAt: Date.now() }, settings: { ...DEFAULT_SETTINGS, cameraOn: !query.has('reading'), mode: query.has('voice') ? 'voice' : 'fixed', wpm: 300, fontSize: 48, beauty: query.has('unsupported-filter') ? 'glamour' : 'none' } })
 function Harness() {
   const view = useAppStore(s => s.view)
-  return view === 'video-editor' ? <VideoEditor /> : view === 'editor' ? <p>Roteiro recuperado</p> : <PrompterView />
+  const [capture, setCapture] = useState('')
+  useEffect(() => {
+    const timer = setInterval(() => setCapture(`microfones ativos: ${streams.flatMap(s => s.getAudioTracks()).filter(t => t.readyState === 'live').length}; sessão: ${audioSession.type}`), 100)
+    return () => clearInterval(timer)
+  }, [])
+  return <><output aria-label="Diagnóstico de captura" style={{position:'fixed',bottom:0,right:0,zIndex:100,fontSize:9,background:'#fff',color:'#000'}}>{capture}</output>{view === 'video-editor' ? <VideoEditor /> : view === 'editor' ? <p>Roteiro recuperado</p> : <PrompterView />}</>
 }
 createRoot(document.getElementById('root')!).render(<Harness />)
