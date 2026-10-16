@@ -136,6 +136,7 @@ export default function App() {
     const unsubscribe = observeUser((nextUser) => {
       window.clearTimeout(fallback)
       setUser(nextUser)
+      useAppStore.getState().setMediaOwner(nextUser?.uid ?? null)
       if (previousUid !== (nextUser?.uid ?? null) || !nextUser) void useAppStore.getState().chooseCloudWorkspace(null)
       previousUid = nextUser?.uid ?? null
       setAuthReady(true)

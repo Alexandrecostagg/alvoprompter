@@ -39,7 +39,7 @@ function toSeconds(token: string): number {
 
 function secondsLabel(s: number): string {
   const m = Math.floor(s / 60)
-  const sec = Math.round(s % 60)
+  const sec = Math.round((s % 60) * 100) / 100
   return m > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${sec}s`
 }
 
@@ -54,7 +54,7 @@ export function parseClipPrompt(input: string): ClipPromptResult[] {
     }
   }
 
-  const rangeMatch = text.match(/(?:de|entre|pega|pegue|trecho|parte)[^\d]*(\d+:?\d*)[^\d]*?(?:a|at[eé]|e)[^\d]*(\d+:?\d*)/)
+  const rangeMatch = text.match(/(?:de|entre|pega|pegue|trecho|parte)[^\d]*(\d+:\d{2}|\d+(?:[.,]\d+)?)[^\d]*?(?:a|at[eé]|e)[^\d]*(\d+:\d{2}|\d+(?:[.,]\d+)?)/)
   if (rangeMatch) {
     const from = toSeconds(rangeMatch[1]!)
     const to = toSeconds(rangeMatch[2]!)
@@ -66,7 +66,7 @@ export function parseClipPrompt(input: string): ClipPromptResult[] {
     }
   }
 
-  const firstMatch = text.match(/(?:corte|corta|remove|remova|tira|deixa? fora)[^\d]*?primeiros?\s*(\d+(?:\.\d+)?)/)
+  const firstMatch = text.match(/(?:corte|corta|remove|remova|tira|deixa? fora)[^\d]*?primeiros?\s*(\d+(?:[.,]\d+)?)/)
   if (firstMatch) {
     const secs = toSeconds(firstMatch[1]!)
     if (isFinite(secs)) {
@@ -77,7 +77,7 @@ export function parseClipPrompt(input: string): ClipPromptResult[] {
     }
   }
 
-  const lastMatch = text.match(/(?:corte|corta|remove|remova|tira|deixa? fora)[^\d]*?[úu]ltimos?\s*(\d+(?:\.\d+)?)/)
+  const lastMatch = text.match(/(?:corte|corta|remove|remova|tira|deixa? fora)[^\d]*?[úu]ltimos?\s*(\d+(?:[.,]\d+)?)/)
   if (lastMatch) {
     const secs = toSeconds(lastMatch[1]!)
     if (isFinite(secs)) {

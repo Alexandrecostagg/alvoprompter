@@ -50,6 +50,7 @@ export const CAPTION_THEMES: CaptionTheme[] = [
 ]
 
 export interface CaptionCue {
+  words?: { word: string; start: number; end: number }[]
   start: number
   end: number
   text: string
@@ -251,7 +252,7 @@ function drawCaption(
   const y = h - Math.max(28, fontSize * 1.1)
   let activeIdx = -1
   if (highlight && words.length > 0 && cue.end > cue.start) {
-    activeIdx = Math.min(
+    activeIdx = cue.words?.length === words.length ? cue.words.findIndex(word => t >= word.start && t < word.end) : Math.min(
       words.length - 1,
       Math.max(0, Math.floor(((t - cue.start) / (cue.end - cue.start)) * words.length)),
     )
@@ -334,14 +335,6 @@ function drawBrandCard(
   ctx.translate(-w / 2, -h / 2)
 
   const fontSize = Math.min(Math.round(h * 0.07), Math.round(w / 12))
-  let blockTop = h / 2
-
-  if (logo) {
-    const lw = Math.min(w * 0.16, logo.naturalWidth)
-    const lh = lw * (logo.naturalHeight / logo.naturalWidth)
-    ctx.drawImage(logo, w / 2 - lw / 2, h / 2 - fontSize * 1.6 - lh, lw, lh)
-    blockTop = h / 2 - fontSize * 1.4
-  }
 
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -364,7 +357,13 @@ function drawBrandCard(
   }
   if (cur) lines.push(cur)
   const lh = fontSize * 1.2
-  const startY = blockTop - ((lines.length - 1) * lh) / 2
+  const startY = h / 2 - ((lines.length - 1) * lh) / 2
+  if (logo?.naturalWidth && logo.naturalHeight) {
+    const lw = Math.min(w * 0.16, h * 0.18 * logo.naturalWidth / logo.naturalHeight, logo.naturalWidth)
+    const logoH = lw * logo.naturalHeight / logo.naturalWidth
+    // Keep the logo above the first line, including wrapped titles.
+    ctx.drawImage(logo, w / 2 - lw / 2, startY - fontSize * 1.1 - logoH, lw, logoH)
+  }
   for (let i = 0; i < lines.length; i++) {
     const y = startY + i * lh
     ctx.strokeText(lines[i]!, w / 2, y)
@@ -380,7 +379,7 @@ function drawBrandCard(
 
   const barW = w * 0.24 * ease
   ctx.fillStyle = 'rgba(255,255,255,0.9)'
-  ctx.fillRect(w / 2 - barW / 2, h / 2 + fontSize * 2.1, barW, Math.max(3, Math.round(fontSize * 0.07)))
+  ctx.fillRect(w / 2 - barW / 2, startY + lines.length * lh + fontSize * 1.7, barW, Math.max(3, Math.round(fontSize * 0.07)))
   ctx.restore()
 }
 
@@ -416,10 +415,14 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
   let stopRange = () => {}
   let abort = () => {}
   let done = false
+  let watchdog: ReturnType<typeof setInterval> | undefined
+  let interrupt = () => {}
   const cleanup = () => {
     if (done) return
     done = true
     stopRange()
+    clearInterval(watchdog)
+    document.removeEventListener('visibilitychange', interrupt)
     cfg.signal?.removeEventListener('abort', abort)
     if (rec && rec.state !== 'inactive') rec.stop()
     video.pause()
@@ -474,6 +477,14 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
     return await new Promise<Blob>((resolve, reject) => {
       const chunks: Blob[] = []
       const fail = (error: unknown) => { cleanup(); reject(error) }
+      let lastActivity = Date.now()
+      let previousTime = -1
+      interrupt = () => { if (document.hidden) fail(new Error('A exportação foi interrompida porque o app ficou em segundo plano. Sua edição foi mantida; tente novamente com o app aberto.')) }
+      document.addEventListener('visibilitychange', interrupt)
+      watchdog = setInterval(() => {
+        if (video.currentTime !== previousTime) { previousTime = video.currentTime; lastActivity = Date.now() }
+        else if (Date.now() - lastActivity > 20_000) fail(new Error('A exportação parou de responder. Sua edição foi mantida; tente novamente.'))
+      }, 2000)
       abort = () => fail(new DOMException('Exportação cancelada.', 'AbortError'))
       cfg.signal?.addEventListener('abort', abort, { once: true })
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
@@ -617,7 +628,8 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
       const onFrame = () => {
         if (done || finished) return
         const pos = Math.max(0, Math.min(video.currentTime, range.end) - range.start)
-        draw(Math.min(1, pos / (range.end - range.start)))
+        try { draw(Math.min(1, pos / (range.end - range.start))) }
+        catch { fail(new Error('Não foi possível aplicar os efeitos. Ajuste a edição e tente novamente.')); return }
         cfg.onProgress?.(Math.min(1, (completed + pos) / total))
         if (video.currentTime >= range.end || video.ended) finishRange()
         else if (typeof video.requestVideoFrameCallback === 'function') frame = video.requestVideoFrameCallback(onFrame)

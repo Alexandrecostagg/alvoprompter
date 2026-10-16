@@ -40,11 +40,11 @@ async function fetchJson(path: string, init: RequestInit): Promise<unknown> {
   return res.json()
 }
 
-export async function transcribeAudio(blob: Blob, lang: string): Promise<WhisperResult> {
+export async function transcribeAudio(blob: Blob, lang: string, signal?: AbortSignal): Promise<WhisperResult> {
   const form = new FormData()
-  form.append('audio', blob, 'audio.webm')
+  form.append('audio', blob, blob.type.includes('wav') ? 'audio.wav' : blob.type.includes('mp4') ? 'audio.mp4' : 'audio.webm')
   form.append('lang', lang)
-  const payload = (await fetchJson('/transcribe', { method: 'POST', body: form })) as {
+  const payload = (await fetchJson('/transcribe', { method: 'POST', body: form, signal })) as {
     result: WhisperResult
   }
   return payload.result

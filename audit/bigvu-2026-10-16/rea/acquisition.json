@@ -1,0 +1,55 @@
+{
+  "method": "public HTTP GET without credentials; no execution",
+  "files": [
+    {
+      "file": "polyfills-7D3UPGC4.js",
+      "url": "https://desk.bigvu.tv/polyfills-7D3UPGC4.js",
+      "bytes": 82546,
+      "sha256": "5d9295948ec0352df8ec13bd94a4e99ff8541892e8b28552f176382b38ab8787"
+    },
+    {
+      "file": "scripts-4E5FBRAA.js",
+      "url": "https://desk.bigvu.tv/scripts-4E5FBRAA.js",
+      "bytes": 354116,
+      "sha256": "4445494002a543441af28981f0d09b4ef6389245616e421cfdead3829d14685b"
+    },
+    {
+      "file": "main-M3ME7NIH.js",
+      "url": "https://desk.bigvu.tv/main-M3ME7NIH.js",
+      "bytes": 283155,
+      "sha256": "de085b5e0beb446da84b42e7edf1e1083539532d9b399a164659de0b7da276a4"
+    },
+    {
+      "file": "chunk-3AEJVXTI.js",
+      "url": "https://desk.bigvu.tv/chunk-3AEJVXTI.js",
+      "referenced_by": "main-M3ME7NIH.js",
+      "route": "script-story",
+      "bytes": 737066,
+      "sha256": "a059c4db89e8d68e00a08046bd7e3389ea99312a9fa2a100df7a413f2cb4a807"
+    },
+    {
+      "file": "chunk-J75K6YOM.js",
+      "url": "https://desk.bigvu.tv/chunk-J75K6YOM.js",
+      "referenced_by": "main-M3ME7NIH.js",
+      "route": "composer",
+      "bytes": 4118952,
+      "sha256": "f72e414c25f2806e2645796cc53d6ec8ccdfb60e09d587e3a5cc28fc0d4600b5"
+    },
+    {
+      "file": "chunk-DSHCKNHA.js",
+      "url": "https://desk.bigvu.tv/chunk-DSHCKNHA.js",
+      "referenced_by": "main-M3ME7NIH.js",
+      "route": "export-video",
+      "bytes": 152514,
+      "sha256": "af6f58eb62276687c5773c67cf62e5d4d02e25d259e096764972b3ffb40b7512"
+    },
+    {
+      "file": "chunk-IPJLRPI7.js",
+      "url": "https://desk.bigvu.tv/chunk-IPJLRPI7.js",
+      "referenced_by": "main-M3ME7NIH.js",
+      "route": "wordtrim",
+      "bytes": 100152,
+      "sha256": "cdef8a5f19ce87d8ef70ee294013d869b906930f59235cb44f49c712732b0c7b"
+    }
+  ]
+}

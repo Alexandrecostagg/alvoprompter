@@ -396,3 +396,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 @media (max-height: 540px) {
   .prompter-settings-preview { display: none; }
 }
+
+/* Editing follows the product's existing violet/cyan tokens and safe-area layout. */
+.editor-steps { display:flex; gap:6px; padding:6px; border:1px solid var(--border); border-radius:16px; background:var(--panel); }
+.editor-steps button { flex:1; min-width:0; min-height:48px; border-radius:11px; padding:8px; font-size:14px; font-weight:650; color:var(--muted); }
+.editor-steps button[aria-pressed=true] { background:var(--accent-soft); color:var(--brand-strong); }
+.video-editor [hidden] { display:none !important; }
+.video-editor button, .video-editor select, .video-editor input:not([type=checkbox]):not([type=range]):not([type=color]) { min-height:44px; }
+.video-editor :is(button, input, select, textarea, summary, a):focus-visible { outline:3px solid var(--brand-strong); outline-offset:3px; }
+.video-editor .text-white:is(input, select, textarea) { color:var(--text); }
+.video-editor details p { font-size:13px; line-height:1.5; }
+.video-editor fieldset { min-width:0; }
+.prompter-result-overlay button, .prompter-result-overlay a { min-height:44px; }
+.prompter-result-overlay a { display:inline-flex; align-items:center; justify-content:center; }

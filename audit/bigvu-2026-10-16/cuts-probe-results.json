@@ -1,0 +1,274 @@
+{
+  "scope": "Probes determinísticos; não é teste com áudio real ou UI montada.",
+  "probes": [
+    {
+      "name": "Remoção por segmento e falso positivo semântico",
+      "input": [
+        {
+          "start": 0,
+          "end": 4,
+          "text": "Ahn, o produto custa cem reais."
+        },
+        {
+          "start": 5,
+          "end": 9,
+          "text": "Este tipo de câmera tem boa imagem."
+        },
+        {
+          "start": 10,
+          "end": 14,
+          "text": "Eu sei assimilar este conteúdo."
+        }
+      ],
+      "actual": {
+        "matches": [
+          [
+            {
+              "word": "ahn",
+              "start": 0,
+              "end": 3,
+              "removable": true
+            }
+          ],
+          [
+            {
+              "word": "tipo",
+              "start": 5,
+              "end": 9,
+              "removable": false
+            }
+          ],
+          []
+        ],
+        "keepMask": [
+          false,
+          false,
+          true
+        ]
+      },
+      "assertion": "PASS: comportamento atual reproduzido, não aprovação de qualidade"
+    },
+    {
+      "name": "Legenda começa no evento final e dura só 0,5 segundo",
+      "input": [
+        {
+          "text": "Olá mundo",
+          "at": 2
+        }
+      ],
+      "actual": {
+        "words": [
+          {
+            "word": "Olá",
+            "start": 1.3846153846153846,
+            "end": 1.6153846153846154
+          },
+          {
+            "word": "mundo",
+            "start": 1.6153846153846154,
+            "end": 2
+          }
+        ],
+        "captions": [
+          {
+            "start": 2,
+            "end": 2.5,
+            "text": "Olá mundo"
+          }
+        ]
+      },
+      "assertion": "PASS: comportamento atual reproduzido, não aprovação de qualidade"
+    },
+    {
+      "name": "Timing da primeira frase depende da chegada da frase seguinte",
+      "input": {
+        "text": "Uma frase longa que leva tempo para falar",
+        "at": 4
+      },
+      "actual": {
+        "aloneStart": 1.384615384615385,
+        "followedStart": 3.9000000000000004,
+        "followedFirstWordEnd": 3.908823529411765,
+        "nextPhraseStart": 3.869230769230769
+      },
+      "assertion": "PASS: comportamento atual reproduzido, não aprovação de qualidade"
+    },
+    {
+      "name": "Clamp no início pode empurrar palavras além do instante final",
+      "input": [
+        {
+          "text": "Esta é uma frase extensa entregue em um instante muito cedo",
+          "at": 0.1
+        }
+      ],
+      "actual": [
+        {
+          "word": "Esta",
+          "start": 0,
+          "end": 0.30769230769230765
+        },
+        {
+          "word": "é",
+          "start": 0.30769230769230765,
+          "end": 0.3846153846153846
+        },
+        {
+          "word": "uma",
+          "start": 0.3846153846153846,
+          "end": 0.6153846153846153
+        },
+        {
+          "word": "frase",
+          "start": 0.6153846153846153,
+          "end": 1
+        },
+        {
+          "word": "extensa",
+          "start": 1,
+          "end": 1.5384615384615383
+        },
+        {
+          "word": "entregue",
+          "start": 1.5384615384615383,
+          "end": 2.1538461538461537
+        },
+        {
+          "word": "em",
+          "start": 2.1538461538461537,
+          "end": 2.3076923076923075
+        },
+        {
+          "word": "um",
+          "start": 2.3076923076923075,
+          "end": 2.4615384615384612
+        },
+        {
+          "word": "instante",
+          "start": 2.4615384615384612,
+          "end": 3.0769230769230766
+        },
+        {
+          "word": "muito",
+          "start": 3.0769230769230766,
+          "end": 3.4615384615384612
+        },
+        {
+          "word": "cedo",
+          "start": 3.4615384615384612,
+          "end": 3.7692307692307687
+        }
+      ],
+      "assertion": "PASS: comportamento atual reproduzido, não aprovação de qualidade"
+    },
+    {
+      "name": "Seleção mantém só janelas das legendas, não o complemento do trecho excluído",
+      "input": [
+        {
+          "text": "Primeira fala importante",
+          "at": 2
+        },
+        {
+          "text": "Ahn, segunda fala",
+          "at": 8
+        },
+        {
+          "text": "Terceira fala importante",
+          "at": 14
+        }
+      ],
+      "actual": {
+        "segments": [
+          {
+            "start": 2,
+            "end": 2.5,
+            "text": "Primeira fala importante"
+          },
+          {
+            "start": 8,
+            "end": 8.5,
+            "text": "Ahn, segunda fala"
+          },
+          {
+            "start": 14,
+            "end": 14.5,
+            "text": "Terceira fala importante"
+          }
+        ],
+        "keptRanges": [
+          {
+            "start": 2,
+            "end": 2.5,
+            "text": "Primeira fala importante"
+          },
+          {
+            "start": 14,
+            "end": 14.5,
+            "text": "Terceira fala importante"
+          }
+        ],
+        "duration": 1
+      },
+      "assertion": "PASS: comportamento atual reproduzido, não aprovação de qualidade"
+    },
+    {
+      "name": "Comando de intervalo seleciona segmento inteiro por interseção",
+      "input": {
+        "segment": {
+          "start": 2,
+          "end": 5,
+          "text": "A frase inteira fica"
+        },
+        "action": {
+          "from": 3,
+          "to": 4
+        }
+      },
+      "actual": {
+        "kept": true,
+        "exportedSegment": {
+          "start": 2,
+          "end": 5,
+          "text": "A frase inteira fica"
+        }
+      },
+      "assertion": "PASS: comportamento atual reproduzido, não aprovação de qualidade"
+    },
+    {
+      "name": "Nenhuma pausa interna inferida dentro de um resultado de fala",
+      "input": [
+        {
+          "word": "Olá",
+          "start": 6.384615384615385,
+          "end": 6.615384615384616
+        },
+        {
+          "word": "mundo",
+          "start": 6.615384615384616,
+          "end": 7
+        },
+        {
+          "word": "depois",
+          "start": 7,
+          "end": 7.461538461538462
+        },
+        {
+          "word": "da",
+          "start": 7.461538461538462,
+          "end": 7.615384615384616
+        },
+        {
+          "word": "pausa",
+          "start": 7.615384615384616,
+          "end": 8
+        }
+      ],
+      "actual": [
+        {
+          "start": 6.324615384615385,
+          "end": 8.06
+        }
+      ],
+      "assertion": "PASS: comportamento atual reproduzido, não aprovação de qualidade"
+    }
+  ]
+}

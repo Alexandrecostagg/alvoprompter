@@ -1,0 +1,34 @@
+{
+  "checkedAt": "2026-10-16T13:27:16.811Z",
+  "configured": {
+    "gemini": true,
+    "groq": true
+  },
+  "matchesUserScreenshots": {
+    "gemini": true,
+    "groq": true
+  },
+  "checks": [
+    {
+      "provider": "gemini",
+      "task": "text",
+      "status": 200,
+      "success": true,
+      "responseChars": 16
+    },
+    {
+      "provider": "groq",
+      "task": "text",
+      "status": 200,
+      "success": true,
+      "responseChars": 16
+    },
+    {
+      "provider": "gemini",
+      "task": "speech",
+      "status": 200,
+      "success": true,
+      "audioBytes": 184674
+    }
+  ]
+}

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
-import { groupUtterances, formatSrtTime, type SrtSegment } from '../../lib/srt'
+import { formatSrtTime, type SrtSegment } from '../../lib/srt'
 import { findFillers } from '../../lib/text'
-import { autoCutRanges, detectSpeechRanges, estimateWordTimings, totalRangesDuration } from '../../lib/cuts'
+import { autoCutRanges, detectSpeechRanges, estimateWordTimings, estimateSpeechSegments, totalRangesDuration } from '../../lib/cuts'
 import { computeFacePath, cropCenteredOnFace, faceTrackingSupported, type FaceSample } from '../../lib/faceTrack'
 import { parseClipPrompt, type ClipPromptResult } from '../../lib/clipPrompt'
-import { generateAvatar } from '../../lib/cloudflare'
+import { generateAvatar, transcribeAudio } from '../../lib/cloudflare'
 import { MUSIC_LIBRARY, generateMusicTrack, type MusicTrack } from '../../lib/music'
 import { trackEvent } from '../../lib/stats'
 import { createVideoPage, videoPageShareUrl } from '../../lib/videopage'
@@ -19,6 +19,13 @@ import {
   type LogoPosition,
   type MotionPreset,
 } from '../../lib/video/render'
+
+import { captionsFromWords, captionsForRanges, captionsSrt, extractTranscriptionAudio, validateTimedWords } from '../../lib/alignedCaptions'
+import { useVideoProjectSave } from '../../hooks/useVideoProjectSave'
+import { getVideoVersion, listVideoVersions, saveVideoVersion, updateVideoProject, type TimedWord, type VideoEdit, type VideoVersionSummary } from '../../lib/videoProjects'
+import { prepareRecordedPlayback } from '../../lib/recordingAudio'
+import CutPreview from './CutPreview'
+import { applyTimeCut, cutHistoryReducer, emptyCutHistory, intersectRanges, normalizeRanges, removeRange } from '../../lib/editRanges'
 
 type AspectOption = 'original' | '9:16' | '1:1' | '16:9'
 
@@ -34,37 +41,61 @@ function fmt(seg: SrtSegment): string {
 }
 
 export default function VideoEditor() {
+  const id = useAppStore(s => s.recording?.project?.id ?? s.recording?.url)
+  return <Editor key={id} />
+}
+
+function Editor() {
   const recording = useAppStore((s) => s.recording)
   const currentScript = useAppStore((s) => s.currentScript)
   const setRecording = useAppStore((s) => s.setRecording)
   const setView = useAppStore((s) => s.setView)
 
+  const saved = recording?.project?.edit
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcriptionMessage, setTranscriptionMessage] = useState<string | null>(null)
+  const transcriptionRef = useRef<AbortController | null>(null)
+  useEffect(() => () => transcriptionRef.current?.abort(), [])
+  const [alignedWords, setAlignedWords] = useState<TimedWord[]>(saved?.alignedWords ?? [])
+  const [logoBlob, setLogoBlob] = useState<Blob | null>(saved?.logoBlob ?? null)
+  const [musicBlob, setMusicBlob] = useState<Blob | null>(saved?.musicBlob ?? null)
+  const [assetsReady, setAssetsReady] = useState(!saved?.logoBlob && !saved?.musicBlob && !saved?.musicTrackId)
+  const [versions, setVersions] = useState<VideoVersionSummary[]>([])
+  const [versionRevision, setVersionRevision] = useState(0)
+  const [editorTab, setEditorTab] = useState('cuts')
   const [meta, setMeta] = useState<{ w: number; h: number; dur: number } | null>(null)
-  const [aspect, setAspect] = useState<AspectOption>('9:16')
-  const [burnCaptions, setBurnCaptions] = useState(true)
-  const [highlightWords, setHighlightWords] = useState(true)
-  const [themeKey, setThemeKey] = useState<CaptionThemeKey>('cinema')
+  const [aspect, setAspect] = useState<AspectOption>(saved?.aspect ?? '9:16')
+  const [burnCaptions, setBurnCaptions] = useState(saved?.burnCaptions ?? true)
+  const [highlightWords, setHighlightWords] = useState(saved?.highlightWords ?? true)
+  const [themeKey, setThemeKey] = useState<CaptionThemeKey>(saved?.themeKey ?? 'cinema')
   const [segments, setSegments] = useState<SrtSegment[]>([])
-  const [keepMask, setKeepMask] = useState<boolean[]>([])
+  const [cuts, dispatchCuts] = useReducer(cutHistoryReducer, emptyCutHistory)
+  const [rangeStart, setRangeStart] = useState('0')
+  const [rangeEnd, setRangeEnd] = useState('0')
+  const [fillersOnly, setFillersOnly] = useState(false)
+  const [cutMessage, setCutMessage] = useState<string | null>(null)
 
   const [autoCut, setAutoCut] = useState(false)
   const [autoCutMin, setAutoCutMin] = useState(400)
   const [autoCutPad, setAutoCutPad] = useState(60)
-  const [cutSource, setCutSource] = useState<'transcription' | 'audio'>('transcription')
+  const [cutSource, setCutSource] = useState<'transcription' | 'audio'>('audio')
   const [audioThresholdDb, setAudioThresholdDb] = useState(-35)
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null)
   const [audioError, setAudioError] = useState<string | null>(null)
   const [audioRanges, setAudioRanges] = useState<{ start: number; end: number }[]>([])
 
+  const [logoBusy, setLogoBusy] = useState(false)
   const [logo, setLogo] = useState<HTMLImageElement | null>(null)
-  const [logoPosition, setLogoPosition] = useState<LogoPosition>('top-left')
-  const [logoWidth, setLogoWidth] = useState(15)
+  const [logoPosition, setLogoPosition] = useState<LogoPosition>(saved?.logoPosition ?? 'top-left')
+  const [logoWidth, setLogoWidth] = useState(saved?.logoWidth ?? 15)
   const [music, setMusic] = useState<AudioBuffer | null>(null)
-  const [musicVolume, setMusicVolume] = useState(0.3)
-  const [musicTrackId, setMusicTrackId] = useState<string | null>(null)
+  const [musicVolume, setMusicVolume] = useState(saved?.musicVolume ?? 0.3)
+  const [musicTrackId, setMusicTrackId] = useState<string | null>(saved?.musicTrackId ?? null)
   const [musicBusy, setMusicBusy] = useState<string | null>(null)
   const musicCacheRef = useRef<Map<string, AudioBuffer>>(new Map())
   const musicPreviewRef = useRef<{ ctx: AudioContext; src: AudioBufferSourceNode } | null>(null)
+  const ownedLogoUrl = useRef<string | null>(null)
+  useEffect(() => () => { if (ownedLogoUrl.current) URL.revokeObjectURL(ownedLogoUrl.current) }, [])
   const logoFileRef = useRef<HTMLInputElement>(null)
   const musicFileRef = useRef<HTMLInputElement>(null)
 
@@ -73,12 +104,12 @@ export default function VideoEditor() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [avatarError, setAvatarError] = useState<string | null>(null)
 
-  const [motion, setMotion] = useState<MotionPreset>('none')
-  const [chromaEnabled, setChromaEnabled] = useState(false)
-  const [chromaColor, setChromaColor] = useState('#00b140')
-  const [chromaSimilarity, setChromaSimilarity] = useState(45)
-  const [chromaSmoothness, setChromaSmoothness] = useState(30)
-  const [chromaBg, setChromaBg] = useState('#ffffff')
+  const [motion, setMotion] = useState<MotionPreset>(saved?.motion ?? 'none')
+  const [chromaEnabled, setChromaEnabled] = useState(saved?.chromaEnabled ?? false)
+  const [chromaColor, setChromaColor] = useState(saved?.chromaColor ?? '#00b140')
+  const [chromaSimilarity, setChromaSimilarity] = useState(saved?.chromaSimilarity ?? 45)
+  const [chromaSmoothness, setChromaSmoothness] = useState(saved?.chromaSmoothness ?? 30)
+  const [chromaBg, setChromaBg] = useState(saved?.chromaBg ?? '#ffffff')
 
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -89,18 +120,18 @@ export default function VideoEditor() {
   const [shareMsg, setShareMsg] = useState<string | null>(null)
   const [pageBusy, setPageBusy] = useState(false)
   const [pageMsg, setPageMsg] = useState<string | null>(null)
-  const [reframe, setReframe] = useState(false)
-  const [eyeContact, setEyeContact] = useState(false)
+  const [reframe, setReframe] = useState(saved?.reframe ?? false)
+  const [eyeContact, setEyeContact] = useState(saved?.eyeContact ?? false)
   const facePathRef = useRef<FaceSample[] | null>(null)
   const [promptText, setPromptText] = useState('')
-  const [introEnabled, setIntroEnabled] = useState(false)
-  const [introText, setIntroText] = useState('')
-  const [introSeconds, setIntroSeconds] = useState(3)
-  const [outroEnabled, setOutroEnabled] = useState(false)
-  const [outroText, setOutroText] = useState('')
-  const [outroSeconds, setOutroSeconds] = useState(3)
-  const [brandFrom, setBrandFrom] = useState(() => localStorage.getItem('ap.brandFrom') ?? '#8B5CF6')
-  const [brandTo, setBrandTo] = useState(() => localStorage.getItem('ap.brandTo') ?? '#22D3EE')
+  const [introEnabled, setIntroEnabled] = useState(saved?.introEnabled ?? false)
+  const [introText, setIntroText] = useState(saved?.introText ?? '')
+  const [introSeconds, setIntroSeconds] = useState(saved?.introSeconds ?? 3)
+  const [outroEnabled, setOutroEnabled] = useState(saved?.outroEnabled ?? false)
+  const [outroText, setOutroText] = useState(saved?.outroText ?? '')
+  const [outroSeconds, setOutroSeconds] = useState(saved?.outroSeconds ?? 3)
+  const [brandFrom, setBrandFrom] = useState(() => saved?.brandFrom ?? localStorage.getItem('ap.brandFrom') ?? '#8B5CF6')
+  const [brandTo, setBrandTo] = useState(() => saved?.brandTo ?? localStorage.getItem('ap.brandTo') ?? '#22D3EE')
 
   useEffect(() => {
     localStorage.setItem('ap.brandFrom', brandFrom)
@@ -118,14 +149,32 @@ export default function VideoEditor() {
     const v = metaVideoRef.current
     if (!v) return
     v.src = recording.url
+    setMeta(null)
+    setSegments([])
+    dispatchCuts({ type: 'reset', ranges: [] })
+    setAutoCut(false)
+    setAudioBuffer(null)
+    setAudioRanges([])
+    setOutUrl(null)
+    setOutBlob(null)
+    setError(null)
+    setCutMessage(null)
+    setFillersOnly(false)
+    facePathRef.current = null
+    let initialized = false
     let seekingDuration = false
     const onLoaded = () => {
       if (!Number.isFinite(v.duration) || v.duration <= 0) { seekingDuration = true; v.currentTime = 1e9; return }
+      if (initialized) return
+      initialized = true
+      dispatchCuts(saved ? { type: 'hydrate', history: saved.cuts } : { type: 'reset', ranges: [{ start: 0, end: v.duration }] })
+      setRangeStart('0')
+      setRangeEnd(String(v.duration))
       setMeta({ w: v.videoWidth, h: v.videoHeight, dur: v.duration || 0 })
-      if (recording.utterances?.length) {
-        const segs = groupUtterances(recording.utterances)
+      if (saved) setSegments(saved.segments)
+      else if (recording.utterances?.length) {
+        const segs = estimateSpeechSegments(recording.utterances)
         setSegments(segs)
-        setKeepMask(segs.map(() => true))
       }
     }
     const onDuration = () => { if (seekingDuration && Number.isFinite(v.duration) && v.duration > 0) { seekingDuration = false; v.currentTime = 0; onLoaded() } }
@@ -135,7 +184,7 @@ export default function VideoEditor() {
     v.addEventListener('error', onError)
     v.load()
     return () => { v.removeEventListener('loadedmetadata', onLoaded); v.removeEventListener('durationchange', onDuration); v.removeEventListener('error', onError) }
-  }, [recording])
+  }, [recording, saved])
 
   useEffect(
     () => () => {
@@ -156,12 +205,61 @@ export default function VideoEditor() {
 
   useEffect(() => () => { abortRef.current?.abort() }, [])
 
+  useEffect(() => {
+    if (!saved) return
+    let cancelled = false
+    const urls: string[] = []
+    void (async () => {
+      try {
+        if (saved.logoBlob) {
+          const url = URL.createObjectURL(saved.logoBlob); urls.push(url)
+          const img = new Image(); img.src = url; await img.decode()
+          if (!cancelled) setLogo(img)
+        }
+        if (saved.musicBlob) {
+          const ctx = new OfflineAudioContext(1, 1, 44100)
+          const buffer = await ctx.decodeAudioData(await saved.musicBlob.arrayBuffer())
+          if (!cancelled) setMusic(buffer)
+        } else if (saved.musicTrackId) {
+          const track = MUSIC_LIBRARY.find(t => t.id === saved.musicTrackId)
+          if (!track) throw new Error('Trilha indisponível')
+          const buffer = await generateMusicTrack(track)
+          if (!cancelled) setMusic(buffer)
+        }
+        if (!cancelled) setAssetsReady(true)
+      } catch { if (!cancelled) setError('Não foi possível recuperar a logo ou trilha. Reabra esta edição para tentar novamente.') }
+    })()
+    return () => { cancelled = true; urls.forEach(url => URL.revokeObjectURL(url)) }
+  }, [saved])
+
+  const edit = useMemo<VideoEdit | null>(() => meta && assetsReady ? ({
+    cuts, aspect, burnCaptions, highlightWords, themeKey, segments, alignedWords,
+    logoBlob, logoPosition, logoWidth, musicBlob, musicTrackId, musicVolume,
+    motion, chromaEnabled, chromaColor, chromaSimilarity, chromaSmoothness, chromaBg,
+    reframe, eyeContact, introEnabled, introText, introSeconds, outroEnabled, outroText, outroSeconds, brandFrom, brandTo,
+  }) : null, [meta, assetsReady, cuts, aspect, burnCaptions, highlightWords, themeKey, segments, alignedWords,
+    logoBlob, logoPosition, logoWidth, musicBlob, musicTrackId, musicVolume,
+    motion, chromaEnabled, chromaColor, chromaSimilarity, chromaSmoothness, chromaBg,
+    reframe, eyeContact, introEnabled, introText, introSeconds, outroEnabled, outroText, outroSeconds, brandFrom, brandTo])
+  const projectSave = useVideoProjectSave(recording?.project, edit)
+  useEffect(() => {
+    const project = recording?.project
+    if (!project) return
+    let live = true
+    void listVideoVersions(project.id, project.scope).then(rows => { if (live) setVersions(rows) }).catch(() => { if (live) setError('Não foi possível abrir as versões exportadas.') })
+    return () => { live = false }
+  }, [recording, versionRevision])
+  useEffect(() => {
+    setOutUrl(null); setOutBlob(null); setShareMsg(null)
+  }, [edit])
+
   const promptResults = useMemo<ClipPromptResult[]>(
     () => (promptText.trim().length > 2 ? parseClipPrompt(promptText) : []),
     [promptText],
   )
 
-  const words = useMemo(() => estimateWordTimings(recording?.utterances ?? []), [recording])
+  const words = useMemo(() => alignedWords.length ? alignedWords.map(w => ({ word: w.word, start: w.start, end: w.end })) : estimateWordTimings(recording?.utterances ?? []), [recording, alignedWords])
+  const speechSegments = useMemo(() => alignedWords.length ? captionsFromWords(alignedWords) : estimateSpeechSegments(recording?.utterances ?? []), [recording, alignedWords])
   const src = cutSource === 'transcription' && words.length === 0 ? 'audio' : cutSource
   const autoRanges = useMemo(
     () =>
@@ -212,12 +310,21 @@ export default function VideoEditor() {
   const autoAfter = totalRangesDuration(activeRanges)
   const autoRemoved = Math.max(0, autoBefore - autoAfter)
 
+  const selectedDuration = totalRangesDuration(cuts.present)
+  const suggestedRanges = useMemo(() => intersectRanges(cuts.present, activeRanges, meta?.dur ?? 0), [cuts.present, activeRanges, meta?.dur])
+
+  useEffect(() => {
+    setOutUrl(null)
+    setOutBlob(null)
+    setShareMsg(null)
+  }, [cuts.present])
+
   if (!recording) {
     return (
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center gap-4 px-4 py-8 sm:px-6">
         <p style={{ color: 'var(--muted)' }}>Nenhuma gravação para editar.</p>
         <button
-          onClick={() => setView('prompter')}
+          onClick={() => setView('library')}
           className="rounded-lg border px-4 py-2 text-sm"
           style={{ borderColor: 'var(--border)' }}
         >
@@ -227,42 +334,74 @@ export default function VideoEditor() {
     )
   }
 
-  const previewAspect =
-    aspect === 'original'
-      ? meta
-        ? meta.w / meta.h
-        : 1
-      : (ASPECT_OPTIONS.find((a) => a.value === aspect)!.w! / ASPECT_OPTIONS.find((a) => a.value === aspect)!.h!)
-
-  const toggleSegment = (idx: number) => {
-    setKeepMask((m) => m.map((v, i) => (i === idx ? !v : v)))
+  const previewAspect = meta ? meta.w / meta.h : 16 / 9
+  const keptRanges = speechSegments.flatMap(segment =>
+    intersectRanges([segment], cuts.present, meta?.dur ?? 0).map(r => ({ ...r, text: segment.text })),
+  )
+  const cutCount = meta ? Math.max(0, meta.dur - selectedDuration) : 0
+  const applyRanges = (ranges: { start: number; end: number }[]) => {
+    if (!meta || processing) return
+    const normalized = normalizeRanges(ranges, meta.dur)
+    if (!normalized.length) {
+      setCutMessage('Esse corte removeria todo o vídeo. Ajuste os tempos para manter pelo menos um trecho.')
+      return
+    }
+    dispatchCuts({ type: 'apply', ranges: normalized })
+    setCutMessage('Seleção atualizada. Confira os cortes na prévia com áudio.')
+  }
+  const applyManualRange = (mode: 'keep' | 'remove') => {
+    if (!meta) return
+    const start = Number(rangeStart), end = Number(rangeEnd)
+    if (!rangeStart.trim() || !rangeEnd.trim() || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > meta.dur) {
+      setCutMessage('Informe início e fim válidos, dentro da duração do vídeo.')
+      return
+    }
+    const range = { start, end }
+    applyRanges(mode === 'keep' ? intersectRanges(cuts.present, [range], meta.dur) : removeRange(cuts.present, range, meta.dur))
   }
 
-  const selectFillers = () => {
-    setKeepMask(segments.map((s) => findFillers(s.text).length === 0))
+  const handleTranscribe = async () => {
+    if (transcribing || !meta || meta.dur > 720) return
+    const controller = new AbortController(); transcriptionRef.current = controller
+    setTranscribing(true); setTranscriptionMessage('Preparando áudio…')
+    try {
+      const audio = await extractTranscriptionAudio(recording.blob, controller.signal)
+      setTranscriptionMessage('Transcrevendo e alinhando as palavras…')
+      const result = await transcribeAudio(audio, useAppStore.getState().settings.voiceLang.split('-')[0] || 'pt', controller.signal)
+      controller.signal.throwIfAborted()
+      const timed = validateTimedWords(result.words, meta.dur)
+      setAlignedWords(timed); setSegments(captionsFromWords(timed)); setBurnCaptions(true)
+      setTranscriptionMessage('Legendas alinhadas ao áudio. Revise os textos e ouça os trechos antes de cortar.')
+    } catch (err) { if (!controller.signal.aborted) setTranscriptionMessage((err as Error).message); else setTranscriptionMessage('Transcrição cancelada. As legendas anteriores foram mantidas.') }
+    finally { if (transcriptionRef.current === controller) { transcriptionRef.current = null; setTranscribing(false) } }
   }
-
-  const keptRanges = segments.filter((_, i) => keepMask[i] ?? true)
-  const cutCount = segments.length - keptRanges.length
+  const downloadSrt = () => {
+    const url = URL.createObjectURL(new Blob([captionsSrt(captionsForRanges(segments, alignedWords, cuts.present), cuts.present)], { type: 'text/plain;charset=utf-8' }))
+    const a = document.createElement('a'); a.href = url; a.download = 'legendas-editadas.srt'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
   const handleLogoFile = (file: File) => {
+    setLogoBusy(true)
     const img = new Image()
-    img.onload = () => setLogo(img)
-    img.src = URL.createObjectURL(file)
+    const url = URL.createObjectURL(file)
+    img.onload = () => { if (ownedLogoUrl.current) URL.revokeObjectURL(ownedLogoUrl.current); ownedLogoUrl.current = url; setLogo(img); setLogoBlob(file); setLogoBusy(false) }
+    img.onerror = () => { setLogoBusy(false); URL.revokeObjectURL(url); setError('Não foi possível abrir a logo.') }
+    img.src = url
   }
 
   const handleMusicFile = async (file: File) => {
+    setMusicBusy('upload')
     try {
       const buffer = await file.arrayBuffer()
-      const ac = new AudioContext()
+      const ac = new OfflineAudioContext(1, 1, 44100)
       const audioBuffer = await ac.decodeAudioData(buffer)
-      void ac.close()
       stopMusicPreview()
       setMusic(audioBuffer)
       setMusicTrackId(null)
+      setMusicBlob(file)
     } catch {
       setError('Não foi possível decodificar o arquivo de áudio.')
-    }
+    } finally { setMusicBusy(null) }
   }
 
   const stopMusicPreview = () => {
@@ -292,6 +431,7 @@ export default function VideoEditor() {
       stopMusicPreview()
       setMusic(buf)
       setMusicTrackId(track.id)
+      setMusicBlob(null)
     } catch {
       setError('Não foi possível gerar a trilha de fundo.')
     }
@@ -337,7 +477,8 @@ export default function VideoEditor() {
   const applyAvatarAsLogo = async () => {
     if (!avatarPreview) return
     const img = new Image()
-    img.onload = () => setLogo(img)
+    const blob = await (await fetch(avatarPreview)).blob()
+    img.onload = () => { setLogo(img); setLogoBlob(blob) }
     img.src = avatarPreview
   }
 
@@ -365,8 +506,10 @@ export default function VideoEditor() {
   }
 
   const handleProcess = async () => {
-    if (!recording || !meta || processing) return
-    if (segments.length && !keptRanges.length && !autoCut) { setError('Selecione ao menos um trecho para exportar.'); return }
+    if (!recording || !meta || processing || !assetsReady || musicBusy || logoBusy) return
+    if (!cuts.present.length) { setError('Selecione ao menos um trecho para exportar.'); return }
+    stopMusicPreview()
+    metaVideoRef.current?.pause()
     setError(null)
     setOutUrl(null)
     setOutBlob(null)
@@ -379,19 +522,17 @@ export default function VideoEditor() {
       aspect === 'original'
         ? { sx: 0, sy: 0, sw: meta.w, sh: meta.h }
         : computeCrop(meta.w, meta.h, targetW, targetH)
-    const ranges = autoCut && activeRanges.length
-      ? activeRanges.map((r) => ({ start: r.start, end: Math.min(r.end, meta.dur) }))
-      : cutCount > 0
-        ? keptRanges.map((s) => ({ start: s.start, end: Math.min(s.end, meta.dur) })).filter((s) => s.end > s.start)
-        : [{ start: 0, end: meta.dur }]
+    const ranges = cuts.present
     const cues = burnCaptions
-      ? (autoCut ? segments : keptRanges).map((s) => ({ start: s.start, end: s.end, text: s.text }))
+      ? captionsForRanges(segments, alignedWords, cuts.present)
       : []
 
     const controller = new AbortController()
     abortRef.current = controller
     setProcessing(true)
     try {
+      await projectSave.flush()
+      if (recording.project) await updateVideoProject(recording.project.id, recording.project.scope, { exportState: 'rendering' })
       const facePath = await ensureFacePath(controller.signal)
       const cropAt =
         facePath && aspect !== 'original'
@@ -435,9 +576,15 @@ export default function VideoEditor() {
       setOutUrl(url)
       setOutBlob(blob)
       setProgress(1)
+      if (recording.project && edit) {
+        try { await saveVideoVersion(recording.project.id, recording.project.scope, blob, edit); setVersionRevision(r => r + 1) }
+        catch { setError('Vídeo gerado, mas não foi possível guardar a versão. Baixe o arquivo antes de sair.') }
+      }
       trackEvent('video_exported')
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') setError((err as Error).message)
+      const cancelled = (err as Error).name === 'AbortError'
+      setError(cancelled ? 'Exportação cancelada. Sua edição foi mantida; você pode tentar novamente.' : (err as Error).message)
+      if (recording.project) void updateVideoProject(recording.project.id, recording.project.scope, { exportState: cancelled ? 'cancelled' : 'failed' }).catch(() => {})
     } finally {
       setProcessing(false)
       abortRef.current = null
@@ -491,9 +638,9 @@ export default function VideoEditor() {
   }
 
   const handleShorts = async () => {
-    if (!recording || !meta || processing) return
+    if (!recording || !meta || processing || !assetsReady || musicBusy || logoBusy) return
     if (keptRanges.length === 0) {
-      setError('Nenhum trecho para exportar — desmarque os trechos que deseja remover.')
+      setError('Nenhum trecho de fala na seleção atual. Ajuste os cortes antes de gerar clipes.')
       return
     }
     const clips = keptRanges.slice(0, 12)
@@ -535,7 +682,7 @@ export default function VideoEditor() {
           crop,
           cropAt,
           keepRanges: [range],
-          captions: burnCaptions ? [{ start: seg.start, end: seg.end, text: seg.text }] : [],
+          captions: burnCaptions ? captionsForRanges(segments, alignedWords, [range]) : [],
           theme,
           highlightWords,
           intro: introEnabled && introText.trim()
@@ -552,6 +699,8 @@ export default function VideoEditor() {
           onProgress: (p) => setProgress(0.4 + 0.6 * ((idx + p) / clips.length)),
           signal: controller.signal,
         })
+        if (recording.project && edit) await saveVideoVersion(recording.project.id, recording.project.scope, blob, { ...edit, aspect: '9:16', cuts: { past: [], present: [range], future: [] } })
+        setVersionRevision(r => r + 1)
         const url = URL.createObjectURL(blob)
         setShorts((prev) => [...prev, { url, start: seg.start, end: seg.end }])
         setShortsProgress(idx + 1)
@@ -567,6 +716,8 @@ export default function VideoEditor() {
   }
 
   const applyPromptResult = (result: ClipPromptResult) => {
+    if (!meta || processing) return
+    let nextRanges = cuts.present
     for (const action of result.actions) {
       if (action.type === 'aspect') {
         setAspect(action.value)
@@ -576,19 +727,10 @@ export default function VideoEditor() {
         setAutoCut(true)
         setCutSource('audio')
       } else {
-        if (segments.length === 0) {
-          setError('Comando de tempo exige transcrição — grave no modo Fixa/Manual ou use o corte por áudio.')
-          continue
-        }
-        setKeepMask(
-          segments.map((s) => {
-            if (action.type === 'trim-start') return s.end > action.seconds
-            if (action.type === 'trim-end') return s.start < meta!.dur - action.seconds
-            return s.end > action.from && s.start < action.to
-          }),
-        )
+        nextRanges = applyTimeCut(nextRanges, action, meta.dur)
       }
     }
+    if (nextRanges !== cuts.present) applyRanges(nextRanges)
     setPromptText('')
   }
 
@@ -597,46 +739,47 @@ export default function VideoEditor() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setView('prompter')}
+            onClick={() => { if (projectSave.status === 'error') { if (window.confirm('Há alterações não salvas. Baixe o original antes de sair. Sair mesmo assim?')) setView('library'); return }; void projectSave.flush().then(() => setView('library')).catch(() => setError('A edição ainda não foi salva. Tente novamente.')) }}
+            disabled={processing || transcribing || Boolean(musicBusy) || logoBusy}
             className="min-h-11 rounded-xl border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
           >
-            ← Voltar
+            ← Biblioteca
           </button>
-          <h1 className="text-lg font-semibold">3. Finalizar vídeo</h1>
+          <div><p className="studio-eyebrow">SEU VÍDEO, DO SEU JEITO</p><h1 className="text-xl font-semibold">Finalizar vídeo</h1><p className="text-sm" style={{ color: 'var(--muted)' }}>{recording.project?.title ?? currentScript?.title ?? 'Minha gravação'}</p></div>
         </div>
         <button
+          disabled={processing || transcribing || Boolean(musicBusy) || logoBusy}
           onClick={() => {
-            if (!window.confirm('Descartar esta gravação? Salve ou compartilhe o vídeo antes de sair.')) return
-            setRecording(null)
-            setView('library')
+            if (!recording.project) return
+            void projectSave.flush().then(() => updateVideoProject(recording.project!.id, recording.project!.scope, { deletedAt: Date.now() })).then(() => {
+              setRecording(null); setView('library')
+            }).catch(() => setError('Não foi possível mover a gravação para a lixeira. Tente novamente.'))
           }}
           className="min-h-11 rounded-xl border px-3 py-2 text-sm"
           style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
         >
-          Descartar gravação
+          Mover para lixeira
         </button>
       </div>
 
+      <div role="status" className="mb-4 rounded-xl border px-4 py-3 text-sm" style={{ borderColor: projectSave.error ? 'var(--danger)' : 'var(--border)', background: 'var(--panel)' }}>
+        {musicBusy || logoBusy ? 'Preparando logo ou trilha…' : !assetsReady ? 'Recuperando logo e trilha…' : projectSave.error ?? (projectSave.status === 'saved' ? 'Edição salva neste aparelho · retome pela biblioteca' : 'Salvando gravação e edição…')}
+        {projectSave.error && <button onClick={projectSave.retry} className="ml-3 min-h-11 underline">Tentar salvar novamente</button>}
+        {recording.project?.exportState === 'rendering' && <p>A exportação anterior foi interrompida. Sua edição foi recuperada; gere o vídeo novamente.</p>}
+      </div>
       <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-2">
-        <div className="flex flex-col">
+        <div className="flex flex-col lg:sticky lg:top-6 lg:self-start">
           <div
             className="mx-auto w-full max-w-sm overflow-hidden rounded-xl bg-black"
             style={{ aspectRatio: previewAspect, width: `min(100%, ${46 * previewAspect}dvh)` }}
           >
-            <video
-              ref={metaVideoRef}
-              src={recording.url}
-              playsInline
-              muted
-              loop
-              autoPlay
-              className="h-full w-full"
-              style={{ objectFit: aspect === 'original' ? 'contain' : 'cover' }}
-            />
+            <video ref={metaVideoRef} src={recording.url} preload="metadata" muted hidden />
+            <CutPreview url={recording.url} ranges={cuts.present} disabled={processing || !meta} />
           </div>
           <p className="mt-2 text-center text-xs" style={{ color: 'var(--muted)' }}>
-            {meta ? `${meta.w}×${meta.h} · ${formatSrtTime(meta.dur)}` : 'Carregando vídeo...'}
+            {meta ? `Prévia dos cortes com áudio · ${selectedDuration.toFixed(2)} s de ${meta.dur.toFixed(2)} s` : 'Carregando vídeo...'}
+            <br />Para conferir legendas, trilha e efeitos, gere a prévia final abaixo.
           </p>
           <div className="mt-4 flex flex-col gap-4" aria-live="polite">
           {error && (
@@ -667,20 +810,20 @@ export default function VideoEditor() {
           ) : (
             <button
               onClick={() => void handleProcess()}
-              disabled={!meta}
+              disabled={!meta || !cuts.present.length || !assetsReady || transcribing || Boolean(musicBusy) || logoBusy}
               className="w-full rounded-lg py-3 text-sm font-semibold text-white disabled:opacity-40"
               style={{ background: 'var(--brand-gradient)' }}
             >
-              Exportar vídeo
+              Gerar prévia final e exportar
             </button>
           )}
 
           {outUrl && (
             <div className="rounded-xl border p-3" style={{ borderColor: 'var(--ok)', background: 'var(--panel)' }}>
               <p className="mb-2 text-xs font-medium" style={{ color: 'var(--ok)' }}>
-                ✓ Vídeo gerado
+                Prévia final pronta · assista antes de compartilhar
               </p>
-              <video src={outUrl} controls playsInline className="mb-3 max-h-48 w-full rounded-lg" />
+              <video aria-label="Prévia final do vídeo" src={outUrl} onPlay={prepareRecordedPlayback} controls playsInline className="mb-3 max-h-48 w-full rounded-lg" />
               {shareMsg && <p className="mb-2 text-xs" style={{ color: 'var(--muted)' }}>{shareMsg}</p>}
               {pageMsg && <p className="mb-2 break-all text-xs" style={{ color: pageMsg.startsWith('Página criada') ? 'var(--ok)' : 'var(--danger)' }}>{pageMsg}</p>}
               <div className="flex flex-wrap gap-2">
@@ -720,20 +863,27 @@ export default function VideoEditor() {
             </div>
           )}
 
+          <a href={recording.url} download={`gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}`} className="min-h-11 rounded-xl border px-4 py-3 text-center text-sm">Baixar original</a>
+          {versions.length > 0 && <details><summary>Versões exportadas ({versions.length})</summary><div className="space-y-2">{versions.map((version, index) => <button key={version.id} className="min-h-11 w-full rounded-xl border px-3 text-left text-sm" onClick={() => { void getVideoVersion(version.id, version.scope).then(savedVersion => { if (!savedVersion) throw new Error(); setOutBlob(savedVersion.blob); setOutUrl(URL.createObjectURL(savedVersion.blob)) }).catch(() => setError('Não foi possível abrir essa versão. Tente novamente.')) }}>Assistir versão {versions.length - index} · {new Date(version.createdAt).toLocaleString('pt-BR')}</button>)}</div></details>}
           </div>
         </div>
 
-        <div className="flex flex-col gap-5">
-          <details open><summary>Formato de exportação</summary>
+        <div className="flex min-w-0 flex-col gap-5">
+          <nav aria-label="Etapas da edição" className="editor-steps">
+            {[['cuts', '1. Cortes'], ['captions', '2. Legendas'], ['style', '3. Visual e áudio']].map(([id, title]) => <button key={id} aria-pressed={editorTab === id} onClick={() => setEditorTab(id!)}>{title}</button>)}
+          </nav>
+          <fieldset disabled={processing || !assetsReady || Boolean(musicBusy) || logoBusy} className="editor-panels contents" data-step={editorTab}>
+          <details hidden={editorTab !== 'style'} open><summary>Formato de exportação</summary>
             <div className="flex rounded-lg border p-0.5" style={{ borderColor: 'var(--border)' }}>
               {ASPECT_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
+                  aria-pressed={aspect === opt.value}
                   onClick={() => setAspect(opt.value)}
                   className="flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
                   style={{
                     background: aspect === opt.value ? 'var(--accent)' : 'transparent',
-                    color: aspect === opt.value ? 'black' : 'var(--muted)',
+                    color: aspect === opt.value ? 'white' : 'var(--muted)',
                   }}
                 >
                   {opt.label}
@@ -771,7 +921,15 @@ export default function VideoEditor() {
               ))}
           </details>
 
-          <details open><summary>Legendas no vídeo</summary>
+          <details hidden={editorTab !== 'captions'} open><summary>Legendas no vídeo</summary>
+            <div className="mb-4 space-y-3">
+              <p>{alignedWords.length ? 'Tempos obtidos do áudio. Revise a transcrição antes de exportar.' : 'Os tempos da fala ao vivo são aproximados. Gere legendas a partir do áudio para alinhar as palavras.'}</p>
+              <p style={{ color: 'var(--muted)' }}>Ao transcrever, o áudio é enviado ao serviço de IA. Tomadas de até 12 minutos.</p>
+              <button onClick={() => void handleTranscribe()} disabled={transcribing || !meta || meta.dur > 720} className="min-h-11 rounded-xl border px-4 font-semibold">{transcribing ? 'Transcrevendo…' : 'Transcrever e alinhar legendas'}</button>
+              {transcribing && <button className="ml-2 min-h-11 underline" onClick={() => transcriptionRef.current?.abort()}>Cancelar transcrição</button>}
+              {transcriptionMessage && <p role="status">{transcriptionMessage}</p>}
+              {segments.length > 0 && <button className="ml-2 min-h-11 underline" onClick={downloadSrt}>Baixar legendas SRT</button>}
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
@@ -793,18 +951,7 @@ export default function VideoEditor() {
                     />
                     Destacar palavras
                   </label>
-                  <select
-                  value={themeKey}
-                  onChange={(e) => setThemeKey(e.target.value as CaptionThemeKey)}
-                  className="rounded-lg border bg-transparent px-2 py-1.5 text-sm"
-                  style={{ borderColor: 'var(--border)' }}
-                >
-                  {CAPTION_THEMES.filter((t) => t.key !== 'none').map((t) => (
-                    <option key={t.key} value={t.key} style={{ background: 'var(--panel)' }}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
+
                 </>
               )}
             </div>
@@ -813,6 +960,7 @@ export default function VideoEditor() {
                 {CAPTION_THEMES.filter((t) => t.key !== 'none').map((t) => (
                   <button
                     key={t.key}
+                    aria-pressed={themeKey === t.key}
                     onClick={() => setThemeKey(t.key)}
                     className="rounded-lg border px-3 py-2 text-xs transition-colors"
                     style={{
@@ -828,7 +976,12 @@ export default function VideoEditor() {
             )}
           </details>
 
-          <details><summary>Logo e trilha sonora</summary>
+          <details hidden={editorTab !== 'captions'}><summary>Revisar texto das legendas ({segments.length})</summary>
+            <div className="max-h-96 space-y-3 overflow-y-auto">{segments.map((seg, index) => <label key={index} className="block text-sm">{fmt(seg)}<textarea aria-label={`Legenda ${index + 1}`} className="mt-1 w-full rounded-lg border p-3" value={seg.text} onChange={e => setSegments(previous => previous.map((item, i) => i === index ? { ...item, text: e.target.value } : item))} /></label>)}</div>
+          </details>
+          {alignedWords.length > 0 && <details hidden={editorTab !== 'cuts'}><summary>Selecionar uma palavra para revisar</summary><p>Toque na palavra para preencher o intervalo. Ouça a prévia e use “Remover este intervalo” se desejar cortar.</p><div className="mt-3 flex max-h-72 flex-wrap gap-2 overflow-y-auto">{alignedWords.map((word, i) => <button key={i} disabled={word.end <= word.start} title={word.end <= word.start ? 'Palavra preservada na legenda, sem duração individual para corte.' : undefined} className="rounded-lg border px-3 text-sm disabled:opacity-50" onClick={() => { setRangeStart(word.start.toFixed(3)); setRangeEnd(word.end.toFixed(3)); setCutMessage(`Palavra selecionada: ${word.word}. Confira o intervalo antes de remover.`) }}>{word.word} <span className="text-xs">{word.start.toFixed(2)}s</span></button>)}</div></details>}
+
+          <details hidden={editorTab !== 'style'}><summary>Logo e trilha sonora</summary>
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -852,6 +1005,7 @@ export default function VideoEditor() {
                 {logo && (
                   <>
                     <select
+                      aria-label="Posição da logo"
                       value={logoPosition}
                       onChange={(e) => setLogoPosition(e.target.value as LogoPosition)}
                       className="rounded-lg border bg-transparent px-2 py-1.5 text-xs text-white"
@@ -863,7 +1017,7 @@ export default function VideoEditor() {
                       <option value="bottom-right" style={{ background: 'var(--panel)' }}>Canto inf. dir.</option>
                     </select>
                     <button
-                      onClick={() => setLogo(null)}
+                      onClick={() => { setLogo(null); setLogoBlob(null) }}
                       className="rounded-lg border px-2 py-1.5 text-xs"
                       style={{ borderColor: 'var(--border)', color: 'var(--danger)' }}
                     >
@@ -891,6 +1045,7 @@ export default function VideoEditor() {
                   🪄 Avatar IA
                 </p>
                 <textarea
+                  aria-label="Descrição do avatar"
                   value={avatarPrompt}
                   onChange={(e) => setAvatarPrompt(e.target.value)}
                   placeholder="Descreva o apresentador do vídeo, ex.: mulher jovem, cabelo castanho, blazer azul, fundo de estúdio neutro"
@@ -977,6 +1132,7 @@ export default function VideoEditor() {
                       onClick={() => {
                         stopMusicPreview()
                         setMusic(null)
+                        setMusicBlob(null)
                         setMusicTrackId(null)
                       }}
                       className="rounded-lg border px-2 py-1.5 text-xs"
@@ -1041,7 +1197,7 @@ export default function VideoEditor() {
             </div>
           </details>
 
-          <details><summary>Identidade visual</summary>
+          <details hidden={editorTab !== 'style'}><summary>Identidade visual</summary>
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
@@ -1095,34 +1251,37 @@ export default function VideoEditor() {
                 <div className="h-1 w-1/4 rounded-full bg-white/90" />
               </div>
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-                As cores do brand kit pintam os cards de intro e outro, o título animado do vídeo e ficam
+                As cores da marca pintam a abertura, o encerramento e o título animado do vídeo e ficam
                 salvas neste aparelho.
               </p>
             </div>
           </details>
 
-          <details><summary>Abertura e encerramento</summary>
+          <details hidden={editorTab !== 'style'}><summary>Abertura e encerramento</summary>
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
                   type="checkbox"
+                  aria-label="Incluir abertura"
                   checked={introEnabled}
                   onChange={(e) => setIntroEnabled(e.target.checked)}
                   className="h-4 w-4 accent-cyan-400"
                 />
-                Intro
+                Abertura
                 <input
+                  aria-label="Texto da abertura"
                   value={introText}
                   onChange={(e) => setIntroText(e.target.value)}
-                  placeholder="Texto do intro (título do vídeo)"
+                  placeholder="Título do vídeo"
                   disabled={!introEnabled}
-                  className="flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm text-white outline-none disabled:opacity-40"
+                  className="min-w-0 flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm text-white outline-none disabled:opacity-40"
                   style={{ borderColor: 'var(--border)' }}
                 />
                 <input
                   type="number"
                   min={1}
                   max={10}
+                  aria-label="Duração da abertura"
                   value={introSeconds}
                   onChange={(e) => setIntroSeconds(Number(e.target.value))}
                   disabled={!introEnabled}
@@ -1134,23 +1293,26 @@ export default function VideoEditor() {
               <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
                   type="checkbox"
+                  aria-label="Incluir encerramento"
                   checked={outroEnabled}
                   onChange={(e) => setOutroEnabled(e.target.checked)}
                   className="h-4 w-4 accent-cyan-400"
                 />
-                Outro
+                Encerramento
                 <input
+                  aria-label="Texto do encerramento"
                   value={outroText}
                   onChange={(e) => setOutroText(e.target.value)}
-                  placeholder="Texto do outro (CTA, canal, etc.)"
+                  placeholder="Convite final ou nome do canal"
                   disabled={!outroEnabled}
-                  className="flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm text-white outline-none disabled:opacity-40"
+                  className="min-w-0 flex-1 rounded-lg border bg-transparent px-2 py-1.5 text-sm text-white outline-none disabled:opacity-40"
                   style={{ borderColor: 'var(--border)' }}
                 />
                 <input
                   type="number"
                   min={1}
                   max={10}
+                  aria-label="Duração do encerramento"
                   value={outroSeconds}
                   onChange={(e) => setOutroSeconds(Number(e.target.value))}
                   disabled={!outroEnabled}
@@ -1160,12 +1322,12 @@ export default function VideoEditor() {
                 />
               </div>
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-                Cards com o gradiente da marca aparecem no início (intro) e no fim (outro) do vídeo.
+                A abertura e o encerramento aparecem sobre os segundos escolhidos do vídeo, com as cores da marca.
               </p>
             </div>
           </details>
 
-          <details><summary>Fundo e movimento</summary>
+          <details hidden={editorTab !== 'style'}><summary>Fundo e movimento</summary>
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
@@ -1253,66 +1415,58 @@ export default function VideoEditor() {
             </div>
           </details>
 
-          <details><summary>Corte por palavras {cutCount > 0 && `· ${cutCount} cortado${cutCount === 1 ? '' : 's'}`}</summary>
-            <div className="mb-2 flex items-center justify-between">
-
-              {segments.length > 0 && (
-                <button
-                  onClick={selectFillers}
-                  disabled={autoCut}
-                  className="rounded-md border px-2 py-1 text-xs disabled:opacity-40"
-                  style={{ borderColor: 'var(--border)', color: 'var(--warn)' }}
-                >
-                  Remover vícios de fala
-                </button>
-              )}
-            </div>
-            {segments.length === 0 ? (
-              <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                Sem transcrição desta gravação (o corte por palavras fica disponível quando a
-                legenda é gerada — use o modo Fixa/Manual para legendar).
-              </p>
-            ) : (
-              <div className={autoCut ? 'pointer-events-none opacity-40' : ''}>
-                <ul className="max-h-56 space-y-1 overflow-y-auto pr-1">
-                  {segments.map((seg, i) => {
-                    const kept = keepMask[i] ?? true
-                    const hasFiller = findFillers(seg.text).length > 0
-                    return (
-                    <li
-                        key={i}
-                        className="flex items-start gap-2 rounded-lg border p-2"
-                        style={{
-                          borderColor: kept ? 'var(--border)' : 'var(--danger)',
-                          opacity: kept ? 1 : 0.55,
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={kept}
-                          onChange={() => toggleSegment(i)}
-                          className="mt-0.5 h-4 w-4 accent-cyan-400"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] tabular-nums" style={{ color: 'var(--muted)' }}>
-                            {fmt(seg)}
-                          </p>
-                          <p className="truncate text-xs text-white">{seg.text}</p>
-                        </div>
-                        {hasFiller && (
-                          <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]" style={{ background: 'rgba(251,191,36,0.12)', color: 'var(--warn)' }}>
-                            filler
-                          </span>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
+          <details hidden={editorTab !== 'cuts'} open><summary>Cortes por tempo {cutCount > 0 && `· ${cutCount.toFixed(2)} s removidos`}</summary>
+            <fieldset disabled={processing || !meta} className="space-y-3 disabled:opacity-50">
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>Tempos em segundos do vídeo original. Ajuste o intervalo e ouça antes de exportar.</p>
+              <div className="flex flex-wrap gap-3">
+                <label className="min-w-0 flex-1 text-xs">Início (s)
+                  <input aria-label="Início do corte em segundos" type="number" min="0" max={meta?.dur} step="0.01" value={rangeStart} onChange={e => setRangeStart(e.target.value)} className="mt-1 w-full rounded border bg-transparent p-2" />
+                </label>
+                <label className="min-w-0 flex-1 text-xs">Fim (s)
+                  <input aria-label="Fim do corte em segundos" type="number" min="0" max={meta?.dur} step="0.01" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)} className="mt-1 w-full rounded border bg-transparent p-2" />
+                </label>
               </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => applyManualRange('keep')} className="min-h-11 rounded-lg border px-3 text-xs">Manter só este intervalo</button>
+                <button type="button" onClick={() => applyManualRange('remove')} className="min-h-11 rounded-lg border px-3 text-xs">Remover este intervalo</button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={!cuts.past.length} onClick={() => { dispatchCuts({ type: 'undo' }); setCutMessage('Corte desfeito.') }} className="min-h-11 rounded-lg border px-3 text-xs disabled:opacity-40">Desfazer corte</button>
+                <button type="button" disabled={!cuts.future.length} onClick={() => { dispatchCuts({ type: 'redo' }); setCutMessage('Corte refeito.') }} className="min-h-11 rounded-lg border px-3 text-xs disabled:opacity-40">Refazer corte</button>
+                <button type="button" onClick={() => applyRanges([{ start: 0, end: meta!.dur }])} className="min-h-11 rounded-lg border px-3 text-xs">Restaurar vídeo inteiro</button>
+              </div>
+              <p className="text-xs" aria-label="Intervalos mantidos">Mantidos: {cuts.present.map(r => `${r.start.toFixed(2)}–${r.end.toFixed(2)} s`).join(' · ') || 'Carregando…'}</p>
+              {cutMessage && <p role="status" className="text-xs" style={{ color: 'var(--muted)' }}>{cutMessage}</p>}
+            </fieldset>
+          </details>
+
+          <details hidden={editorTab !== 'cuts'}><summary>Revisar falas e vícios</summary>
+            <p className="mb-3 text-xs" style={{ color: 'var(--muted)' }}>Os tempos das falas são aproximados. Revisar apenas preenche o intervalo; ajuste os limites e aplique o corte acima. Nenhuma frase é removida automaticamente.</p>
+            <label className="mb-3 flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={fillersOnly} onChange={e => setFillersOnly(e.target.checked)} />Mostrar apenas possíveis hesitações
+            </label>
+            {speechSegments.length === 0 ? <p className="text-xs">Sem transcrição. Os cortes por tempo continuam disponíveis.</p> : (
+              <ul className="max-h-72 space-y-2 overflow-y-auto">
+                {speechSegments.map((seg, i) => {
+                  const fillers = findFillers(seg.text).filter(f => f.removable)
+                  if (fillersOnly && !fillers.length) return null
+                  return <li key={i} className="rounded-lg border p-3" style={{ borderColor: 'var(--border)' }}>
+                    <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{fmt(seg)} · estimado</p>
+                    <p className="my-1 whitespace-normal break-words text-sm">{seg.text}</p>
+                    {fillers.length > 0 && <p className="text-xs" style={{ color: 'var(--warn)' }}>Revisar: {fillers.map(f => f.word).join(', ')}</p>}
+                    <button disabled={processing || !meta} onClick={() => {
+                      setRangeStart(String(Math.min(seg.start, meta!.dur)))
+                      setRangeEnd(String(Math.min(seg.end, meta!.dur)))
+                      setCutMessage('Intervalo estimado preenchido. Ajuste os tempos antes de remover.')
+                    }} className="mt-2 min-h-11 rounded-lg border px-3 text-xs disabled:opacity-40">Revisar este trecho</button>
+                  </li>
+                })}
+                {fillersOnly && !speechSegments.some(seg => findFillers(seg.text).some(f => f.removable)) && <li className="text-xs">Nenhuma hesitação sugerida.</li>}
+              </ul>
             )}
           </details>
 
-          <details><summary>B-rolls · cortar pausas</summary>
+          <details hidden={editorTab !== 'cuts'}><summary>Sugerir cortes de pausas</summary>
             <div className="mb-2 flex items-center justify-between">
 
               {autoCut && activeRanges.length > 0 && (
@@ -1326,10 +1480,11 @@ export default function VideoEditor() {
                 <input
                   type="checkbox"
                   checked={autoCut}
+                  disabled={processing}
                   onChange={(e) => setAutoCut(e.target.checked)}
                   className="h-4 w-4 accent-cyan-400"
                 />
-                Remover pausas automaticamente
+                Analisar pausas para sugerir cortes
               </label>
               {autoCut && (
                 <>
@@ -1343,7 +1498,7 @@ export default function VideoEditor() {
                         color: src === 'transcription' ? 'black' : 'var(--muted)',
                       }}
                     >
-                      Por transcrição
+                      Transcrição (estimativa)
                     </button>
                     <button
                       onClick={() => setCutSource('audio')}
@@ -1445,15 +1600,20 @@ export default function VideoEditor() {
                   )}
                 </>
               )}
+              {autoCut && <div className="space-y-2">
+                <p className="text-xs">Após aplicar: {totalRangesDuration(suggestedRanges).toFixed(2)} s mantidos.</p>
+                <button disabled={processing || !suggestedRanges.length || (src === 'audio' && (!audioBuffer || !!audioError))} onClick={() => applyRanges(suggestedRanges)} className="min-h-11 rounded-lg border px-3 text-xs disabled:opacity-40">Aplicar sugestões de pausas</button>
+                {activeRanges.length === 0 && (src !== 'audio' || audioBuffer) && <p className="text-xs">Nenhum trecho detectado. A seleção atual foi preservada.</p>}
+              </div>}
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-                O corte pode usar o timing das palavras da transcrição ou analisar o áudio da
-                gravação (RMS) para remover silêncios — funciona até sem transcrição. Quando
-                ativo, substitui os cortes manuais.
+                A análise por áudio procura silêncios; música e ruído podem afetar o resultado.
+                A transcrição usa tempos estimados. As sugestões só alteram o vídeo após aplicar,
+                preservando os cortes já feitos. Confira o resultado na prévia.
               </p>
             </div>
           </details>
 
-          <details><summary>🗣️ Comando em linguagem natural</summary>
+          <details hidden={editorTab !== 'cuts'}><summary>Comando em linguagem natural</summary>
 
             <input
               value={promptText}
@@ -1489,7 +1649,7 @@ export default function VideoEditor() {
           </details>
 
           {segments.length > 0 && (
-            <details><summary>✂️ Fábrica de clipes 9:16</summary>
+            <details hidden={editorTab !== 'cuts'}><summary>Fábrica de clipes 9:16</summary>
 
               {processing && shortsProgress > 0 ? (
                 <p className="text-xs" style={{ color: 'var(--muted)' }}>
@@ -1509,7 +1669,7 @@ export default function VideoEditor() {
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {shorts.map((s, i) => (
                     <div key={s.url} className="rounded-lg border p-2" style={{ borderColor: 'var(--border)' }}>
-                      <video src={s.url} controls playsInline muted className="mb-1 w-full rounded" />
+                      <video src={s.url} onPlay={prepareRecordedPlayback} controls playsInline className="mb-1 w-full rounded" />
                       <a
                         href={s.url}
                         download={`alvoprompter-clipe-${i + 1}.webm`}
@@ -1536,6 +1696,7 @@ export default function VideoEditor() {
               )}
             </details>
           )}
+          </fieldset>
         </div>
       </div>
     </div>

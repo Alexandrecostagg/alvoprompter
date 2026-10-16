@@ -1,0 +1,62 @@
+{
+  "checkedAt": "2026-10-16T13:36:12.100326+00:00",
+  "checks": {
+    "reloadRestoresCuts": true,
+    "reloadRestoresUndoRedo": true,
+    "reloadRestoresAspect": "1:1",
+    "reloadRestoresTheme": "social",
+    "reloadRestoresCaptionText": "Legenda revisada e recuperável.",
+    "export": {
+      "duration": 6.0271,
+      "width": 1080,
+      "height": 1080,
+      "muted": false
+    },
+    "exportVersionSurvivesReload": true,
+    "trashAndRestoreKeepsVersion": true,
+    "quotaFailureShown": true,
+    "retryAfterQuotaFailureSaved": true,
+    "compositionRestoresLogoMusicOpening": true,
+    "exportDisabledDuringAssetPreparation": true,
+    "compositionExport": {
+      "duration": 7.998917,
+      "width": 1080,
+      "height": 1080,
+      "audioCodec": "AAC",
+      "sampleRate": 48000,
+      "channels": 2
+    },
+    "export60s": {
+      "duration": 60.115208,
+      "width": 1080,
+      "height": 1920,
+      "cancelAndRetryPassed": true
+    },
+    "simulatedIphone": {
+      "activeMicrophonesAfterFinish": 0,
+      "audioSessionAfterFinish": "playback",
+      "resultActionsMinHeight": 44,
+      "fullscreenControlsTop": 55,
+      "viewport": [
+        390,
+        844
+      ],
+      "settingsTextNotClipped": true,
+      "escapeClosesAndRestoresFocus": true
+    },
+    "keysLiveCheck": "existing-keys-check.json",
+    "nativeBuilds": {
+      "android": "BUILD SUCCESSFUL",
+      "ios": "ARCHIVE SUCCEEDED",
+      "version": "1.6.4",
+      "build": 22,
+      "uploaded": false
+    }
+  },
+  "limitations": [
+    "Interface e câmera simulada no navegador não equivalem à homologação física.",
+    "Alto-falante, Bluetooth, teclado/áreas seguras nativos e exportação longa em aparelhos pendentes.",
+    "Transcrição real testada com módulo do servidor e áudio sintético; nova implementação ainda não publicada nem validada no app autenticado.",
+    "Comparação de exportação BIGVU bloqueada por paywall na conta atual."
+  ]
+}

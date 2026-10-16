@@ -25,4 +25,9 @@ describe('clip prompt parser', () => {
   it('ignora intervalo invertido', () => {
     expect(parseClipPrompt('pega a parte de 2:00 a 1:00')).toHaveLength(0)
   })
+  it('preserva segundos fracionários em intervalos e cortes', () => {
+    expect(parseClipPrompt('de 3,25 a 4,75').flatMap(r => r.actions)).toContainEqual({ type: 'range', from: 3.25, to: 4.75 })
+    expect(parseClipPrompt('corte os primeiros 1,5 segundos').flatMap(r => r.actions)).toContainEqual({ type: 'trim-start', seconds: 1.5 })
+  })
+
 })

@@ -113,7 +113,7 @@ Depois do deploy, `GET /health` informa versão, protocolo, projeto de login, os
 
 Esta cascata é para geração de texto. A narração (`POST /tts`) usa a mesma `GEMINI_API_KEY`, com `GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts` e `GEMINI_TTS_VOICE=Kore`. Retorna WAV PCM mono de 24 kHz, aceita até 5.000 caracteres e aguarda até 90 segundos, sem repetir pedidos nem recorrer a outro provedor. Falhas devolvem a cota mensal do app. As cotas gratuitas e a cobrança do Google dependem do projeto da chave: confirme o Free tier no AI Studio antes de usar como serviço gratuito. A requisição usa `store: false`; isso impede a recuperação posterior da interação, mas não substitui as condições de uso de dados do plano Google.
 
-Transcrição e tradução continuam no Cloudflare Workers AI. A leitura de ensaio no editor usa a voz disponibilizada pelo aparelho ou navegador, sem chamadas à API e sem gerar arquivo exportável. Essa leitura local depende da atualização do app instalada no aparelho.
+Transcrição usa Groq Whisper com tempos por palavra e alternativa no Cloudflare Workers AI. A mesma `GROQ_API_KEY` fica somente no servidor. Tradução continua no Cloudflare Workers AI. A leitura de ensaio no editor usa a voz disponibilizada pelo aparelho ou navegador, sem chamadas à API e sem gerar arquivo exportável. Essa leitura local depende da atualização do app instalada no aparelho.
 
 O Worker exige login Firebase e isola mídia/sync legado por UID + frase-chave (mínimo 12 caracteres). Workspaces SaaS usam conta e RBAC. Limites de tentativa e uso são atômicos em D1; aplique a migração `0008_security_rate_limits.sql` antes de publicar o Worker. Clientes de sync/upload precisam enviar o token. Backups legados sem titular não são reivindicados automaticamente; reenvie a cópia local pela conta. Veja a atualização de segurança de 08/10 em `docs/auditoria-2026-09-23.md`.
 
@@ -124,8 +124,9 @@ O Worker exige login Firebase e isola mídia/sync legado por UID + frase-chave (
 - O Asaas recebe os dados necessários ao checkout e processa a cobrança recorrente.
 - Roteiros, agenda e identidade visual dos workspaces da conta ficam no Cloudflare D1. Vídeos permanecem no dispositivo; o plano sincroniza conteúdo textual e metadados, não arquivos de vídeo.
 - O conteúdo legado por frase-chave continua no KV com expiração em 90 dias.
-- Solicitações de texto são enviadas ao Google Gemini e, em caso de falha antes de entregar conteúdo, podem ser reenviadas à Groq; transcrição e outras funções usam Cloudflare Workers AI.
-- Áudios enviados para transcrição são processados pelo Cloudflare Workers AI.
+- Solicitações de texto são enviadas ao Google Gemini e, em caso de falha antes de entregar conteúdo, podem ser reenviadas à Groq.
+- Áudios enviados para transcrição são processados pela Groq, com alternativa no Cloudflare Workers AI em caso de falha ou resposta sem os tempos necessários.
+- Tomadas, edições, histórico e versões exportadas são salvos localmente por conta e workspace. A lixeira permite restaurá-los. Esse armazenamento não constitui backup na nuvem.
 - O vídeo do avatar é renderizado localmente.
 
 A política publicada deve permanecer alinhada a esses comportamentos: `api/privacy/src/index.ts`.

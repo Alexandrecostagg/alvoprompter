@@ -13,46 +13,33 @@ export interface WordTiming {
  */
 export const CHARS_PER_SECOND = 13
 
-/**
- * Estima o timeline por palavra a partir das falas reconhecidas. A Web Speech
- * API entrega apenas o instante em que cada frase foi reconhecida (≈ fim da
- * fala), então a duração de cada palavra é proporcional aos caracteres e o
- * bloco termina em `at`. Com isso conseguimos medir as pausas entre palavras
- * e cortá-las automaticamente.
+/** Recognition events are approximate phrase ends, not acoustic word timestamps.
+ * Keep estimates bounded by the previous event and this event. Future events
+ * must never move a phrase that has already been estimated.
  */
-export function estimateWordTimings(utterances: CaptionUtterance[]): WordTiming[] {
-  const clean = utterances
-    .map((u) => ({ text: u.text.trim().replace(/\s+/g, ' '), at: u.at }))
-    .filter((u) => u.text.length > 0 && Number.isFinite(u.at))
-    .sort((a, b) => a.at - b.at)
-
-  if (!clean.length) return []
-
-  let lastAt = 0
-  const paced = clean.map((u) => {
-    const at = Math.max(u.at, lastAt)
-    lastAt = at
-    return { text: u.text, at }
+export function estimateSpeechSegments(utterances: CaptionUtterance[]) {
+  const clean = utterances.map(u => ({ text: u.text.trim().replace(/\s+/g, ' '), at: u.at }))
+    .filter(u => u.text && Number.isFinite(u.at) && u.at > 0).sort((a, b) => a.at - b.at)
+  let previousEnd = 0
+  return clean.flatMap(u => {
+    const chars = u.text.replace(/\s/g, '').length
+    const start = Math.max(previousEnd, u.at - chars / CHARS_PER_SECOND, 0)
+    previousEnd = u.at
+    return u.at > start ? [{ text: u.text, start, end: u.at }] : []
   })
+}
 
-  const words: WordTiming[] = []
-  for (let i = 0; i < paced.length; i++) {
-    const u = paced[i]!
-    const tokens = u.text.split(' ').filter(Boolean)
-    if (!tokens.length) continue
-    const chars = tokens.reduce((s, t) => s + t.length, 0)
-    const baseDur = chars / CHARS_PER_SECOND
-    const nextAt = i + 1 < paced.length ? paced[i + 1]!.at : u.at + Math.max(1.5, baseDur)
-    const dur = Math.min(baseDur, Math.max(0.05, nextAt - u.at))
-    let cursor = Math.max(0, u.at - dur)
-    for (const tok of tokens) {
-      const wdur = (tok.length / chars) * dur
-      words.push({ word: tok, start: cursor, end: cursor + wdur })
-      cursor += wdur
-    }
-  }
-
-  return words.sort((a, b) => a.start - b.start)
+export function estimateWordTimings(utterances: CaptionUtterance[]): WordTiming[] {
+  return estimateSpeechSegments(utterances).flatMap(segment => {
+    const tokens = segment.text.split(' ')
+    const chars = tokens.reduce((sum, word) => sum + word.length, 0)
+    let cursor = segment.start
+    return tokens.map((word, i) => {
+      const start = cursor
+      cursor = i === tokens.length - 1 ? segment.end : cursor + word.length / chars * (segment.end - segment.start)
+      return { word, start, end: cursor }
+    })
+  })
 }
 
 export interface AutoCutOptions {

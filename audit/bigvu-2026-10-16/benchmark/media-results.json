@@ -1,0 +1,208 @@
+{
+  "source": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 640,
+          "height": 360,
+          "duration": "8.000000"
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "duration": "8.000000"
+        }
+      ],
+      "format": {
+        "duration": "8.000000"
+      }
+    },
+    "samples": [
+      {
+        "time": 0.5,
+        "rms": 0.10561,
+        "dominant_reference_tone_hz": 440,
+        "center_rgb": [
+          254.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "time": 2.5,
+        "rms": 0.0,
+        "dominant_reference_tone_hz": "silence",
+        "center_rgb": [
+          0.0,
+          128.0,
+          1.0
+        ]
+      },
+      {
+        "time": 4.5,
+        "rms": 0.10606,
+        "dominant_reference_tone_hz": 880,
+        "center_rgb": [
+          0.0,
+          0.0,
+          255.0
+        ]
+      },
+      {
+        "time": 6.5,
+        "rms": 0.10603,
+        "dominant_reference_tone_hz": 1320,
+        "center_rgb": [
+          254.0,
+          254.0,
+          0.0
+        ]
+      }
+    ]
+  },
+  "baseline": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 640,
+          "height": 360,
+          "duration": "7.997667"
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "duration": "7.998854"
+        }
+      ],
+      "format": {
+        "duration": "7.998854"
+      }
+    },
+    "samples": [
+      {
+        "time": 0.5,
+        "rms": 0.15059,
+        "dominant_reference_tone_hz": 440,
+        "center_rgb": [
+          254.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "time": 2.5,
+        "rms": 0.0,
+        "dominant_reference_tone_hz": "silence",
+        "center_rgb": [
+          1.0,
+          128.0,
+          0.0
+        ]
+      },
+      {
+        "time": 4.5,
+        "rms": 0.14985,
+        "dominant_reference_tone_hz": 880,
+        "center_rgb": [
+          0.0,
+          1.0,
+          255.0
+        ]
+      },
+      {
+        "time": 6.5,
+        "rms": 0.14994,
+        "dominant_reference_tone_hz": 1320,
+        "center_rgb": [
+          253.0,
+          254.0,
+          0.0
+        ]
+      }
+    ]
+  },
+  "cut": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "48000",
+          "duration": "4.055500"
+        },
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 640,
+          "height": 360,
+          "duration": "4.064533"
+        }
+      ],
+      "format": {
+        "duration": "4.064533"
+      }
+    },
+    "samples": [
+      {
+        "time": 0.5,
+        "rms": 0.1513,
+        "dominant_reference_tone_hz": 440,
+        "center_rgb": [
+          254.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "time": 1.5,
+        "rms": 0.14927,
+        "dominant_reference_tone_hz": 440,
+        "center_rgb": [
+          254.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "time": 2.5,
+        "rms": 0.14965,
+        "dominant_reference_tone_hz": 880,
+        "center_rgb": [
+          0.0,
+          1.0,
+          255.0
+        ]
+      },
+      {
+        "time": 3.5,
+        "rms": 0.1503,
+        "dominant_reference_tone_hz": 880,
+        "center_rgb": [
+          0.0,
+          1.0,
+          255.0
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "baseline_duration_within_150ms": true,
+    "cut_duration_within_150ms": true,
+    "cut_reference_tones_correct": true,
+    "cut_reference_colors_correct": true,
+    "baseline_reference_tones_correct": true
+  },
+  "limits": "Short synthetic desktop-browser fixture; coarse interior samples do not measure lip sync, splice transients, speech intelligibility, native audio routing or long-video reliability."
+}

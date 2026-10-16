@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createAudioLevelCapture } from '../lib/audioLevelCapture'
 import { similarity, type WordToken } from '../lib/text'
 import {
   getSpeechRecognitionCtor,
@@ -53,9 +54,7 @@ export function useVoiceTrack({
   const silenceTimerRef = useRef<number | null>(null)
   const lastSilenceRefreshRef = useRef(0)
   const exactMapRef = useRef<Map<string, number[]>>(new Map())
-  const micStreamRef = useRef<MediaStream | null>(null)
-  const micContextRef = useRef<AudioContext | null>(null)
-  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const [audioCapture] = useState(createAudioLevelCapture)
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const micFrameRef = useRef(0)
   const cbRef = useRef({ words, onWordMatch, onSpeechActivity, sensitivity, lang, onUtterance })
@@ -150,19 +149,15 @@ export function useVoiceTrack({
 
   const releaseAudioLevel = useCallback(() => {
     cancelAnimationFrame(micFrameRef.current)
-    micSourceRef.current?.disconnect()
-    micSourceRef.current = null
     micAnalyserRef.current = null
-    micStreamRef.current?.getTracks().forEach((track) => track.stop())
-    micStreamRef.current = null
-    if (micContextRef.current) void micContextRef.current.close()
-    micContextRef.current = null
-  }, [])
+    audioCapture.stop()
+  }, [audioCapture])
 
   const stop = useCallback(() => {
     runningRef.current = false
-    recognitionRef.current?.abort()
+    const recognition = recognitionRef.current
     recognitionRef.current = null
+    recognition?.abort()
     releaseAudioLevel()
     setListening(false)
     if (silenceTimerRef.current != null) window.clearTimeout(silenceTimerRef.current)
@@ -176,21 +171,9 @@ export function useVoiceTrack({
     if (runningRef.current || !navigator.mediaDevices?.getUserMedia) return
     setError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      })
-      const AudioCtor = window.AudioContext
-      const context = new AudioCtor()
-      const source = context.createMediaStreamSource(stream)
-      const analyser = context.createAnalyser()
-      analyser.fftSize = 512
-      analyser.smoothingTimeConstant = 0.72
-      source.connect(analyser)
-      await context.resume()
-
-      micStreamRef.current = stream
-      micContextRef.current = context
-      micSourceRef.current = source
+      const capture = await audioCapture.start()
+      if (!capture?.active) return
+      const analyser = capture.analyser
       micAnalyserRef.current = analyser
       runningRef.current = true
       setListening(true)
@@ -225,7 +208,7 @@ export function useVoiceTrack({
           : 'Não foi possível abrir o microfone para acompanhar sua voz.',
       )
     }
-  }, [markActive, releaseAudioLevel])
+  }, [markActive, releaseAudioLevel, audioCapture])
 
   const start = useCallback(() => {
     if (mode === 'audio-level') {
@@ -239,11 +222,11 @@ export function useVoiceTrack({
     rec.continuous = true
     rec.interimResults = true
     rec.lang = cbRef.current.lang
-    rec.onresult = handleResult
+    rec.onresult = event => { if (recognitionRef.current === rec && runningRef.current) handleResult(event) }
     rec.onend = () => {
-      if (!runningRef.current) return
+      if (!runningRef.current || recognitionRef.current !== rec) return
       window.setTimeout(() => {
-        if (runningRef.current) {
+        if (runningRef.current && recognitionRef.current === rec) {
           try {
             rec.start()
           } catch {
@@ -253,9 +236,11 @@ export function useVoiceTrack({
       }, 150)
     }
     rec.onerror = (event) => {
+      if (recognitionRef.current !== rec || !runningRef.current) return
       if (event.error === 'service-not-allowed' || event.error === 'language-not-supported') {
         runningRef.current = false
         recognitionRef.current = null
+        rec.abort()
         setListening(false)
         setMode('audio-level')
         void startAudioLevel()

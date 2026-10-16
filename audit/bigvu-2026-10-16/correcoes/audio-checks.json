@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-16",
+  "changes": [
+    "Saved-video players request playback mode on play/resume when the optional Audio Session API is available.",
+    "Short clip previews no longer force muted playback.",
+    "Voice tracking and transcription stop when opening results or ending a take.",
+    "Pending microphone requests are cancelled logically and late streams disposed; duplicate starts are suppressed.",
+    "Obsolete speech recognizers cannot restart from old callbacks."
+  ],
+  "validation": {
+    "tests": 243,
+    "files": 28,
+    "build": "passed",
+    "lint": "no errors; pre-existing Fast Refresh warning in audit/prompter-flow-harness.tsx"
+  },
+  "reference": "https://www.w3.org/TR/audio-session/",
+  "limits": [
+    "This is not confirmation of the original iPhone audio-routing cause.",
+    "Optional playback mode does not forcibly select speaker over headphones or Bluetooth.",
+    "Physical iPhone speaker/receiver routing still requires device validation.",
+    "Changes are local and have not been deployed or uploaded to stores."
+  ]
+}

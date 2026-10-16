@@ -1,0 +1,10 @@
+PROTOCOLO — 16/10/2026
+1. Com Vite ativo, abrir /audit/bigvu-2026-10-16/benchmark/export.html e executar o botão.
+2. Salvar baseline.mp4 e cut.mp4 na pasta benchmark. Registrar ambiente e browser-results.json.
+3. Executar python3 audit/bigvu-2026-10-16/benchmark/verify-media.py (requer ffmpeg/ffprobe).
+4. Aceitação básica: duração ±150 ms; amostras com cores e tons esperados; progresso monotônico terminado em 1; cancelamento com AbortError.
+5. BIGVU: quando a conta tiver acesso, usar source.mp4, manter 0–2 e 4–6 s, exportar e comparar. Não alterar plano para executar este protocolo.
+6. Teste de fala separado: gravar clipe de 20–30 s com pausas, ahn isolado, tipo de câmera e fala lenta/rápida. Anotar manualmente os tempos das palavras antes de comparar; usar o mesmo clipe nos dois produtos.
+7. Contar palavras úteis removidas e falsos positivos. Meta proposta: zero descarte automático de conteúdo útil; erro p95 de limites até 150 ms para revisão assistida, sujeito a validação do produto.
+8. Após as correções, repetir no iPhone/Android reais, incluindo áudio no alto-falante, filtros, tela cheia, cancelamento e vídeo longo.
+As sondagens cuts-probe.mjs confirmam bugs do comportamento atual; PASS nelas não significa aprovação do produto. A fixture de tons não testa transcrição nem sincronismo labial.

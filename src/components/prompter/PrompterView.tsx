@@ -1,3 +1,4 @@
+import { useModalFocus } from '../../hooks/useModalFocus'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { StatusBar, Style } from '@capacitor/status-bar'
@@ -8,6 +9,7 @@ import { useVoiceTrack, type VoiceTrackingMode } from '../../hooks/useVoiceTrack
 import { useGamepad } from '../../hooks/useGamepad'
 import { useRecorder, formatElapsed } from '../../hooks/useRecorder'
 import { useTranscription } from '../../hooks/useTranscription'
+import { prepareRecordedPlayback } from '../../lib/recordingAudio'
 import { beautyFilterCss } from '../../lib/beauty'
 import { buildSrt, type CaptionUtterance } from '../../lib/srt'
 import { SRT_LANGUAGES, translateSrt } from '../../lib/translate'
@@ -31,6 +33,8 @@ export default function PrompterView() {
   const iosCamera = isAppleMobile() && settings.cameraOn
   const [showSettings, setShowSettings] = useState(false)
   const [showResult, setShowResult] = useState(false)
+  const resultModalRef = useRef<HTMLDivElement>(null)
+  useModalFocus(resultModalRef, showResult, () => { if (!recorder.isFinishing) setShowResult(false) })
   const [progressPct, setProgressPct] = useState(0)
   const [srtText, setSrtText] = useState<string | null>(null)
   const [transLangIdx, setTransLangIdx] = useState(0)
@@ -191,7 +195,7 @@ export default function PrompterView() {
   const voice = useVoiceTrack({
     words,
     enabled:
-      settings.mode === 'voice' && !iosCamera && (engine.state === 'running' || engine.state === 'paused'),
+      settings.mode === 'voice' && !showResult && !iosCamera && (engine.state === 'running' || engine.state === 'paused'),
     lang: settings.voiceLang,
     sensitivity: settings.voiceSensitivity,
     onWordMatch: (i) => engine.seekToWord(i),
@@ -253,6 +257,8 @@ export default function PrompterView() {
   }
 
   const stopRecording = useCallback(() => {
+    stopVoice()
+    stopTranscription()
     recorder.stop()
     pauseEngine()
     const start = recStartRef.current
@@ -262,7 +268,7 @@ export default function PrompterView() {
     }
     setSrtText(buildSrt(captionRef.current) || null)
     setShowResult(true)
-  }, [recorder, pauseEngine])
+  }, [recorder, pauseEngine, stopVoice, stopTranscription])
 
   useEffect(() => {
     if (recorder.videoBlob) {
@@ -355,6 +361,7 @@ export default function PrompterView() {
   }, [words, settings.fontSize, settings.lineHeight, settings.letterSpacing, measure, applyFrame, engine.fraction])
 
   useEffect(() => {
+    if (showResult) { stopVoice(); stopTranscription() }
     if (settings.cameraOn && !showResult) void recorder.enable()
     else void recorder.disable()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -404,18 +411,27 @@ export default function PrompterView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine.state, settings.openMic, recorder.isRecording])
 
+  const recordingSaveStatus = useAppStore(s => s.recordingSaveStatus)
+  const recordingSaveError = useAppStore(s => s.recordingSaveError)
+  const storedTakeRef = useRef<Blob | null>(null)
+  useEffect(() => {
+    if (!recorder.videoBlob?.size || recorder.isFinishing || storedTakeRef.current === recorder.videoBlob) return
+    storedTakeRef.current = recorder.videoBlob
+    useAppStore.getState().setRecording({ blob: recorder.videoBlob, url: '', srt: buildSrt(captionRef.current), utterances: captionRef.current.slice() })
+  }, [recorder.videoBlob, recorder.isFinishing])
+
   const { supported: transSupported, start: transStart, stop: transStop } = transcription
 
   useEffect(() => {
     if (settings.mode === 'voice') return
-    if (!recorder.isRecording) {
+    if (showResult || !recorder.isRecording) {
       transStop()
       return
     }
     if (!transSupported || iosCamera) return
     transStart(settings.voiceLang, (text) => pushCaption(text))
     return () => transStop()
-  }, [recorder.isRecording, settings.mode, transSupported, settings.voiceLang, pushCaption, transStart, transStop, iosCamera])
+  }, [recorder.isRecording, settings.mode, transSupported, settings.voiceLang, pushCaption, transStart, transStop, iosCamera, showResult])
 
   const handlePrimary = useCallback(() => {
     if (engine.state === 'running') {
@@ -835,7 +851,7 @@ export default function PrompterView() {
       )}
 
       {showResult && (
-        <div className="prompter-result-overlay fixed inset-0 z-50 flex items-end justify-center bg-black/80 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="recording-result-title">
+        <div ref={resultModalRef} className="prompter-result-overlay fixed inset-0 z-50 flex items-end justify-center bg-black/80 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="recording-result-title">
           <div
             className="max-h-full w-full overflow-y-auto rounded-t-[2rem] border p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:max-w-2xl sm:rounded-2xl sm:pb-5"
             style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
@@ -850,7 +866,7 @@ export default function PrompterView() {
                 <button className="min-h-11 rounded-xl px-4 font-semibold" style={{ background: 'var(--accent)', color: '#111' }} onClick={() => { setShowResult(false); engine.stop(); void recorder.retry() }}>Preparar nova gravação</button>
                 <button className="min-h-11 rounded-xl border px-4" onClick={() => setView('editor')}>Voltar ao roteiro</button>
               </div>
-            </div> : recorder.videoUrl ? <video src={recorder.videoUrl} controls playsInline className="mb-4 max-h-[45dvh] w-full rounded-lg" /> : <div className="space-y-4">
+            </div> : recorder.videoUrl ? <video src={recorder.videoUrl} onPlay={prepareRecordedPlayback} controls playsInline className="mb-4 max-h-[45dvh] w-full rounded-lg" /> : <div className="space-y-4">
               <p className="text-sm">Você terminou o ensaio. Agora pode gravar ou ajustar o roteiro.</p>
               <div className="flex flex-wrap gap-2">
                 <button className="min-h-11 rounded-xl border px-4" onClick={() => { engine.stop(); setShowResult(false); if (!settings.cameraOn) updateSettings({ cameraOn: true }) }}>Preparar gravação</button>
@@ -860,6 +876,10 @@ export default function PrompterView() {
             </div>}
             {recorder.videoUrl && !recorder.isFinishing && !recorder.error && <>
 
+            {recorder.videoBlob?.size ? <div role="status" className="mb-4 rounded-xl border p-3 text-sm" style={{ borderColor: recordingSaveError ? 'var(--danger)' : 'var(--border)' }}>
+              {recordingSaveError ?? (recordingSaveStatus === 'saved' ? 'Tomada salva neste aparelho. Você pode retomá-la na biblioteca.' : 'Salvando sua tomada…')}
+              {recordingSaveError && <button className="mt-2 min-h-11 underline" onClick={() => { const take = useAppStore.getState().recording; if (take) useAppStore.getState().setRecording(take) }}>Tentar salvar tomada</button>}
+            </div> : null}
             {srtText && (
               <div
                 className="mb-4 rounded-lg border p-3"
@@ -979,9 +999,9 @@ export default function PrompterView() {
               <button
                 onClick={() => {
                   if (!recorder.videoBlob || !recorder.videoUrl) return
-                  useAppStore.getState().setRecording({
+                  if (useAppStore.getState().recording?.blob !== recorder.videoBlob) useAppStore.getState().setRecording({
                     blob: recorder.videoBlob,
-                    url: URL.createObjectURL(recorder.videoBlob),
+                    url: '',
                     srt: srtText,
                     utterances: captionRef.current.slice(),
                   })

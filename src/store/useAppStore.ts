@@ -9,12 +9,14 @@ import {
   type View,
   type Workspace,
 } from '../lib/types'
-import { db, setContentScope, newScriptKey, getScripts, saveScript, deleteScript } from '../lib/db'
+import { db, setContentScope, newKey, newScriptKey, getScripts, saveScript, deleteScript } from '../lib/db'
 import { listWorkspaces } from '../lib/workspace'
 import { readDrafts, journalDraft, clearDraft } from '../lib/drafts'
+import { createVideoProject, mediaScope, videoStorageError, type VideoProject } from '../lib/videoProjects'
 import type { CaptionUtterance } from '../lib/srt'
 
 export interface RecordingData {
+  project?: VideoProject
   blob: Blob
   url: string
   srt: string | null
@@ -27,6 +29,10 @@ export interface PrompterStatus {
 }
 
 interface AppState {
+  mediaOwner: string | null
+  setMediaOwner: (owner: string | null) => void
+  recordingSaveStatus: 'saving' | 'saved' | 'error' | null
+  recordingSaveError: string | null
   view: View
   saveStatus: 'saved' | 'pending' | 'saving' | 'error'
   saveError: string | null
@@ -66,6 +72,12 @@ function savedSettings(): PrompterSettings {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  mediaOwner: null,
+  recordingSaveError: null,
+  recordingSaveStatus: null,
+  setMediaOwner: (owner) => {
+    if (owner !== get().mediaOwner) { get().setRecording(null); set({ mediaOwner: owner, view: 'library' }) }
+  },
   view: 'library',
   saveStatus: 'saved',
   saveError: null,
@@ -73,6 +85,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   chooseCloudWorkspace: async (workspace) => {
     const verified = workspace ? (await loadAccount()).workspaces.find((w) => w.id === workspace.id) : null
     if (workspace && !verified) throw new Error('Você não tem acesso a este workspace.')
+    if ((verified?.id ?? null) !== (get().cloudWorkspace?.id ?? null)) { get().setRecording(null); set({ view: 'library' }) }
     setContentScope(verified?.id ?? null)
     set({ cloudWorkspace: verified ?? null, currentScript: null, saveStatus: 'saved', saveError: null })
     if (!verified) get().setActiveWorkspace(null)
@@ -193,7 +206,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (previous) URL.revokeObjectURL(previous.url)
     // The recorder owns and revokes its preview URL when leaving the prompter.
     // Keep a separate URL for the editor's lifetime.
-    set({ recording: recording ? { ...recording, url: URL.createObjectURL(recording.blob) } : null })
+    const scope = mediaScope(get().mediaOwner, get().cloudWorkspace?.id ?? null)
+    if (recording?.project && recording.project.scope !== scope) { set({ recording: null }); return }
+    const project: VideoProject | undefined = recording ? recording.project ?? {
+      id: newKey('take'), scope, scriptKey: get().currentScript?.key,
+      title: get().currentScript?.title || 'Minha gravação', createdAt: Date.now(), updatedAt: Date.now(),
+      blob: recording.blob, utterances: recording.utterances, srt: recording.srt,
+    } : undefined
+    set({ recording: recording ? { ...recording, project, url: URL.createObjectURL(recording.blob) } : null, recordingSaveError: null, recordingSaveStatus: project ? 'saving' : null })
+    if (project) void createVideoProject(project).then(() => {
+      if (get().recording?.project?.id === project.id) set({ recordingSaveStatus: 'saved' })
+    }).catch(() => {
+      if (get().recording?.project?.id === project.id) set({ recordingSaveError: videoStorageError(), recordingSaveStatus: 'error' })
+    })
   },
 
   setPrompterState: (prompterState) => set({ prompterState }),

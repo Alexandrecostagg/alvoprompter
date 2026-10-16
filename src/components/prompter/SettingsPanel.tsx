@@ -1,3 +1,4 @@
+import { useModalFocus } from '../../hooks/useModalFocus'
 import { useRef, useState } from 'react'
 import type { PrompterSettings } from '../../lib/types'
 import { BEAUTY_OPTIONS } from '../../lib/beauty'
@@ -82,9 +83,11 @@ function Segmented<T extends string>({
       {options.map((opt) => (
         <button
           key={opt.value}
+          aria-label={opt.label}
+          aria-pressed={value === opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className="min-h-9 shrink-0 rounded-lg px-3 py-1 text-xs font-medium transition-colors"
+          className="min-h-11 shrink-0 rounded-lg px-3 py-1 text-xs font-medium transition-colors"
           style={{
             background: value === opt.value ? 'var(--accent)' : 'transparent',
             color: value === opt.value ? 'black' : 'var(--text)',
@@ -98,6 +101,8 @@ function Segmented<T extends string>({
 }
 
 export default function SettingsPanel({ settings, wordCount, isRecording = false, filterUnavailable = false, onClose }: SettingsPanelProps) {
+  const modalRef = useRef<HTMLDivElement>(null)
+  useModalFocus(modalRef, true, onClose)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const resetSettings = useAppStore((s) => s.resetSettings)
   const bgFileRef = useRef<HTMLInputElement>(null)
@@ -135,13 +140,14 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
   }
 
   return (
-    <div className="prompter-settings-overlay fixed inset-0 z-40 flex items-end sm:justify-end" role="dialog" aria-modal="true" aria-label="Ajustes do prompter">
-      <button aria-label="Fechar configurações" onClick={onClose} className="absolute inset-0 bg-black/60" />
+    <div ref={modalRef} className="prompter-settings-overlay fixed inset-0 z-40 flex items-end sm:justify-end" role="dialog" aria-modal="true" aria-label="Ajustes do prompter">
+      <button tabIndex={-1} aria-label="Fechar configurações" onClick={onClose} className="absolute inset-0 bg-black/60" />
       <div className="relative z-10 flex max-h-full w-full flex-col rounded-t-[2rem] border sm:h-full sm:max-w-sm sm:rounded-none sm:border-l" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
         <span className="mx-auto mt-3 block h-1 w-12 rounded-full sm:hidden" style={{ background: 'var(--border)' }} aria-hidden="true" />
         <div className="flex shrink-0 items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: 'var(--border)' }}>
           <div><h2 className="font-semibold text-white">Ajustes do prompter</h2><p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>Veja o resultado enquanto configura.</p></div>
           <button
+            data-dialog-autofocus
             onClick={onClose}
             className="min-h-10 rounded-xl border px-3 text-sm font-semibold"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}

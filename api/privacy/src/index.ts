@@ -41,7 +41,7 @@ const HTML = `<!DOCTYPE html>
 <body>
 <main>
   <h1>Política de Privacidade — AlvoPrompter</h1>
-  <p class="muted">Última atualização: 5 de outubro de 2026</p>
+  <p class="muted">Última atualização: 16 de outubro de 2026</p>
 
   <p>Esta Política de Privacidade descreve como o aplicativo <strong>AlvoPrompter</strong> ("nós", "nosso" ou "aplicativo"), desenvolvido por Alexandre Costa, trata informações quando você utiliza o aplicativo na web, Android ou iOS.</p>
 
@@ -61,7 +61,7 @@ const HTML = `<!DOCTYPE html>
     <li><strong>Páginas de vídeo:</strong> ao criar uma página compartilhável, o vídeo, incluindo seu áudio, é enviado ao Cloudflare R2. Título, descrição, nome do autor, data e contador de visualizações ficam no Cloudflare KV. Quem recebe o link pode acessar o conteúdo; compartilhe somente materiais que deseja disponibilizar dessa forma. Essa mídia não tem a expiração automática de 90 dias dos roteiros legados. Para solicitar a remoção de uma página e da mídia correspondente, use o contato de privacidade abaixo.</li>
     <li><strong>Segurança dos serviços online:</strong> o endereço IP é usado para limitar requisições e prevenir abuso. Os contadores por IP no nosso serviço expiram após 25 horas. O Firebase Authentication pode manter registros de IP por algumas semanas para proteger cadastros e acessos. Não usamos esses registros para publicidade direcionada ou para determinar sua localização.</li>
     <li><strong>Texto para IA:</strong> pedidos de geração ou melhoria de roteiro são enviados pelo nosso Worker ao Google Gemini. Se o serviço falhar antes de entregar texto, o pedido pode ser encaminhado à Groq como alternativa. Textos para narração em arquivo de áudio também são enviados ao Google Gemini. Traduções são processadas pelo Cloudflare Workers AI; a leitura de ensaio usa a voz disponibilizada pelo aparelho ou navegador.</li>
-    <li><strong>Áudio:</strong> arquivos enviados para transcrição são processados pelo Cloudflare Workers AI. As amostras de voz do Avatar IA permanecem locais e não treinam um modelo de clonagem.</li>
+    <li><strong>Áudio:</strong> quando você solicita uma transcrição, o áudio é enviado pelo nosso Worker à Groq para obter o texto e os tempos das palavras. Em caso de indisponibilidade ou resposta sem os tempos necessários, o áudio pode ser processado pelo Cloudflare Workers AI como alternativa. As amostras de voz do Avatar IA permanecem locais e não treinam um modelo de clonagem.</li>
     <li><strong>Avatar:</strong> somente a descrição textual é enviada para gerar uma imagem. A animação do avatar e a exportação do vídeo acontecem localmente no aparelho.</li>
     <li><strong>Conta:</strong> nome, e-mail, identificador de usuário e estado de verificação são tratados pelo Firebase Authentication e vinculados ao cadastro do AlvoPrompter.</li>
     <li><strong>Perfil opcional:</strong> nome completo, telefone e empresa ou organização informados por você ficam no Cloudflare D1, vinculados à sua conta. Telefone e organização são opcionais, podem ser removidos na tela de perfil e não são usados para autenticação por SMS.</li>
@@ -85,7 +85,7 @@ const HTML = `<!DOCTYPE html>
   </div>
 
   <h2>7. Armazenamento e retenção</h2>
-  <p>Dados locais permanecem até você apagá-los ou remover o aplicativo. Conteúdo do sync legado expira no Cloudflare KV após 90 dias sem renovação. Dados de conta, workspace e assinatura permanecem enquanto a conta ou relação contratual estiver ativa e depois pelo prazo necessário para segurança, defesa de direitos e obrigações legais. Solicitações de IA são mantidas apenas conforme necessário para processamento e segurança dos respectivos provedores.</p>
+  <p>Dados locais permanecem até você apagá-los ou remover o aplicativo. Tomadas, edições e versões exportadas são salvas neste aparelho; esse salvamento não é um backup na nuvem. Itens na lixeira local continuam armazenados e podem ser restaurados. Conteúdo do sync legado expira no Cloudflare KV após 90 dias sem renovação. Dados de conta, workspace e assinatura permanecem enquanto a conta ou relação contratual estiver ativa e depois pelo prazo necessário para segurança, defesa de direitos e obrigações legais. Solicitações de IA são mantidas apenas conforme necessário para processamento e segurança dos respectivos provedores.</p>
 
   <h2>8. Seus direitos</h2>
   <p>Você pode apagar seus roteiros, vídeos e dados locais a qualquer momento no próprio aplicativo. Pode também solicitar acesso, correção, portabilidade ou exclusão dos dados de conta, observadas as retenções legais e financeiras. Para exercer esses direitos, entre em contato pelo e-mail <a href="mailto:alexandrecostagg@gmail.com">alexandrecostagg@gmail.com</a>.</p>

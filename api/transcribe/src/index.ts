@@ -1,3 +1,4 @@
+import { transcribeWithTimestamps } from './transcription'
 import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits } from './security'
 import { billingAvailability } from './billing'
 import { appleBillingConfigured } from './appleBilling'
@@ -93,15 +94,6 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
   })
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)))
-  }
-  return btoa(binary)
 }
 
 async function syncKey(pass: string, prefix = 'sync'): Promise<string> {
@@ -483,23 +475,10 @@ const api = {
       if (typeof lang !== 'string' || !/^[a-z]{2,3}(-[A-Za-z]{2,8})?$/.test(lang)) return json({ error: 'Idioma inválido.' }, 400)
       if (!(audio instanceof File)) return json({ error: 'Campo "audio" ausente.' }, 400)
       if (audio.size > MAX_AUDIO_BYTES) return json({ error: 'Áudio acima do limite de 25 MB.' }, 413)
-      const bytes = new Uint8Array(await audio.arrayBuffer())
+      if (!audio.size) return json({ error: 'O áudio está vazio.' }, 400)
       try {
-        const result = (await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
-          audio: bytesToBase64(bytes),
-          task: 'transcribe',
-          language: lang,
-          timestamp_granularities: ['word'],
-        })) as {
-          text: string
-          segments?: {
-            start: number
-            end: number
-            words?: { word: string; start: number; end: number }[]
-          }[]
-        }
-        const words = (result.segments ?? []).flatMap((s) => s.words ?? [])
-        return json({ result: { text: result.text ?? '', words } })
+        const result = await transcribeWithTimestamps(audio, lang, env, request.signal)
+        return json({ result })
       } catch {
         return json({ error: 'O serviço não conseguiu concluir a operação. Tente novamente.' }, 502)
       }

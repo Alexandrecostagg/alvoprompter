@@ -1,3 +1,4 @@
+import type { VideoProject, VideoVersion } from './videoProjects'
 import Dexie, { type Table } from 'dexie'
 import type { AvatarTwin, ScheduledPost, Script, VoiceProfile, Workspace } from './types'
 
@@ -12,6 +13,9 @@ export function newScriptKey(): string {
 }
 
 class AlvoPrompterDB extends Dexie {
+  videoProjects!: Table<Omit<VideoProject, 'blob'>, string>
+  videoSources!: Table<{ id: string; blob: Blob }, string>
+  videoVersions!: Table<Omit<VideoVersion, 'blob'>, string>
   scripts!: Table<Script, number>
   posts!: Table<ScheduledPost, number>
   workspaces!: Table<Workspace, number>
@@ -31,6 +35,27 @@ class AlvoPrompterDB extends Dexie {
       voiceProfiles: '++id, createdAt',
     })
     this.version(3).stores({ scripts: '++id, key, title, updatedAt' })
+    this.version(4).stores({ videoProjects: 'id, scope, scriptKey, updatedAt', videoVersions: 'id, projectId, scope, createdAt' })
+    this.version(5).stores({ videoSources: 'id' }).upgrade(async transaction => {
+      const projects = transaction.table('videoProjects')
+      for (const row of await projects.toArray()) {
+        if (row.blob) {
+          await transaction.table('videoSources').put({ id: row.id, blob: row.blob })
+          delete row.blob
+          await projects.put(row)
+        }
+      }
+    })
+    this.version(6).stores({}).upgrade(async transaction => {
+      const versions = transaction.table('videoVersions')
+      for (const row of await versions.toArray()) {
+        if (row.blob) {
+          await transaction.table('videoSources').put({ id: row.id, blob: row.blob })
+          delete row.blob
+          await versions.put(row)
+        }
+      }
+    })
   }
 }
 

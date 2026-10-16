@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-16",
+  "scope": "Local implementation; no deployment or store upload",
+  "automated": {
+    "tests": 235,
+    "files": 27,
+    "result": "passed",
+    "build": "passed",
+    "lint": "passed with pre-existing Fast Refresh warning in audit/prompter-flow-harness.tsx"
+  },
+  "browser": {
+    "environment": "Chrome 155/macOS, synthetic 8-second source",
+    "exact_range": "3–4 s produced selection of 1 s, with and without transcript",
+    "remove_interval": "Removing 2–4 s preserved 0–2 and 4–8 s",
+    "export_duration_seconds": 6.046633,
+    "undo_redo": "verified",
+    "filler_review": "Only ahn suggested; tipo de câmera preserved; reviewing left selection unchanged",
+    "remove_entire_video": "blocked and previous selection preserved",
+    "pause_composition": "Existing removal 6–8 remained excluded after applying suggestions; undo restored 0–6",
+    "preview": "Unmuted; observed jump from 1.784 to 4 seconds and automatic stop at 8",
+    "mobile_width": 390,
+    "mobile_content_width": 390
+  },
+  "limitations": [
+    "Speech timings remain estimates, not acoustic alignment.",
+    "Actual iPhone/Android audio routing and safe-area behavior require device testing.",
+    "Preview covers cuts and original audio, not export effects/music/captions.",
+    "Cut history is in memory for the current editor session."
+  ]
+}

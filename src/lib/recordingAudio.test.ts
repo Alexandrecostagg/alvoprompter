@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { setRecordingAudioMode } from './recordingAudio'
+import { prepareRecordedPlayback, setRecordingAudioMode } from './recordingAudio'
 
 afterEach(() => vi.unstubAllGlobals())
 describe('recording audio session', () => {
@@ -17,4 +17,18 @@ describe('recording audio session', () => {
     vi.stubGlobal('navigator', { audioSession: { set type(_value: string) { throw new Error('Unsupported') } } })
     expect(() => setRecordingAudioMode('play-and-record')).not.toThrow()
   })
+  it('reasserts playback after a system mode change on every play/resume', () => {
+    const session = { type: 'play-and-record' }
+    vi.stubGlobal('navigator', { audioSession: session })
+    prepareRecordedPlayback()
+    expect(session.type).toBe('playback')
+    session.type = 'auto'
+    prepareRecordedPlayback()
+    expect(session.type).toBe('playback')
+  })
+  it('does not break playback if reading the optional API throws', () => {
+    vi.stubGlobal('navigator', { get audioSession() { throw new Error('Unavailable') } })
+    expect(prepareRecordedPlayback).not.toThrow()
+  })
+
 })

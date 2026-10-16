@@ -4,6 +4,7 @@ import { estimateDurationMinutes, wordCount } from '../../lib/text'
 import { formatElapsed } from '../../hooks/useRecorder'
 import { IMPORTABLE_EXT, extractTextFromFile, extractTextFromUrl, fileNameFromImport } from '../../lib/importers'
 import { transcribeAudio } from '../../lib/cloudflare'
+import VideoProjects from './VideoProjects'
 import CreatorVisual from '../CreatorVisual'
 import type { Script } from '../../lib/types'
 
@@ -134,6 +135,7 @@ export default function ScriptLibrary() {
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8">
       <div className="studio-greeting"><div><p className="studio-eyebrow">SEU ESTÚDIO DE CRIAÇÃO</p><h1>Vamos dar vida à sua ideia?</h1></div><span className="studio-workspace">{useAppStore.getState().cloudWorkspace?.name ?? 'Espaço pessoal'}</span></div>
+      <VideoProjects />
       {currentScript?.content.trim() ? (
         <button onClick={() => setView('editor')} className="mb-5 flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left" style={{ borderColor: 'var(--border)', background: 'var(--accent-soft)' }}>
           <span className="min-w-0"><span className="block text-xs font-semibold" style={{ color: 'var(--brand-strong)' }}>Continuar de onde parou</span><strong className="mt-1 block truncate text-sm">{currentScript.title || 'Sem título'}</strong></span>

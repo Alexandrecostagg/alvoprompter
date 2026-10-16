@@ -95,3 +95,33 @@ describe('leaving the team screen for the personal space', () => {
     expect(rows[0]?.content).toBe('Meu primeiro texto')
   })
 })
+
+
+describe('recording recovery and account boundaries', () => {
+  it('saves a completed take before the editor is opened', async () => {
+    useAppStore.getState().setMediaOwner('alice')
+    useAppStore.getState().selectScript(makeScript())
+    useAppStore.getState().setRecording({ blob: new Blob(['take']), url: '', srt: null, utterances: [] })
+    await vi.waitFor(() => expect(useAppStore.getState().recordingSaveStatus).toBe('saved'))
+    const id = useAppStore.getState().recording!.project!.id
+    expect((await db.videoProjects.get(id))?.scriptKey).toBe(useAppStore.getState().currentScript?.key)
+    expect(await (await db.videoSources.get(id))!.blob.text()).toBe('take')
+    useAppStore.getState().setMediaOwner('bob')
+    expect(useAppStore.getState().recording).toBeNull()
+    expect(useAppStore.getState().view).toBe('library')
+    useAppStore.getState().setMediaOwner(null)
+  })
+  it('retains the in-memory take and exposes a retryable source-storage error', async () => {
+    const add = vi.spyOn(db.videoSources, 'add').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'))
+    useAppStore.getState().setRecording({ blob: new Blob(['take']), url: '', srt: null, utterances: [] })
+    await vi.waitFor(() => expect(useAppStore.getState().recordingSaveStatus).toBe('error'))
+    const take = useAppStore.getState().recording!
+    expect(await take.blob.text()).toBe('take')
+    expect(await db.videoProjects.get(take.project!.id)).toBeUndefined()
+    add.mockRestore()
+    useAppStore.getState().setRecording(take)
+    await vi.waitFor(() => expect(useAppStore.getState().recordingSaveStatus).toBe('saved'))
+    expect(useAppStore.getState().recording?.project?.id).toBe(take.project?.id)
+    useAppStore.getState().setRecording(null)
+  })
+})

@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-16",
+  "rea_version": "6.5.0",
+  "method": "Installed CLI, static inspection of public distributed JavaScript without authentication or target execution",
+  "mcp": "Not registered in this session; CLI usable without changing registration",
+  "evidence_ids": [
+    "ev_b9404e6558207c166c00c24bd38cbb51498894d5f33e2b992e7bc8247d10a811",
+    "ev_d4751e33dcfebfc9fc6cc007f3aa7c78628f3d62aef90548c6de28d4efd6a048",
+    "ev_c2449bd404fdff0e17f755ab0deee0cb728018fda0bfbbbc26e28b0ea217134d"
+  ],
+  "coverage": "Five sources parsed in three analyses including composer. Graph and semantic coverage remain partial; imported dependencies unresolved and resource limits apply. No full-product reconstruction.",
+  "findings": [
+    {
+      "id": "REA-01",
+      "finding": "Separação de etapas em módulos carregados sob demanda",
+      "evidence": "ev_b9404e6558207c166c00c24bd38cbb51498894d5f33e2b992e7bc8247d10a811",
+      "file": "main-M3ME7NIH.js",
+      "basis": "Declarações path e loadChildren para script-story, composer, export-video e wordtrim.",
+      "classification": "Observação estática",
+      "implication": "Separar roteiro, tomadas, edição e resultado mantendo o vínculo do projeto. Não implica recuperar a arquitetura privada do servidor."
+    },
+    {
+      "id": "REA-02",
+      "finding": "Salvamento automático com callbacks e indicação de estado",
+      "evidence": "ev_d4751e33dcfebfc9fc6cc007f3aa7c78628f3d62aef90548c6de28d4efd6a048",
+      "file": "chunk-3AEJVXTI.js",
+      "anchor": "this.setAutosaveTimer=; shouldAutosaveScript()",
+      "basis": "Timer com padrão de 30 segundos, fila de callbacks sem duplicação e estados isSaving/successfullySaved. A decisão de salvar depende da existência do projeto e de título/texto.",
+      "classification": "Observação estática; execução exata do timer não medida",
+      "implication": "Dar feedback de salvamento e retomar projeto com estado coerente. O intervalo observado não é recomendação para copiar."
+    },
+    {
+      "id": "REA-03",
+      "finding": "Edição por palavras e pausas com estado e histórico",
+      "evidence": "ev_d4751e33dcfebfc9fc6cc007f3aa7c78628f3d62aef90548c6de28d4efd6a048",
+      "file": "chunk-IPJLRPI7.js",
+      "anchor": "loadSegmentation; editorState.initializeWords; historyService.setInitialState",
+      "basis": "Carrega segmentação, palavras e fillerWords, inicializa detecção de lacunas e estado inicial do histórico.",
+      "classification": "Observação estática",
+      "implication": "No AlvoPrompter já existe corte por texto, mas timings são estimados em src/lib/cuts.ts:23. Priorizar timestamps reais por palavra e revisão antes de aplicar cortes. A precisão da segmentação do BIGVU não foi medida."
+    },
+    {
+      "id": "REA-04",
+      "finding": "Cortes geram uma solicitação assíncrona de vídeo",
+      "evidence": "ev_d4751e33dcfebfc9fc6cc007f3aa7c78628f3d62aef90548c6de28d4efd6a048",
+      "file": "chunk-IPJLRPI7.js",
+      "anchor": "onSave(); requestsService.generateV2Video; websocketService.connect",
+      "basis": "Monta ranges em milissegundos e aspectRatio, solicita geração, conecta WebSocket e navega de volta às tomadas, com estados de erro/crédito.",
+      "classification": "Observação do cliente; processamento remoto é inferência",
+      "implication": "AlvoPrompter renderiza com canvas.captureStream e MediaRecorder em src/lib/video/render.ts:401. Avaliar job remoto ou motor nativo com progresso e retomada para reduzir dependência do navegador, sem afirmar superioridade antes de testes."
+    },
+    {
+      "id": "LOCAL-01",
+      "finding": "Remover vícios de fala hoje pode descartar um segmento inteiro",
+      "evidence": "Leitura direta do repositório AlvoPrompter, não produzida por REA",
+      "file": "src/components/editor/VideoEditor.tsx",
+      "anchor": "selectFillers, linha 241",
+      "basis": "O código marca o segmento inteiro para remoção se findFillers encontrar um vício em seu texto.",
+      "classification": "Observação estática do nosso código",
+      "implication": "Prioridade alta: selecionar apenas palavras com timestamps precisos, preservar o restante da frase e oferecer prévia/desfazer. Ainda não alteramos implementação."
+    },
+    {
+      "id": "REA-05",
+      "finding": "Composer contém histórico e separa salvamento de geração",
+      "evidence": "ev_c2449bd404fdff0e17f755ab0deee0cb728018fda0bfbbbc26e28b0ea217134d",
+      "file": "chunk-J75K6YOM.js",
+      "anchor": "undo(); redo(); projectAutoSaveInterval(); saveAndGenerateVideo(e,n)",
+      "classification": "Observação estática; fluxo não exercitado nesta conta",
+      "basis": "Histórico global com posição e cópias do estado. Autosave chama saveAndGenerateVideo(false); geração usa caminho distinto e tratamento de créditos.",
+      "implication": "Priorizar prévia, desfazer/refazer e rascunho recuperável no nosso editor; não comprova precisão ou desempenho do BIGVU."
+    }
+  ],
+  "unresolved": [
+    "Native Android/iOS implementation: no local package analyzed and engines not configured",
+    "Private server implementation and model/provider choices",
+    "Paid feature runtime quality and actual output",
+    "Authenticated passive network capture via REA not performed"
+  ],
+  "local_runtime_evidence": [
+    "../cuts-probe-results.json",
+    "../benchmark/browser-results.json",
+    "../benchmark/media-results.json"
+  ]
+}
