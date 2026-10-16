@@ -421,11 +421,11 @@ async function handleWebhook(request: Request, env: SaaSEnv, db: D1Database, ret
     const externalReference = event.subscription.externalReference
     const linkedSubscription = await db.prepare("SELECT user_id FROM subscriptions WHERE asaas_subscription_id = ? AND provider = 'asaas'")
       .bind(event.subscription.id).first<{ user_id: string }>()
+    // The merchant account may serve other apps. A customer alone cannot identify
+    // this app's subscription; require its own paid checkout or an exact link.
     const checkout = linkedSubscription ?? (externalReference
-      ? await db.prepare('SELECT user_id, plan FROM checkout_sessions WHERE id = ? LIMIT 1').bind(externalReference).first<{ user_id: string; plan: SaaSPlan }>()
-      : event.subscription.customer
-        ? await db.prepare(`SELECT user_id, plan FROM checkout_sessions WHERE asaas_customer_id = ? AND status = 'paid' ORDER BY updated_at DESC LIMIT 1`).bind(event.subscription.customer).first<{ user_id: string; plan: SaaSPlan }>()
-        : null)
+      ? await db.prepare("SELECT user_id, plan FROM checkout_sessions WHERE id = ? AND status = 'paid' LIMIT 1").bind(externalReference).first<{ user_id: string; plan: SaaSPlan }>()
+      : null)
     if (!checkout) return defer()
     const activeSubscription = await db.prepare("SELECT id FROM subscriptions WHERE user_id = ? AND provider = 'asaas' AND (asaas_subscription_id IS NULL OR asaas_subscription_id = ?)")
       .bind(checkout.user_id, event.subscription.id).first()

@@ -74,7 +74,7 @@ describe('payment recovery and authorization', () => {
     const { env, sqlite } = setup()
     const early = new Request('https://test.invalid/webhooks/asaas', {
       method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
-      body: JSON.stringify({ id: 'early-sub', event: 'SUBSCRIPTION_CREATED', subscription: { id: 'sub-1', customer: 'cus-1' } }),
+      body: JSON.stringify({ id: 'early-sub', event: 'SUBSCRIPTION_CREATED', subscription: { id: 'sub-1', customer: 'cus-1', externalReference: 'local' } }),
     })
     expect((await handleSaaSRequest(early, env))?.status).toBe(200)
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(1)
@@ -85,6 +85,22 @@ describe('payment recovery and authorization', () => {
     expect((await handleSaaSRequest(paid, env))?.status).toBe(200)
     expect(sqlite.prepare('SELECT asaas_subscription_id FROM subscriptions').get()?.asaas_subscription_id).toBe('sub-1')
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM pending_webhook_events').get()?.n).toBe(0)
+  })
+  it.each(['shared-customer', 'unpaid-reference'])('does not bind a subscription using %s', async (scenario) => {
+    const { env, sqlite } = setup()
+    await handleSaaSRequest(eventRequest(), env)
+    sqlite.exec("UPDATE subscriptions SET asaas_subscription_id = NULL; UPDATE checkout_sessions SET asaas_customer_id = 'shared-customer'")
+    if (scenario === 'unpaid-reference') sqlite.exec("UPDATE checkout_sessions SET status = 'pending'")
+    const before = sqlite.prepare('SELECT * FROM subscriptions').get()
+    const result = await handleSaaSRequest(new Request('https://test.invalid/webhooks/asaas', {
+      method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
+      body: JSON.stringify({ id: 'foreign-sub', event: 'SUBSCRIPTION_CREATED', subscription: {
+        id: 'other-app-subscription', customer: 'shared-customer',
+        ...(scenario === 'unpaid-reference' ? { externalReference: 'local' } : {}),
+      } }),
+    }), env)
+    expect(await result?.json()).toEqual({ ok: true, deferred: true })
+    expect(sqlite.prepare('SELECT * FROM subscriptions').get()).toEqual(before)
   })
   it('links real checkout events without customer IDs through the payment checkoutSession', async () => {
     const { env, sqlite } = setup()
@@ -146,7 +162,7 @@ describe('payment recovery and authorization', () => {
     }
     const early = new Request('https://test.invalid/webhooks/asaas', {
       method: 'POST', headers: { 'asaas-access-token': 'audit-only' },
-      body: JSON.stringify({ id: 'new-sub', event: 'SUBSCRIPTION_CREATED', subscription: { id: 'sub-1', customer: 'cus-1' } }),
+      body: JSON.stringify({ id: 'new-sub', event: 'SUBSCRIPTION_CREATED', subscription: { id: 'sub-1', customer: 'cus-1', externalReference: 'local' } }),
     })
     await handleSaaSRequest(early, env)
     const paid = new Request('https://test.invalid/webhooks/asaas', {

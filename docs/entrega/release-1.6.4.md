@@ -14,8 +14,8 @@ Tomadas, original, edição, histórico e versões exportadas recuperáveis por 
 
 ## Validação
 
-- 269 testes em 31 arquivos aprovados; tipagem do app/Workers, build web, sincronização nativa, Gradle e archive Xcode aprovados.
-- Scanner de segredos: 398 arquivos examinados sem correspondências privadas nos padrões utilizados. Chaves locais e pacotes gerados ignorados no Git.
+- 271 testes em 31 arquivos aprovados; tipagem do app/Workers, build web, sincronização nativa, Gradle e archive Xcode aprovados.
+- Scanner de segredos: 399 arquivos examinados sem correspondências privadas nos padrões utilizados. Chaves locais e pacotes gerados ignorados no Git.
 - Lint mantém um aviso anterior de Fast Refresh no harness local da gravação.
 - Testes práticos no navegador: recuperar cortes/configurações/versões após reabrir; armazenamento cheio e nova tentativa; lixeira/restauração; exportação/cancelamento/repetição, incluindo arquivo de 60 s; composição com legendas, logo, abertura e trilha.
 - Chamadas reais com as chaves existentes: texto Gemini e Groq, voz Gemini e transcrição Groq, HTTP 200. Teste de transcrição usou áudio sintético em português e preservou as 15 palavras retornadas.
@@ -38,7 +38,7 @@ Tomadas, original, edição, histórico e versões exportadas recuperáveis por 
 - Bundle `com.alvoprompt.app`, versão `1.6.4`, build `22`, confirmados no arquivo e no upload.
 - Envio realizado pela interface do **Xcode**, método **TestFlight Internal Only**. Xcode confirmou **App 1.6.4 (22) uploaded**, com conclusão registrada em 16/10 às 11h03, horário de Belém.
 - Comprovante: `artifacts/ios-upload-1.6.4-22.png`. Logs de distribuição do Xcode em `App_2026-10-16_10-53-16.275.xcdistributionlogs`, diretório temporário do usuário; não versionar logs que possam conter dados de autenticação.
-- **Pendente:** confirmar processamento e atribuição ao grupo **Equipe AlvoPrompter**. App Store Connect pediu login; a tela inicialmente ficou vazia e depois apresentou o formulário. Sessão solicitada ao titular na aba Chrome. Upload concluído não equivale à liberação ao grupo.
+- App Store Connect confirmou processamento e inclusão no grupo interno **Equipe AlvoPrompter**, com status **Em testes**, 1 tester e validade de 90 dias. Evidência: `artifacts/ios-1.6.4-22-testing.png`.
 
 ## Asaas real — pendência retomada
 
@@ -46,7 +46,10 @@ Tomadas, original, edição, histórico e versões exportadas recuperáveis por 
 - Nomes dos segredos confirmados no Worker, sem ler valores: `ASAAS_PRODUCTION_API_KEY` e `ASAAS_WEBHOOK_TOKEN` presentes; `ASAAS_API_KEY` sandbox ausente no Worker principal.
 - Registro anterior confirma checkout sandbox pago, plano ativado, assinatura/cliente vinculados e zero eventos pendentes no ambiente isolado de testes. Não repetir uma cobrança real para diagnosticar configuração.
 - Ainda conferir na conta Asaas: aptidão para recebimentos e webhook de produção em `https://alvoprompt-api.alexandrecostagg.workers.dev/webhooks/asaas`, com autenticação correspondente ao segredo e eventos suportados pelo código.
-- Aba Asaas aberta no navegador integrado; login solicitado ao titular. Sem alteração do ambiente de cobrança e sem cobrança real nesta entrega.
+- Sessão autenticada pelo titular; situação cadastral geral, dados e documentos **Aprovados**. Não existia webhook AlvoPrompter. Formulário exclusivo preparado com API v3, envio não sequencial e 11 eventos suportados; aguarda entrada/salvamento do token pelo titular. Ambiente real ainda não ativado; sem cobrança real.
+- Revisão removeu associação de `SUBSCRIPTION_CREATED` apenas pelo cliente compartilhado: exige assinatura exata ou referência de checkout próprio pago. Dois testes de regressão adicionados; fluxo real por `payment.checkoutSession` continua aprovado.
+- Token de webhook preparado em arquivo local ignorado `.dev.vars.asaas-production`, com permissão 600, e sincronizado no Worker principal. Verificação com mensagem vazia: token correto HTTP 400 (evento inválido, sem gravação), incorreto HTTP 401. Nenhum dado financeiro enviado. Evidência: `artifacts/asaas-auth-check-20261016.json`.
+- Correção do backend publicada com `--keep-vars`, versão `bfa56e2f-daaa-47a0-9f39-b7f55b6ffc04` antes da atualização do segredo. Sem nova versão de aplicativo necessária. Health mantém sandbox e cobrança desativada até o webhook ser salvo pelo titular.
 - Preços atuais preservados: Criador R$ 29,90/mês; Studio R$ 79,90/mês. Asaas na web; iOS usa StoreKit; Android ainda sem compra no app.
 
 ## Pendências de homologação
