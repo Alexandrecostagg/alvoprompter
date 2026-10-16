@@ -58,5 +58,13 @@
     "Alto-falante, Bluetooth, teclado/áreas seguras nativos e exportação longa em aparelhos pendentes.",
     "Transcrição real testada com módulo do servidor e áudio sintético; nova implementação ainda não publicada nem validada no app autenticado.",
     "Comparação de exportação BIGVU bloqueada por paywall na conta atual."
-  ]
+  ],
+  "distributionUpdate": {
+    "recordedAt": "2026-10-16T14:22:57.400333+00:00",
+    "web": "https://6936065f.alvoprompter.pages.dev",
+    "apiRelease": "1.6.4-editor-20261016",
+    "android": "1.6.4 (22) sent for closed-test review",
+    "ios": "1.6.4 (22) uploaded by Xcode; TestFlight group assignment unconfirmed",
+    "billing": "Asaas production setup pending; sandbox retained"
+  }
 }
