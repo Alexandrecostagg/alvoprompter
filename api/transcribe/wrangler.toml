@@ -21,7 +21,7 @@ id = "7f2df53777804be2aefce83dd26e3945"
 # Publicar: npx wrangler deploy
 # Origens autorizadas. Adicione o domínio público real antes do deploy.
 [vars]
-RELEASE = "1.6.4-editor-20261016"
+RELEASE = "1.6.4-billing-production-20261016"
 # Texto: Gemini primeiro; Groq assume em falhas antes de entregar conteúdo.
 # GEMINI_API_KEY e GROQ_API_KEY devem ser cadastradas como secrets.
 GEMINI_MODEL = "gemini-3.5-flash-lite"
@@ -32,7 +32,7 @@ GEMINI_TTS_VOICE = "Kore"
 CORS_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost,https://localhost,https://alvoprompter.com.br,https://www.alvoprompter.com.br,https://app.alvoprompter.com.br"
 FIREBASE_PROJECT_ID = "alvoprompt"
 APP_URL = "https://app.alvoprompter.com.br"
-ASAAS_API_BASE = "https://api-sandbox.asaas.com/v3"
+ASAAS_API_BASE = "https://api.asaas.com/v3"
 
 # Banco de contas, assinaturas e RBAC.
 [[d1_databases]]

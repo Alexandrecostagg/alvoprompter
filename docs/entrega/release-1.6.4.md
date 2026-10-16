@@ -4,9 +4,9 @@
 
 - Commit funcional: `cdc5697378c7bcdfefaea369eae4dc4f8049e591`, enviado a `origin/main`.
 - App web publicado: https://6936065f.alvoprompter.pages.dev, produção https://app.alvoprompter.com.br.
-- API: release `1.6.4-editor-20261016`, versão Worker `6964343f-b1ee-43a8-b761-9192cbcc0f04`.
+- API atual: release `1.6.4-billing-production-20261016`, versão Worker `c310e8ea-7cc9-4765-b177-81ba15359847`. Deploy inicial do editor: `6964343f-b1ee-43a8-b761-9192cbcc0f04`.
 - Política de privacidade: Worker `cbea0f3c-07c3-4ec5-9508-316023df6c5a`, https://alvoprompt-privacy.alexandrecostagg.workers.dev. Atualizada para transcrição Groq/Cloudflare e armazenamento local de tomadas/edições.
-- Deploys com `--keep-vars`; sem renovação ou exposição de segredos. Asaas continua em sandbox. Não foram alterados preços ou participantes de teste.
+- Deploys com `--keep-vars`; sem exposição de segredos. Token exclusivo do webhook Asaas sincronizado pelo arquivo local ignorado e salvo no painel pelo titular. Asaas configurado em produção; preços e participantes de teste preservados.
 
 ## Melhorias
 
@@ -40,17 +40,16 @@ Tomadas, original, edição, histórico e versões exportadas recuperáveis por 
 - Comprovante: `artifacts/ios-upload-1.6.4-22.png`. Logs de distribuição do Xcode em `App_2026-10-16_10-53-16.275.xcdistributionlogs`, diretório temporário do usuário; não versionar logs que possam conter dados de autenticação.
 - App Store Connect confirmou processamento e inclusão no grupo interno **Equipe AlvoPrompter**, com status **Em testes**, 1 tester e validade de 90 dias. Evidência: `artifacts/ios-1.6.4-22-testing.png`.
 
-## Asaas real — pendência retomada
+## Asaas real — configuração ativada
 
-- Health atual: `billing.configured=false`, `billing.sandbox=true`.
-- Nomes dos segredos confirmados no Worker, sem ler valores: `ASAAS_PRODUCTION_API_KEY` e `ASAAS_WEBHOOK_TOKEN` presentes; `ASAAS_API_KEY` sandbox ausente no Worker principal.
-- Registro anterior confirma checkout sandbox pago, plano ativado, assinatura/cliente vinculados e zero eventos pendentes no ambiente isolado de testes. Não repetir uma cobrança real para diagnosticar configuração.
-- Ainda conferir na conta Asaas: aptidão para recebimentos e webhook de produção em `https://alvoprompt-api.alexandrecostagg.workers.dev/webhooks/asaas`, com autenticação correspondente ao segredo e eventos suportados pelo código.
-- Sessão autenticada pelo titular; situação cadastral geral, dados e documentos **Aprovados**. Não existia webhook AlvoPrompter. Formulário exclusivo preparado com API v3, envio não sequencial e 11 eventos suportados; aguarda entrada/salvamento do token pelo titular. Ambiente real ainda não ativado; sem cobrança real.
-- Revisão removeu associação de `SUBSCRIPTION_CREATED` apenas pelo cliente compartilhado: exige assinatura exata ou referência de checkout próprio pago. Dois testes de regressão adicionados; fluxo real por `payment.checkoutSession` continua aprovado.
-- Token de webhook preparado em arquivo local ignorado `.dev.vars.asaas-production`, com permissão 600, e sincronizado no Worker principal. Verificação com mensagem vazia: token correto HTTP 400 (evento inválido, sem gravação), incorreto HTTP 401. Nenhum dado financeiro enviado. Evidência: `artifacts/asaas-auth-check-20261016.json`.
-- Correção do backend publicada com `--keep-vars`, versão `bfa56e2f-daaa-47a0-9f39-b7f55b6ffc04` antes da atualização do segredo. Sem nova versão de aplicativo necessária. Health mantém sandbox e cobrança desativada até o webhook ser salvo pelo titular.
-- Preços atuais preservados: Criador R$ 29,90/mês; Studio R$ 79,90/mês. Asaas na web; iOS usa StoreKit; Android ainda sem compra no app.
+- Titular confirmou salvamento do webhook. Painel conferido: **AlvoPrompter – Produção**, ativo, fila ativa, API v3, envio não sequencial, token mascarado e zero eventos penalizados. Conta com situação cadastral geral aprovada. Outros webhooks preservados.
+- Destino: `https://alvoprompt-api.alexandrecostagg.workers.dev/webhooks/asaas`. Eventos selecionados e persistidos: `CHECKOUT_PAID`, `CHECKOUT_CANCELED`, `CHECKOUT_EXPIRED`, `SUBSCRIPTION_CREATED`, `SUBSCRIPTION_INACTIVATED`, `SUBSCRIPTION_DELETED`, `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED`, `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED`, `PAYMENT_CHARGEBACK_REQUESTED`.
+- `ASAAS_API_BASE=https://api.asaas.com/v3`, selecionando o segredo `ASAAS_PRODUCTION_API_KEY` já cadastrado. Worker publicado com `--keep-vars`: `c310e8ea-7cc9-4765-b177-81ba15359847`.
+- Verificação após deploy: health HTTP 200, release `1.6.4-billing-production-20261016`, `billing.configured=true`, `billing.sandbox=false`. Mensagem vazia com token correto HTTP 400 (sem registro financeiro), token incorreto HTTP 401; checkout sem autenticação HTTP 401. Evidência: `artifacts/asaas-production-verification-20261016.json` e `artifacts/asaas-production-active-20261016.png`.
+- Credencial local: `.dev.vars.asaas-production`, ignorada pelo Git e com permissão 600. Não versionar nem compartilhar valores.
+- Isolamento corrigido no commit `3c176db`: `SUBSCRIPTION_CREATED` exige assinatura exata ou referência de checkout próprio pago; cliente compartilhado não basta. Fluxo legítimo por `payment.checkoutSession` preservado. 271 testes completos aprovados; revalidação de cobrança/checkout com 35 testes, TypeScript Worker e scanner de 399 arquivos aprovados após a troca de configuração.
+- Checkout pago e conciliação já verificados no ambiente sandbox isolado em 5/10. Não foi criado checkout, pagamento ou assinatura real neste passo. O indicador de configuração confirma ambiente/segredos presentes; validade da chave perante o Asaas e um pagamento de ponta a ponta em produção ainda não foram exercitados. Primeiro pagamento real deve ser concluído pelo titular/cliente e conciliado com o webhook.
+- Preços preservados: Criador R$ 29,90/mês; Studio R$ 79,90/mês. Asaas na web; iOS usa StoreKit; Android ainda sem compra no app. Alteração somente no servidor, sem necessidade de reenviar build 22.
 
 ## Pendências de homologação
 
