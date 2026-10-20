@@ -42,7 +42,7 @@ export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { reques
             </div>
             <button onClick={() => openAuth('signup')} className="studio-primary">Começar grátis <span aria-hidden="true">→</span></button>
             <button onClick={onContinueLocal} className="entry-local">Explorar sem conta</button>
-            <p className="entry-footnote">Sem conta, os roteiros ficam só neste aparelho.</p>
+            <p className="entry-footnote">Sem conta: escreva, ensaie e grave neste aparelho. IA e nuvem exigem conta com e-mail confirmado.</p>
           </div>
         ) : (
           <div className="entry-content entry-form">
@@ -50,7 +50,7 @@ export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { reques
             {requestedPlan && <p className="entry-plan">Plano escolhido: {PLANS[requestedPlan].name}</p>}
             <div className="mt-5"><AuthForm mode={step} onModeChange={setStep} onRecoveryChange={setRecovering} /></div>
             <button onClick={onContinueLocal} className="entry-local">Continuar sem conta</button>
-            <p className="entry-footnote">Roteiros neste aparelho, sem backup na nuvem.</p>
+            <p className="entry-footnote">Roteiros e gravações locais. Crie uma conta e confirme o e-mail para usar IA e nuvem.</p>
           </div>
         )}
       </section>

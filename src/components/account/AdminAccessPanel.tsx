@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { accountFetch } from '../../lib/saas'
 import { PLANS } from '../../lib/plans'
+import AdminAppPolicy from './AdminAppPolicy'
 
 interface AdminUser {
   id: string; name: string; email: string; requestedPlan: 'creator' | 'studio' | null; requestStatus: string | null;
@@ -50,6 +51,7 @@ export default function AdminAccessPanel({ request = accountFetch }: { request?:
     {message ? <p role="status" className="rounded-xl border p-3 text-sm">{message}</p> : null}
     {error ? <p role="alert" className="rounded-xl border p-3 text-sm" style={{ color: 'var(--danger)' }}>{error}</p> : null}
     {data ? <>
+      <AdminAppPolicy request={request} />
       <div className="flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm"><span>{data.unread} aviso(s) não lido(s)</span><span>E-mail: {data.emailConfigured ? 'configurado' : 'configuração pendente'}</span><span>Agendamento: {data.timersConfigured ? 'ativo' : 'indisponível'}</span><button className={button} disabled={busy || !data.emailConfigured} onClick={() => void run(async () => { await request('/admin/email-test', { method: 'POST' }); setMessage('Teste agendado para o e-mail administrativo. Confira a entrega.'); await load() })}>Testar meu e-mail</button></div>
       <div className="space-y-2"><button className={button} disabled={busy} onClick={() => void run(async () => { const result = await request<{ credentialAccepted?: boolean; providerStatus?: string; providerHttpStatus?: number; configured: boolean; sandbox: boolean; pendingEvents?: number; failedCheckouts?: number }>('/admin/billing-status'); setBillingStatus(!result.configured ? 'Cobrança não configurada.' : `${result.sandbox ? 'Sandbox' : 'Produção'} · ${result.credentialAccepted ? 'Credencial aceita pelo Asaas' : `Verificação recusada (HTTP ${result.providerHttpStatus})`} · Conta: ${result.providerStatus ?? 'não informado'} · Eventos sem conciliação: ${result.pendingEvents ?? 0} · Falhas de checkout: ${result.failedCheckouts ?? 0}. Esta consulta não cria cobrança.`) })}>Verificar conexão Asaas sem cobrar</button>{billingStatus ? <p role="status" className="text-sm leading-relaxed">{billingStatus}</p> : null}</div>
       <form className="flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); void run(() => load()) }}><label className="min-w-0 flex-1 text-sm font-semibold">Buscar pessoa por nome ou e-mail<input className={`${field} mt-1`} value={query} onChange={e => setQuery(e.target.value)} placeholder="Nome ou e-mail cadastrado" /></label><button className={button} disabled={busy}>Buscar usuários</button></form>

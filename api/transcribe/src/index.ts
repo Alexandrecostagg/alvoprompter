@@ -1,5 +1,6 @@
 import { adminEmailConfigured, reviewGrant, sendAdminEmail, type BillingMessage } from './adminAccess'
 import { transcribeWithTimestamps } from './transcription'
+import { publicAppPolicy } from './appPolicy'
 import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits } from './security'
 import { billingAvailability } from './billing'
 import { appleBillingConfigured } from './appleBilling'
@@ -406,7 +407,7 @@ const api = {
     if (!allowedOrigin(request, env)) return json({ error: 'Origem não autorizada.' }, 403)
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS })
     const url = new URL(request.url)
-
+    if (url.pathname === '/app-policy' && request.method === 'GET') return publicAppPolicy(request, env.DB)
 
     const saasResponse = await handleSaaSRequest(request, env as Env & SaaSEnv)
     if (saasResponse) return saasResponse
@@ -864,7 +865,11 @@ export default {
       }
       let uid: string | undefined
       if (protectedPath) {
-        try { uid = (await requireUser(request, env)).uid }
+        try {
+          const user = await requireUser(request, env)
+          if (!user.emailVerified) return finish(json({ error: 'Confirme seu e-mail na sua conta para usar funções na nuvem.', code: 'EMAIL_VERIFICATION_REQUIRED' }, 403))
+          uid = user.uid
+        }
         catch { return finish(json({ error: 'Entre novamente na sua conta para continuar.' }, 401)) }
         if (!await takeRateLimit(env.DB!, `user:${uid}`, 120)) return finish(json({ error: 'Muitas solicitações. Aguarde um minuto.' }, 429))
       }

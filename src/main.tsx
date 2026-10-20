@@ -4,6 +4,7 @@ import { Capacitor } from '@capacitor/core'
 import './index.css'
 import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary'
+import NativeUpdateGate from './components/NativeUpdateGate'
 
 async function retireLegacyNativePwa(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
@@ -26,7 +27,7 @@ void retireLegacyNativePwa()
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <NativeUpdateGate><App /></NativeUpdateGate>
     </ErrorBoundary>
   </StrictMode>,
 )

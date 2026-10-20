@@ -250,7 +250,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
         {user && account ? <ProfileForm key={user.uid} profile={account.profile} defaultName={user.displayName ?? account.user.name} onSaved={refreshAccount} /> : null}
 
         {user && !user.emailVerified ? <div className="mt-5 rounded-2xl border p-4">
-          <p className="account-copy text-sm leading-relaxed">Confirme seu e-mail para aceitar convites de equipe e assinar um plano.</p>
+          <p className="account-copy text-sm leading-relaxed">Confirme seu e-mail para usar IA, nuvem, convites de equipe e assinaturas. Você pode continuar escrevendo e gravando neste aparelho.</p>
           <div className="mt-3 flex flex-wrap gap-3">
             <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => void resendVerification().then(() => setMessage({kind:'ok',text:'Enviamos um novo link de confirmação.'})).catch((error) => setMessage({kind:'error',text:friendlyAuthError(error)}))}>Reenviar confirmação</button>
             <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => void refreshVerifiedUser().then(async (verified) => { await refreshAccount(); setMessage({kind:verified?'ok':'error',text:verified?'E-mail confirmado.':'Abra o link enviado ao seu e-mail e tente novamente.'}) }).catch((error) => setMessage({kind:'error',text:friendlyAuthError(error)}))}>Já confirmei meu e-mail</button>

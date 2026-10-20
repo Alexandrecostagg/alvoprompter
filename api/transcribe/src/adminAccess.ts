@@ -1,5 +1,6 @@
 import type { SaaSEnv, SaaSPlan, AuthUser } from './saas'
 import { asaasHeaders, billingAvailability } from './billing'
+import { adminAppPolicy } from './appPolicy'
 
 export type BillingMessage = { id: string } | { kind: 'access-review'; userId: string; revision: string } | { kind: 'admin-email'; notificationId: string }
 export interface AccessGrant { user_id: string; plan: Exclude<SaaSPlan, 'free'>; status: 'active' | 'revoked'; expires_at: string; revision: string; reason: string; actor_id: string; updated_at: string; timer_status: string }
@@ -105,6 +106,7 @@ async function recoverNotices(env: SaaSEnv) {
 export async function adminRoute(request: Request, env: SaaSEnv, actor: AuthUser): Promise<Response> {
   if (!isPlatformAdmin(env, actor)) return json({ error: 'Acesso restrito à administração do aplicativo.' }, 403)
   const db = env.DB!, url = new URL(request.url), path = url.pathname
+  if (path === '/admin/app-policy') return adminAppPolicy(request, db, actor.uid)
   if (path === '/admin/overview' && request.method === 'GET') {
     await recoverNotices(env)
     const query = text(url.searchParams.get('q'), 100), cursor = text(url.searchParams.get('cursor'), 128)

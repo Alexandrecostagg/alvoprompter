@@ -550,6 +550,7 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     const user = await authenticate(request, env)
     await syncUser(db, user)
     if (url.pathname.startsWith('/admin/')) return await adminRoute(request, env, user)
+    if (url.pathname.startsWith('/account/workspaces') && !user.emailVerified) return responseJson({ error: 'Confirme seu e-mail na sua conta para usar funções na nuvem.', code: 'EMAIL_VERIFICATION_REQUIRED' }, 403)
     if (url.pathname === '/account/access-request' && request.method === 'POST') return await requestAccess(request, env, user)
     if (url.pathname === '/billing/apple/session' && request.method === 'GET') {
       if (!user.emailVerified) return responseJson({ error: 'Confirme seu e-mail antes de assinar.' }, 403)
@@ -633,6 +634,7 @@ export async function authorizeAiAction(request: Request, env: SaaSEnv, onCharge
   try {
     const user = await authenticate(request, env)
     const db = requireDb(env)
+    if (!user.emailVerified) return responseJson({ error: 'Confirme seu e-mail na sua conta para usar a IA.', code: 'EMAIL_VERIFICATION_REQUIRED' }, 403)
     await syncUser(db, user)
     const { plan } = await effectivePlan(db, user.uid)
     const limit = PLAN_CONFIG[plan].aiActionsMonthly
