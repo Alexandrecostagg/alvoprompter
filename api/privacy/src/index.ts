@@ -41,7 +41,7 @@ const HTML = `<!DOCTYPE html>
 <body>
 <main>
   <h1>Política de Privacidade — AlvoPrompter</h1>
-  <p class="muted">Última atualização: 16 de outubro de 2026</p>
+  <p class="muted">Última atualização: 20 de outubro de 2026</p>
 
   <p>Esta Política de Privacidade descreve como o aplicativo <strong>AlvoPrompter</strong> ("nós", "nosso" ou "aplicativo"), desenvolvido por Alexandre Costa, trata informações quando você utiliza o aplicativo na web, Android ou iOS.</p>
 
@@ -89,6 +89,9 @@ const HTML = `<!DOCTYPE html>
 
   <h2>8. Seus direitos</h2>
   <p>Você pode apagar seus roteiros, vídeos e dados locais a qualquer momento no próprio aplicativo. Pode também solicitar acesso, correção, portabilidade ou exclusão dos dados de conta, observadas as retenções legais e financeiras. Para exercer esses direitos, entre em contato pelo e-mail <a href="mailto:alexandrecostagg@gmail.com">alexandrecostagg@gmail.com</a>.</p>
+  <p>Para excluir sua conta no aplicativo, abra <strong>Conta e assinatura → Excluir minha conta</strong>, confira os espaços compartilhados afetados e confirme sua identidade. A exclusão remove a identidade de login, o perfil e os dados vinculados à conta que conseguimos identificar. Conteúdo de equipes pertencentes a outras pessoas permanece, sem o vínculo de autoria da conta excluída. Você pode optar também por apagar todos os arquivos locais deste aparelho; cópias exportadas ou compartilhadas fora do serviço não são removidas.</p>
+  <p>A solicitação é processada em segundo plano e pode ser acompanhada na mesma seção. Usamos temporariamente uma credencial de sessão cifrada para concluir a remoção da identidade; ela é apagada ao concluir essa etapa ou ao vencer. Se a confirmação expirar durante uma falha, será necessário confirmar a identidade novamente. Mantemos um identificador derivado da conta, sem nome ou e-mail, para impedir que sessões antigas recriem a conta e concluir tentativas de limpeza. Dados do sync legado que não possam ser associados à conta expiram em até 90 dias, conforme a seção 7; entre em contato para solicitar ajuda com esses dados.</p>
+  <p>A renovação de assinatura pelo Asaas é cancelada antes da exclusão. <strong>Excluir a conta não cancela uma assinatura da App Store:</strong> gerencie e cancele a renovação nos ajustes de assinaturas da Apple. Os provedores de pagamento podem conservar seus próprios registros conforme suas obrigações legais.</p>
 
   <h2>9. Menores de idade</h2>
   <p>O aplicativo é destinado a maiores de 18 anos e não é dirigido a crianças. Não coletamos intencionalmente informações de menores de idade.</p>

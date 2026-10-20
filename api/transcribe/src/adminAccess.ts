@@ -2,7 +2,7 @@ import type { SaaSEnv, SaaSPlan, AuthUser } from './saas'
 import { asaasHeaders, billingAvailability } from './billing'
 import { adminAppPolicy } from './appPolicy'
 
-export type BillingMessage = { id: string } | { kind: 'access-review'; userId: string; revision: string } | { kind: 'admin-email'; notificationId: string }
+export type BillingMessage = { id: string } | { kind: 'access-review'; userId: string; revision: string } | { kind: 'admin-email'; notificationId: string } | { kind: 'account-delete'; deletionId: string }
 export interface AccessGrant { user_id: string; plan: Exclude<SaaSPlan, 'free'>; status: 'active' | 'revoked'; expires_at: string; revision: string; reason: string; actor_id: string; updated_at: string; timer_status: string }
 const DAY = 86_400_000
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })

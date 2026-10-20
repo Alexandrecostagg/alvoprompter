@@ -1,5 +1,6 @@
 import { accessSummary, adminRoute, grantIsActive, isPlatformAdmin, readGrant, requestAccess, type BillingMessage } from './adminAccess'
 import { readProfile, saveProfile } from './profile'
+import { deletionHash, deletionOverview, deletionStatus, startAccountDeletion, recoverAccountDeletions } from './accountDeletion'
 import { asaasApiKey, asaasHeaders, asaasFailureCode, billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
 import { APPLE_PRODUCTS, appleAccountToken, appleBillingConfigured, reconcileAppleSubscription, refreshAppleAccount } from './appleBilling'
@@ -15,6 +16,7 @@ export interface SaaSEnv {
   RESEND_API_KEY?: string
   ADMIN_EMAIL_FROM?: string
   ADMIN_NOTIFY_EMAIL?: string
+  ACCOUNT_DELETION_KEY?: string
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
   ASAAS_PRODUCTION_API_KEY?: string
@@ -31,6 +33,8 @@ export interface AuthUser {
   email: string
   name: string
   emailVerified: boolean
+  authTime?: number
+  tokenExpiresAt?: number
 }
 
 interface SubscriptionRow {
@@ -101,22 +105,27 @@ async function authenticate(request: Request, env: SaaSEnv): Promise<AuthUser> {
       issuer: `https://securetoken.google.com/${projectId}`,
     })
     if (!payload.sub || payload.sub.length > 128 || typeof payload.auth_time !== 'number' || !Number.isFinite(payload.auth_time) || payload.auth_time > Date.now() / 1000 || typeof payload.email !== 'string') throw new Error('Sessão sem identidade válida.')
+    const deletionPath = new URL(request.url).pathname === '/account/deletion' || (new URL(request.url).pathname === '/account' && request.method === 'DELETE')
+    if (env.DB && !deletionPath && await deletionStatus(env.DB, payload.sub)) throw new Error('Conta em exclusão.')
     return {
       uid: payload.sub,
       email: payload.email.toLowerCase(),
       name: typeof payload.name === 'string' ? payload.name : payload.email.split('@')[0]!,
       emailVerified: payload.email_verified === true,
+      authTime: payload.auth_time,
+      tokenExpiresAt: typeof payload.exp === 'number' ? payload.exp : undefined,
     }
   } catch { throw new Error('Sessão inválida ou expirada. Entre novamente.') }
 }
 
 async function syncUser(db: D1Database, user: AuthUser): Promise<void> {
   const now = new Date().toISOString()
-  await db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO users (id, email, name, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
+    SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM account_deletions WHERE uid_hash=?)
     ON CONFLICT(id) DO UPDATE SET email = excluded.email, name = excluded.name, updated_at = excluded.updated_at
-  `).bind(user.uid, user.email, user.name, now, now).run()
+  `).bind(user.uid, user.email, user.name, now, now, await deletionHash(user.uid)).run()
+  if (!result.meta.changes) throw new Error('Sessão encerrada. Conta em exclusão.')
   if (user.emailVerified) await db.prepare(`
     UPDATE workspace_members SET user_id = ?, accepted_at = ?, invited_name = COALESCE(invited_name, ?)
     WHERE user_id IS NULL AND lower(invited_email) = lower(?)
@@ -548,6 +557,9 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     const db = requireDb(env)
     if (url.pathname === '/webhooks/asaas' && request.method === 'POST') return await handleWebhook(request, env, db)
     const user = await authenticate(request, env)
+    if (url.pathname === '/account/deletion' && request.method === 'GET') return await deletionOverview(env, user)
+    if (url.pathname === '/account' && request.method === 'DELETE') return await startAccountDeletion(request, env, user)
+    if (request.method === 'GET' && (url.pathname === '/account' || url.pathname === '/admin/overview')) await recoverAccountDeletions(env).catch(() => undefined)
     await syncUser(db, user)
     if (url.pathname.startsWith('/admin/')) return await adminRoute(request, env, user)
     if (url.pathname.startsWith('/account/workspaces') && !user.emailVerified) return responseJson({ error: 'Confirme seu e-mail na sua conta para usar funções na nuvem.', code: 'EMAIL_VERIFICATION_REQUIRED' }, 403)

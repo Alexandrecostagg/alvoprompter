@@ -9,6 +9,10 @@ import {
   GoogleAuthProvider,
   getAdditionalUserInfo,
   OAuthProvider,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  revokeAccessToken,
   signInWithPopup,
   signInWithCredential,
   onAuthStateChanged,
@@ -124,6 +128,43 @@ export async function refreshVerifiedUser(): Promise<boolean> {
 }
 
 export type SocialProvider = 'google' | 'apple'
+
+export function deletionAuthMethod(user: User): 'password' | SocialProvider {
+  if (user.providerData.some(p => p.providerId === 'apple.com')) return 'apple'
+  if (user.providerData.some(p => p.providerId === 'password')) return 'password'
+  return 'google'
+}
+
+export async function reauthenticateForDeletion(password = ''): Promise<void> {
+  const instance = requireAuth(), user = instance.currentUser
+  if (!user) throw new Error('Entre na sua conta para continuar.')
+  const method = deletionAuthMethod(user)
+  if (method === 'password') {
+    if (!user.email || !password) throw new Error('Informe sua senha atual.')
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, password))
+  } else if (!Capacitor.isNativePlatform()) {
+    const result = await reauthenticateWithPopup(user, method === 'google' ? new GoogleAuthProvider() : new OAuthProvider('apple.com'))
+    if (method === 'apple') {
+      const token = OAuthProvider.credentialFromResult(result)?.accessToken
+      if (!token) throw new Error('A Apple não retornou a autorização de exclusão. Tente novamente.')
+      await revokeAccessToken(instance, token)
+    }
+  } else {
+    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication')
+    const result = method === 'apple' ? await FirebaseAuthentication.signInWithApple({ skipNativeAuth: false, scopes: ['email', 'name'] }) : await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true })
+    const idToken = result.credential?.idToken
+    if (!idToken) throw new Error('Não foi possível confirmar sua identidade.')
+    if (method === 'apple' && Capacitor.getPlatform() === 'ios' && !result.credential?.nonce) throw new Error('Retorno da Apple inválido.')
+    const credential = method === 'google' ? GoogleAuthProvider.credential(idToken) : new OAuthProvider('apple.com').credential({ idToken, rawNonce: result.credential?.nonce })
+    await reauthenticateWithCredential(user, credential)
+    if (method === 'apple') {
+      const token = Capacitor.getPlatform() === 'ios' ? result.credential?.authorizationCode : result.credential?.accessToken
+      if (!token) throw new Error('Não foi possível obter a autorização de exclusão da Apple.')
+      await FirebaseAuthentication.revokeAccessToken({ token })
+    }
+  }
+  await user.getIdToken(true)
+}
 
 export function socialAvailability(): Record<SocialProvider, boolean> {
   const nativeReady = !Capacitor.isNativePlatform() || Capacitor.isPluginAvailable('FirebaseAuthentication')

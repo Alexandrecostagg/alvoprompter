@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import BrandMark from '../BrandMark'
 import CreatorVisual from '../CreatorVisual'
 import AuthForm from './AuthForm'
@@ -15,11 +15,14 @@ export default function WelcomeFlow({ requestedPlan, onContinueLocal }: { reques
   const [step, setStep] = useState<EntryStep>(requestedPlan ? 'signup' : 'intro')
   const [recovering, setRecovering] = useState(false)
   const [introIndex, setIntroIndex] = useState(0)
+  const [accountDeleted] = useState(() => sessionStorage.getItem('alvoprompter-account-deleted') === 'true')
+  useEffect(() => { if (accountDeleted) sessionStorage.removeItem('alvoprompter-account-deleted') }, [accountDeleted])
   const slide = INTRO_SLIDES[introIndex]!
   const openAuth = (next: EntryStep) => { setRecovering(false); setStep(next) }
 
   return (
     <main className={`entry-page ${step !== 'intro' ? 'entry-auth' : ''}`}>
+      {accountDeleted ? <p role="status" className="mb-4 rounded-xl border p-4 text-sm">Sua conta foi excluída. Você pode continuar usando as funções locais sem conta.</p> : null}
       <header className="entry-header">
         <BrandMark />
         {step === 'intro'

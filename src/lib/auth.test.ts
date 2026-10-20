@@ -1,21 +1,57 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { friendlyAuthError, isAuthCancellation, signupError } from './authMessages'
 const fake = vi.hoisted(() => {
-  const user = { displayName: 'Test', getIdToken: vi.fn(async () => 'token') }
-  return { native: false, platform: 'web', plugin: false, user, auth: { currentUser: user }, popup: vi.fn(async () => ({ user })), credential: vi.fn(async () => ({ user })), google: vi.fn(), apple: vi.fn(), nativeOut: vi.fn(), webOut: vi.fn(), profile: vi.fn(), signIn: vi.fn(async () => ({ user })), scopes: vi.fn(), params: vi.fn(), additional: vi.fn(() => null as { isNewUser: boolean } | null), oauthCredential: vi.fn((value) => value), observe: vi.fn(), register: vi.fn(async () => ({ user })), reset: vi.fn(async () => undefined) }
+  const user = { uid: 'same-user', email:'test@example.test', providerData: [] as {providerId:string}[], displayName: 'Test', getIdToken: vi.fn(async () => 'token') }
+  return { native: false, platform: 'web', plugin: false, user, auth: { currentUser: user }, popup: vi.fn(async () => ({ user })), credential: vi.fn(async () => ({ user })), google: vi.fn(), apple: vi.fn(), nativeOut: vi.fn(), webOut: vi.fn(), profile: vi.fn(), signIn: vi.fn(async () => ({ user })), scopes: vi.fn(), params: vi.fn(), additional: vi.fn(() => null as { isNewUser: boolean } | null), oauthCredential: vi.fn((value) => value), observe: vi.fn(), register: vi.fn(async () => ({ user })), reset: vi.fn(async () => undefined), reauth:vi.fn(async()=>undefined), reauthPopup:vi.fn(async()=>({user})), revoke:vi.fn(async()=>undefined), nativeRevoke:vi.fn(async()=>undefined), resultCredential:vi.fn(()=>({accessToken:'apple-access'} as {accessToken?:string})) }
 })
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => fake.native, getPlatform: () => fake.platform, isPluginAvailable: () => fake.plugin } }))
 vi.mock('firebase/app', () => ({ initializeApp: () => ({}) }))
 vi.mock('firebase/auth', () => ({
   getAuth: () => fake.auth, initializeAuth: () => fake.auth, indexedDBLocalPersistence: {},
   GoogleAuthProvider: class { static credential(idToken: string) { return { idToken, provider: 'google' } }; setCustomParameters = fake.params },
-  OAuthProvider: class { addScope = fake.scopes; credential = fake.oauthCredential },
+  OAuthProvider: class { addScope = fake.scopes; credential = fake.oauthCredential; static credentialFromResult = fake.resultCredential },
+  EmailAuthProvider: class { static credential(email:string,password:string) { return {email,password} } },
+  reauthenticateWithCredential:fake.reauth, reauthenticateWithPopup:fake.reauthPopup,revokeAccessToken:fake.revoke,
   getAdditionalUserInfo: fake.additional, signInWithPopup: fake.popup, signInWithCredential: fake.credential, signInWithEmailAndPassword: fake.signIn, signOut: fake.webOut,
   createUserWithEmailAndPassword: fake.register, onAuthStateChanged: fake.observe, sendEmailVerification: vi.fn(async () => undefined), sendPasswordResetEmail: fake.reset, updateProfile: fake.profile,
 }))
-vi.mock('@capacitor-firebase/authentication', () => ({ FirebaseAuthentication: { signInWithGoogle: fake.google, signInWithApple: fake.apple, signOut: fake.nativeOut } }))
-const { signInSocial, socialAvailability, signUserOut, signIn, signUp, observeUser, resetPassword } = await import('./auth')
+vi.mock('@capacitor-firebase/authentication', () => ({ FirebaseAuthentication: { signInWithGoogle: fake.google, signInWithApple: fake.apple, signOut: fake.nativeOut, revokeAccessToken:fake.nativeRevoke } }))
+const { signInSocial, socialAvailability, signUserOut, signIn, signUp, observeUser, resetPassword, reauthenticateForDeletion } = await import('./auth')
 beforeEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); fake.additional.mockReturnValue(null); fake.native = false; fake.platform = 'web'; fake.plugin = false; fake.google.mockResolvedValue({ credential: { idToken: 'google-token' } }); fake.apple.mockResolvedValue({ credential: { idToken: 'apple-token', nonce: 'nonce' } }); fake.nativeOut.mockResolvedValue(undefined) })
+beforeEach(()=>{ fake.user.providerData=[]; fake.resultCredential.mockReturnValue({accessToken:'apple-access'}) })
+describe('account deletion identity confirmation',()=>{
+  it('reauthenticates the existing password user before refreshing the signed token',async()=>{
+    fake.user.providerData=[{providerId:'password'}]
+    await expect(reauthenticateForDeletion()).rejects.toThrow('senha atual')
+    expect(fake.reauth).not.toHaveBeenCalled()
+    await reauthenticateForDeletion('current password')
+    expect(fake.reauth).toHaveBeenCalledWith(fake.user,{email:'test@example.test',password:'current password'})
+    expect(fake.user.getIdToken).toHaveBeenCalledWith(true)
+  })
+  it('never revokes an Apple token when the identity does not match the existing user',async()=>{
+    fake.user.providerData=[{providerId:'apple.com'}]; fake.native=true; fake.platform='ios'
+    fake.apple.mockResolvedValueOnce({credential:{idToken:'other-user',nonce:'nonce',authorizationCode:'code'}})
+    fake.reauth.mockRejectedValueOnce(new Error('user-mismatch'))
+    await expect(reauthenticateForDeletion()).rejects.toThrow('user-mismatch')
+    expect(fake.nativeRevoke).not.toHaveBeenCalled(); expect(fake.user.getIdToken).not.toHaveBeenCalled()
+  })
+  it('revokes web Apple consent after successful reauthentication and rejects missing consent',async()=>{
+    fake.user.providerData=[{providerId:'apple.com'}]
+    await reauthenticateForDeletion()
+    expect(fake.revoke).toHaveBeenCalledWith(fake.auth,'apple-access')
+    fake.resultCredential.mockReturnValueOnce({})
+    await expect(reauthenticateForDeletion()).rejects.toThrow('autorização de exclusão')
+    expect(fake.revoke).toHaveBeenCalledTimes(1)
+  })
+  it('uses the fresh iOS authorization code to revoke Apple consent',async()=>{
+    fake.user.providerData=[{providerId:'apple.com'}]; fake.native=true; fake.platform='ios'
+    fake.apple.mockResolvedValueOnce({credential:{idToken:'apple-token',nonce:'nonce',authorizationCode:'new-code'}})
+    await reauthenticateForDeletion()
+    expect(fake.apple).toHaveBeenCalledWith({skipNativeAuth:false,scopes:['email','name']})
+    expect(fake.nativeRevoke).toHaveBeenCalledWith({token:'new-code'})
+    expect(fake.user.getIdToken).toHaveBeenCalledWith(true)
+  })
+})
 describe('social authentication transport and session', () => {
   it('uses Firebase popup on web and requests account selection for Google', async () => {
     await signInSocial('google')

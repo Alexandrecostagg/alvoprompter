@@ -8,6 +8,7 @@ import { trackMetaStandard } from '../../lib/metaPixel'
 import AuthForm from './AuthForm'
 import ProfileForm from './ProfileForm'
 import AdminAccessPanel from './AdminAccessPanel'
+import DeleteAccountPanel from './DeleteAccountPanel'
 import { friendlyAuthError } from '../../lib/authMessages'
 import { loadBillingAvailability, type BillingAvailability } from '../../lib/billing'
 import { buyApplePlan, isAppleApp, loadApplePrices, manageAppleSubscription, restoreApplePlans } from '../../lib/applePurchases'
@@ -278,6 +279,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
         </section> : null}
 
         <p className="account-copy mt-4 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{appleApp ? 'Os planos pagos são mensais e recorrentes. Cobrança, cancelamento e preço final são gerenciados pela App Store. O acesso só é liberado após confirmação da Apple.' : androidApp ? 'A cobrança pelo Google Play será disponibilizada após a homologação. Nenhum dado de cartão passa pelo AlvoPrompter.' : 'Valores de lançamento durante o beta. Os planos pagos são mensais e recorrentes. O acesso só é liberado após confirmação do Asaas. Nenhum dado de cartão passa pelo AlvoPrompter.'}</p>
+        {user ? <DeleteAccountPanel user={user} onComplete={onClose} /> : null}
         {appleApp ? <p className="account-copy mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--ink-soft)' }}>
           <a className="underline" href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" target="_blank" rel="noopener noreferrer">Termos de uso</a>
           <a className="underline" href="https://alvoprompt-privacy.alexandrecostagg.workers.dev" target="_blank" rel="noopener noreferrer">Política de privacidade</a>

@@ -1,0 +1,97 @@
+{
+  "ios": {
+    "CLIENT_ID": "780602841031-gfg4qas4aut4brd78bok438gjqu827dl.apps.googleusercontent.com",
+    "REVERSED_CLIENT_ID": "com.googleusercontent.apps.780602841031-gfg4qas4aut4brd78bok438gjqu827dl",
+    "API_KEY": "AIzaSyDgK-ofPF7bbT_O5aCRkGVRuoFiZW31yh8",
+    "GCM_SENDER_ID": "780602841031",
+    "PLIST_VERSION": "1",
+    "BUNDLE_ID": "com.alvoprompt.app",
+    "PROJECT_ID": "alvoprompt",
+    "STORAGE_BUCKET": "alvoprompt.firebasestorage.app",
+    "IS_ADS_ENABLED": false,
+    "IS_ANALYTICS_ENABLED": false,
+    "IS_APPINVITE_ENABLED": true,
+    "IS_GCM_ENABLED": true,
+    "IS_SIGNIN_ENABLED": true,
+    "GOOGLE_APP_ID": "1:780602841031:ios:31f1f65980e7e48b26abe2"
+  },
+  "android": {
+    "project_info": {
+      "project_number": "780602841031",
+      "project_id": "alvoprompt",
+      "storage_bucket": "alvoprompt.firebasestorage.app"
+    },
+    "client": [
+      {
+        "client_info": {
+          "mobilesdk_app_id": "1:780602841031:android:d080d17803e2ae6726abe2",
+          "android_client_info": {
+            "package_name": "com.alvoprompt.app"
+          }
+        },
+        "oauth_client": [
+          {
+            "client_id": "780602841031-24lj19u9hvu25apuma76ppea4rngc819.apps.googleusercontent.com",
+            "client_type": 1,
+            "android_info": {
+              "package_name": "com.alvoprompt.app",
+              "certificate_hash": "2e91822cfde8588bf2e42e14ce18be11eea78826"
+            }
+          },
+          {
+            "client_id": "780602841031-334fo1us1ke33hd6arv00kfrvn2tqq9n.apps.googleusercontent.com",
+            "client_type": 1,
+            "android_info": {
+              "package_name": "com.alvoprompt.app",
+              "certificate_hash": "001fd0032c605666751a55e3d45e6f00d75b541a"
+            }
+          },
+          {
+            "client_id": "780602841031-jlkbn41te8j201f598e27n224717uc2h.apps.googleusercontent.com",
+            "client_type": 1,
+            "android_info": {
+              "package_name": "com.alvoprompt.app",
+              "certificate_hash": "b0a87db10de8c0850b78c49ac7381410f17e1f7e"
+            }
+          },
+          {
+            "client_id": "780602841031-qthrtvgujbqlcv1g2dte94artegdtb7r.apps.googleusercontent.com",
+            "client_type": 1,
+            "android_info": {
+              "package_name": "com.alvoprompt.app",
+              "certificate_hash": "793b729b4ef8c7b8e075b5627251b10e1bfb6685"
+            }
+          },
+          {
+            "client_id": "780602841031-n8dr503p2i4r76u31e0se9tn5qf9hos3.apps.googleusercontent.com",
+            "client_type": 3
+          }
+        ],
+        "api_key": [
+          {
+            "current_key": "AIzaSyAw0_G25FI9DUDom30lGpJ_XkGhjY7vVeI"
+          }
+        ],
+        "services": {
+          "appinvite_service": {
+            "other_platform_oauth_client": [
+              {
+                "client_id": "780602841031-n8dr503p2i4r76u31e0se9tn5qf9hos3.apps.googleusercontent.com",
+                "client_type": 3
+              },
+              {
+                "client_id": "780602841031-gfg4qas4aut4brd78bok438gjqu827dl.apps.googleusercontent.com",
+                "client_type": 2,
+                "ios_info": {
+                  "bundle_id": "com.alvoprompt.app",
+                  "app_store_id": "6815460612"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "configuration_version": "1"
+  }
+}

@@ -1,6 +1,7 @@
 import { adminEmailConfigured, reviewGrant, sendAdminEmail, type BillingMessage } from './adminAccess'
 import { transcribeWithTimestamps } from './transcription'
 import { publicAppPolicy } from './appPolicy'
+import { deletionStatus, registerNamespace, registerResource, deletionHash, processAccountDeletion } from './accountDeletion'
 import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits } from './security'
 import { billingAvailability } from './billing'
 import { appleBillingConfigured } from './appleBilling'
@@ -41,6 +42,7 @@ export interface Env extends ChatEnv, TtsEnv {
   RESEND_API_KEY?: string
   ADMIN_EMAIL_FROM?: string
   ADMIN_NOTIFY_EMAIL?: string
+  ACCOUNT_DELETION_KEY?: string
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
   ASAAS_PRODUCTION_API_KEY?: string
@@ -668,6 +670,7 @@ const api = {
         } catch {
           return json({ error: 'Página de vídeo inválida.' }, 500)
         }
+        if (typeof page.ownerHash === 'string' && env.DB && await env.DB.prepare('SELECT id FROM account_deletions WHERE uid_hash=?').bind(page.ownerHash).first()) return json({ error: 'Página de vídeo não encontrada.' }, 404)
         const mediaHash = String(page.passHash ?? '')
         const mediaKey = String(page.mediaKey ?? '')
         if (!mediaHash || !mediaKey) return json({ error: 'Vídeo não localizado.' }, 404)
@@ -696,6 +699,7 @@ const api = {
         } catch {
           return json({ error: 'Página de vídeo inválida.' }, 500)
         }
+        if (typeof page.ownerHash === 'string' && env.DB && await env.DB.prepare('SELECT id FROM account_deletions WHERE uid_hash=?').bind(page.ownerHash).first()) return json({ error: 'Página de vídeo não encontrada.' }, 404)
         return json({
           id: page.id,
           title: page.title ?? '',
@@ -738,11 +742,13 @@ const api = {
         title,
         description: String(body?.description ?? '').trim().slice(0, 500),
         author,
+        ownerHash: await deletionHash(uid!),
         mediaKey,
         passHash: await syncKey(JSON.stringify([uid, pass]), 'media'),
         createdAt: new Date().toISOString(),
         views: 0,
       }
+      await registerResource(env.DB!, uid!, 'kv', videoPageKey(id))
       await env.ALVOPROMPT_SYNC.put(videoPageKey(id), JSON.stringify(page))
       return json({
         id,
@@ -838,7 +844,8 @@ export default {
     for (const message of batch.messages) {
       try {
         if ('kind' in message.body) {
-          if (message.body.kind === 'access-review') await reviewGrant(env, message.body.userId, message.body.revision)
+          if (message.body.kind === 'account-delete') await processAccountDeletion(env, message.body.deletionId)
+          else if (message.body.kind === 'access-review') await reviewGrant(env, message.body.userId, message.body.revision)
           else if (message.body.kind === 'admin-email') await sendAdminEmail(env, message.body.notificationId)
           message.ack()
         } else if (await replayAsaasWebhookEvent(env, message.body.id)) message.ack()
@@ -872,6 +879,8 @@ export default {
         }
         catch { return finish(json({ error: 'Entre novamente na sua conta para continuar.' }, 401)) }
         if (!await takeRateLimit(env.DB!, `user:${uid}`, 120)) return finish(json({ error: 'Muitas solicitações. Aguarde um minuto.' }, 429))
+        const pass = request.headers.get('x-sync-pass')?.trim()
+        if (pass && pass.length >= 12 && pass.length <= 256) await registerNamespace(env.DB!, uid, pass)
       }
       if (request.body && !path.startsWith('/media/')) {
         const max = path === '/transcribe' ? MAX_AUDIO_BYTES + 1024 * 1024 : 1024 * 1024
@@ -888,6 +897,13 @@ export default {
         if (blocked) return finish(blocked)
       }
       response = await api.fetch(request, env, uid)
+      if (uid && env.DB) {
+        const deletion = await deletionStatus(env.DB, uid)
+        if (deletion) {
+          await env.BILLING_QUEUE?.send({ kind: 'account-delete', deletionId: deletion.id })
+          response = json({ error: 'Esta conta está em exclusão.' }, 401)
+        }
+      }
     } catch (error) {
       response = json({ error: error instanceof RequestError ? error.message : 'Não foi possível concluir a solicitação. Tente novamente.' }, error instanceof RequestError ? error.status : error instanceof SyntaxError ? 400 : 502)
     }
