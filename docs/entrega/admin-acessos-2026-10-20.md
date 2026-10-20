@@ -30,9 +30,9 @@ Web: Asaas. iOS: StoreKit com restauração/gerenciamento Apple. Android: sem co
 
 ## Validação e limites
 
-282 testes em 32 arquivos aprovados; TypeScript app/Workers e build web aprovados. Lint apenas com aviso anterior do harness de gravação. Scanner de 405 arquivos sem correspondências privadas nos padrões examinados.
+284 testes em 32 arquivos aprovados; TypeScript app/Workers e build web aprovados. Lint apenas com aviso anterior do harness de gravação. Scanner de 405 arquivos sem correspondências privadas nos padrões examinados.
 
-Testes novos: acesso anônimo/comum/admin de equipe negado; solicitação sem liberação/cobrança; verificação de e-mail; datas inválidas; limite mensal efetivo; expiração exata; assinatura paga preservada; concorrência de revisão; rollback; avisos antes/no vencimento; timer antigo após prorrogação; recuperação de fila indisponível; destinatário fixo; deduplicação de e-mail; checkout concorrente.
+Testes novos: acesso anônimo/comum/admin de equipe negado; solicitação sem liberação/cobrança; verificação de e-mail; datas inválidas; limite mensal efetivo; expiração exata; assinatura paga preservada; concorrência de revisão; rollback; avisos antes/no vencimento; timer antigo após prorrogação; recuperação de fila indisponível; destinatário fixo; deduplicação de e-mail; checkout concorrente; diagnóstico Asaas estritamente de leitura, sem dados privados do provedor na resposta.
 
 Prévia local usa o componente real com dados fictícios e transporte isolado. Testados liberação/revisão/confirmar, notificações e formulário com 390 px sem rolagem horizontal. Capturas desta revisão: `artifacts/billing-admin-20261020/`. Sem envio de dados fictícios ou cobrança real em produção.
 

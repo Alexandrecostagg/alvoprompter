@@ -19,6 +19,28 @@ function setup() {
   return { ...data, env, send, call, grant }
 }
 describe('platform administration and temporary access', () => {
+  it('checks production credentials with a read-only request and redacts provider data', async () => {
+    const { env, call, sqlite } = setup()
+    env.APP_URL='https://app.example.test';env.ASAAS_API_BASE='https://api.asaas.com/v3';env.ASAAS_PRODUCTION_API_KEY='production-test-only';env.ASAAS_WEBHOOK_TOKEN='test-only'
+    const provider=vi.fn(async()=>new Response(JSON.stringify({general:'APPROVED',privateCustomerData:'must-not-leak'})))
+    vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+      if(String(url).includes('googleapis.com/robot')) return new Response(JSON.stringify({test:'certificate'}))
+      expect(url).toBe('https://api.asaas.com/v3/myAccount/status')
+      expect(init?.method??'GET').toBe('GET')
+      expect(new Headers(init?.headers).get('access_token')).toBe('production-test-only')
+      return provider()
+    }))
+    const result=await call('/admin/billing-status');const body=await result!.json()
+    expect(body).toMatchObject({credentialAccepted:true,providerStatus:'APPROVED',sandbox:false})
+    expect(JSON.stringify(body)).not.toContain('must-not-leak')
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(sqlite.prepare('SELECT count(*) AS n FROM checkout_intents').get()?.n).toBe(0)
+  })
+  it('does not call Asaas with incomplete billing configuration', async()=>{
+    const {call}=setup()
+    expect(await (await call('/admin/billing-status'))!.json()).toMatchObject({configured:false})
+  })
+
   it('denies anonymous, ordinary and workspace admin access, regardless of client claims', async () => {
     const { env, sqlite, call } = setup()
     sqlite.exec("INSERT INTO workspaces VALUES('space','Space','teamadmin','2026-10-01','2026-10-01'); INSERT INTO workspace_members VALUES('m','space','teamadmin','team@example.test','Team','admin','2026-10-01','2026-10-01')")
