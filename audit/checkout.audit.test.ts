@@ -28,6 +28,14 @@ function setup(overrides: Partial<SaaSEnv> = {}, reply: unknown = { id: 'checkou
   return { ...data, env, request, provider }
 }
 describe('checkout availability and Asaas ID response', () => {
+  it('reserves one intent for two concurrent checkout requests', async () => {
+    const { request, provider, sqlite } = setup()
+    const results = await Promise.all([request(), request()])
+    expect(results.map(r => r?.status).sort()).toEqual([200,409])
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM checkout_intents').get()?.n).toBe(1)
+  })
+
   it.each([
     { ASAAS_API_BASE: 'https://api.asaas.com/v3', ASAAS_PRODUCTION_API_KEY: undefined },
     { ASAAS_API_BASE: 'https://api-sandbox.asaas.com/v3', ASAAS_API_KEY: undefined },

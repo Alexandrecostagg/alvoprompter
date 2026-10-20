@@ -14,6 +14,8 @@ export interface AccountProfile { fullName: string; phone: string; organization:
 
 export interface AccountSummary {
   profile?: AccountProfile | null
+  isAdmin?: boolean
+  access?: { grant: { plan: 'creator' | 'studio'; status: 'active' | 'expired' | 'revoked'; expiresAt: string } | null; request: { plan: 'creator' | 'studio'; status: 'pending' | 'approved' | 'declined' | 'checkout_required'; updatedAt: string } | null }
   user: { uid: string; email: string; name: string }
   subscription: {
     plan: PlanId
@@ -83,4 +85,8 @@ export function inviteWorkspaceMember(
 
 export function saveAccountProfile(profile: AccountProfile): Promise<{ profile: AccountProfile }> {
   return accountFetch('/account/profile', { method: 'PATCH', body: JSON.stringify(profile) })
+}
+
+export function requestTemporaryAccess(plan: 'creator' | 'studio'): Promise<{ ok: true }> {
+  return accountFetch('/account/access-request', { method: 'POST', body: JSON.stringify({ plan }) })
 }

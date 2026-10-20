@@ -1,3 +1,4 @@
+import { accessSummary, adminRoute, grantIsActive, isPlatformAdmin, readGrant, requestAccess, type BillingMessage } from './adminAccess'
 import { readProfile, saveProfile } from './profile'
 import { asaasApiKey, asaasHeaders, asaasFailureCode, billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
@@ -9,7 +10,11 @@ type SaaSRole = 'owner' | 'admin' | 'editor' | 'viewer'
 
 export interface SaaSEnv {
   DB?: D1Database
-  BILLING_QUEUE?: Queue<{ id: string }>
+  BILLING_QUEUE?: Queue<BillingMessage>
+  ADMIN_USER_IDS?: string
+  RESEND_API_KEY?: string
+  ADMIN_EMAIL_FROM?: string
+  ADMIN_NOTIFY_EMAIL?: string
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
   ASAAS_PRODUCTION_API_KEY?: string
@@ -21,7 +26,7 @@ export interface SaaSEnv {
   APPLE_IAP_PRIVATE_KEY?: string
 }
 
-interface AuthUser {
+export interface AuthUser {
   uid: string
   email: string
   name: string
@@ -124,7 +129,11 @@ async function effectivePlan(db: D1Database, uid: string): Promise<{ plan: SaaSP
   `).bind(uid).first<SubscriptionRow>()
   const paidThroughPeriod = subscription?.provider === 'asaas' && subscription.status === 'canceled' && Boolean(subscription.current_period_end) && Date.parse(subscription.current_period_end!) > Date.now()
   const active = subscription?.status === 'active' && (!subscription.current_period_end || Date.parse(subscription.current_period_end) > Date.now())
-  return { plan: active || paidThroughPeriod ? subscription!.plan : 'free', subscription: subscription ?? null }
+  const paid: SaaSPlan = active || paidThroughPeriod ? subscription!.plan : 'free'
+  const grant = await readGrant(db, uid)
+  const ranks = { free: 0, creator: 1, studio: 2 }
+  const plan = grantIsActive(grant) && ranks[grant!.plan] > ranks[paid] ? grant!.plan : paid
+  return { plan, subscription: subscription ?? null }
 }
 
 async function accountSummary(db: D1Database, env: SaaSEnv, user: AuthUser): Promise<Response> {
@@ -144,6 +153,8 @@ async function accountSummary(db: D1Database, env: SaaSEnv, user: AuthUser): Pro
   return responseJson({
     user: { uid: user.uid, email: user.email, name: user.name },
     profile: await readProfile(db, user.uid),
+    isAdmin: isPlatformAdmin(env, user),
+    access: await accessSummary(db, user.uid),
     subscription: {
       plan,
       status: subscription?.status ?? 'free',
@@ -257,8 +268,12 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
   }
   const today = new Date().toISOString().slice(0, 10)
   const createdAt = new Date().toISOString()
-  await db.prepare('INSERT INTO checkout_intents (id, user_id, plan, created_at) VALUES (?, ?, ?, ?)')
-    .bind(checkoutId, user.uid, plan, createdAt).run()
+  // Reserve before contacting Asaas so concurrent taps cannot create two contracts.
+  const intent = await db.prepare(`INSERT INTO checkout_intents (id, user_id, plan, created_at)
+    SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM checkout_intents
+      WHERE user_id = ? AND created_at > ? AND upstream_status IS NULL AND asaas_checkout_id IS NULL)`)
+    .bind(checkoutId, user.uid, plan, createdAt, user.uid, new Date(Date.now() - 3_600_000).toISOString()).run()
+  if (!intent.meta.changes) return responseJson({ error: 'Um pagamento já está sendo preparado. Aguarde antes de tentar novamente.' }, 409)
   const payload = {
     billingTypes: ['CREDIT_CARD'],
     chargeTypes: ['RECURRENT'],
@@ -527,13 +542,15 @@ export async function replayAsaasWebhookEvent(env: SaaSEnv, id: string): Promise
 
 export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise<Response | null> {
   const url = new URL(request.url)
-  const isSaaSPath = url.pathname === '/account' || url.pathname.startsWith('/account/') || url.pathname.startsWith('/billing/') || url.pathname === '/webhooks/asaas'
+  const isSaaSPath = url.pathname === '/account' || url.pathname.startsWith('/account/') || url.pathname.startsWith('/billing/') || url.pathname.startsWith('/admin/') || url.pathname === '/webhooks/asaas'
   if (!isSaaSPath) return null
   try {
     const db = requireDb(env)
     if (url.pathname === '/webhooks/asaas' && request.method === 'POST') return await handleWebhook(request, env, db)
     const user = await authenticate(request, env)
     await syncUser(db, user)
+    if (url.pathname.startsWith('/admin/')) return await adminRoute(request, env, user)
+    if (url.pathname === '/account/access-request' && request.method === 'POST') return await requestAccess(request, env, user)
     if (url.pathname === '/billing/apple/session' && request.method === 'GET') {
       if (!user.emailVerified) return responseJson({ error: 'Confirme seu e-mail antes de assinar.' }, 403)
       if (!appleBillingConfigured(env)) return responseJson({ error: 'Compras Apple ainda não configuradas.' }, 503)

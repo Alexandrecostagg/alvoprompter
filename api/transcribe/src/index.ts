@@ -1,3 +1,4 @@
+import { adminEmailConfigured, reviewGrant, sendAdminEmail, type BillingMessage } from './adminAccess'
 import { transcribeWithTimestamps } from './transcription'
 import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits } from './security'
 import { billingAvailability } from './billing'
@@ -34,7 +35,11 @@ export interface Env extends ChatEnv, TtsEnv {
   IMPORT_ALLOWED_HOSTS?: string
   RELEASE?: string
   DB?: D1Database
-  BILLING_QUEUE?: Queue<{ id: string }>
+  BILLING_QUEUE?: Queue<BillingMessage>
+  ADMIN_USER_IDS?: string
+  RESEND_API_KEY?: string
+  ADMIN_EMAIL_FROM?: string
+  ADMIN_NOTIFY_EMAIL?: string
   FIREBASE_PROJECT_ID?: string
   ASAAS_API_KEY?: string
   ASAAS_PRODUCTION_API_KEY?: string
@@ -416,6 +421,7 @@ const api = {
         tts: ttsHealth(env),
         auth: { projectId: env.FIREBASE_PROJECT_ID || null, configured: Boolean(env.FIREBASE_PROJECT_ID && !env.FIREBASE_PROJECT_ID.startsWith('configure-')) },
         billing: billingAvailability(env),
+        adminNotifications: { emailConfigured: adminEmailConfigured(env), timersConfigured: Boolean(env.BILLING_QUEUE) },
         appleBilling: { configured: appleBillingConfigured(env) },
         workersAi: { configured: Boolean(env.AI) },
       })
@@ -827,10 +833,14 @@ async function checkChatOutput(stream: ReadableStream<Uint8Array>, charge: AiCha
 }
 
 export default {
-  async queue(batch: MessageBatch<{ id: string }>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<BillingMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
       try {
-        if (await replayAsaasWebhookEvent(env, message.body.id)) message.ack()
+        if ('kind' in message.body) {
+          if (message.body.kind === 'access-review') await reviewGrant(env, message.body.userId, message.body.revision)
+          else if (message.body.kind === 'admin-email') await sendAdminEmail(env, message.body.notificationId)
+          message.ack()
+        } else if (await replayAsaasWebhookEvent(env, message.body.id)) message.ack()
         else message.retry({ delaySeconds: 300 })
       } catch { message.retry({ delaySeconds: 300 }) }
     }

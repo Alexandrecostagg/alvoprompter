@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { firebaseConfigured, observeUser, resendVerification, refreshVerifiedUser, signUserOut, type User } from '../../lib/auth'
 import { formatPlanPrice, PAID_PLAN_IDS, PLANS, type PlanId } from '../../lib/plans'
-import { cancelSubscription, loadAccount, startCheckout, type AccountSummary } from '../../lib/saas'
+import { cancelSubscription, loadAccount, startCheckout, requestTemporaryAccess, type AccountSummary } from '../../lib/saas'
 import { useAppStore } from '../../store/useAppStore'
 import { trackMetaStandard } from '../../lib/metaPixel'
 
 import AuthForm from './AuthForm'
 import ProfileForm from './ProfileForm'
+import AdminAccessPanel from './AdminAccessPanel'
 import { friendlyAuthError } from '../../lib/authMessages'
 import { loadBillingAvailability, type BillingAvailability } from '../../lib/billing'
 import { buyApplePlan, isAppleApp, loadApplePrices, manageAppleSubscription, restoreApplePlans } from '../../lib/applePurchases'
@@ -37,6 +38,8 @@ function PlanCard({ planId, currentPlan, busy, available, checking, verified, pr
 
 export default function AccountPanel({ open, initialPlan, onClose }: { open: boolean; initialPlan?: PlanId | null; onClose: () => void }) {
   const [user, setUser] = useState<User | null>(null)
+  const [accessPlan, setAccessPlan] = useState<'creator' | 'studio'>('creator')
+  const [showAdmin, setShowAdmin] = useState(false)
   const [authReady, setAuthReady] = useState(false)
   const [mode, setMode] = useState<AuthMode>('signin')
   const [account, setAccount] = useState<AccountSummary | null>(null)
@@ -91,7 +94,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   useEffect(() => observeUser((next) => {
     setUser(next)
     setAuthReady(true)
-    if (!next) setAccount(null)
+    if (!next) { setAccount(null); setShowAdmin(false) }
   }), [])
 
   useEffect(() => {
@@ -232,6 +235,18 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
           </section>
         )}
 
+        {user && account ? <section className="mt-5 space-y-3 rounded-2xl border p-4 sm:p-5" aria-label="Acesso temporário" style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}>
+          <h3 className="font-bold">Acesso por convite</h3>
+          {account.access?.grant?.status === 'active' ? <p className="text-sm leading-relaxed">Você tem acesso temporário ao {PLANS[account.access.grant.plan].name} até <strong>{new Date(account.access.grant.expiresAt).toLocaleString('pt-BR')}</strong>. O benefício termina nessa data e não gera cobrança automática.</p> : <p className="text-sm leading-relaxed" style={{ color: 'var(--ink-soft)' }}>Se você foi convidado para experimentar o app, escolha um plano e solicite a liberação. A administração define o período; a solicitação não contrata uma assinatura.</p>}
+          {account.access?.grant?.status === 'expired' ? <p className="text-sm">Seu acesso temporário terminou. Você mantém o plano gratuito ou uma assinatura válida que já possui.</p> : null}
+          {account.access?.request?.status === 'pending' ? <p role="status" className="text-sm font-semibold">Solicitação de {PLANS[account.access.request.plan].name} aguardando análise.</p> : null}
+          {account.access?.request?.status === 'declined' ? <p className="text-sm">Sua solicitação foi encerrada. Se necessário, fale com a administração.</p> : null}
+          {account.access?.request?.status === 'checkout_required' && account.subscription.plan === 'free' ? <p className="text-sm font-semibold">A administração indicou o plano {PLANS[account.access.request.plan].name}. Para continuar com os recursos pagos, confirme a assinatura nas opções abaixo. Nenhuma cobrança foi iniciada.</p> : null}
+          {account.access?.grant?.status !== 'active' && account.access?.request?.status !== 'pending' ? <div className="flex flex-wrap items-end gap-2"><label className="min-w-0 flex-1 text-sm font-semibold">Plano para solicitar<select className="mt-1 min-h-11 w-full rounded-xl border px-3 text-sm" value={accessPlan} onChange={e => setAccessPlan(e.target.value as typeof accessPlan)}><option value="creator">Criador</option><option value="studio">Studio</option></select></label><button disabled={busy || !user.emailVerified} className="min-h-11 rounded-xl border px-4 text-sm font-bold disabled:opacity-50" onClick={() => { setBusy(true); void requestTemporaryAccess(accessPlan).then(async () => { await refreshAccount(); setMessage({ kind: 'ok', text: 'Solicitação enviada. Aguarde a liberação da administração.' }) }).catch(e => setMessage({ kind: 'error', text: e.message })).finally(() => setBusy(false)) }}>Solicitar acesso temporário</button></div> : null}
+          {account.isAdmin ? <button className="min-h-11 rounded-xl border px-4 text-sm font-bold" onClick={() => setShowAdmin(value => !value)} aria-expanded={showAdmin}>{showAdmin ? 'Fechar administração' : 'Abrir administração'}</button> : null}
+        </section> : null}
+        {user && account?.isAdmin && showAdmin ? <AdminAccessPanel /> : null}
+
         {user && account ? <ProfileForm key={user.uid} profile={account.profile} defaultName={user.displayName ?? account.user.name} onSaved={refreshAccount} /> : null}
 
         {user && !user.emailVerified ? <div className="mt-5 rounded-2xl border p-4">
@@ -244,7 +259,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
         <section className="mt-6" aria-labelledby="account-plans-title">
           <h3 id="account-plans-title" className="text-lg font-bold">Escolha seu plano</h3>
           <p className="account-copy mt-1 text-sm leading-relaxed" style={{ color: 'var(--ink-soft)' }}>Compare os recursos e encontre o plano ideal para sua rotina.</p>
-          {account && account.subscription.plan !== 'free' ? <p className="account-copy mt-2 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{account.subscription.provider === 'apple' ? 'Para trocar de plano ou cancelar, abra “Gerenciar na App Store” acima.' : 'Para trocar de plano ou de loja, encerre a renovação atual e aguarde o fim do período contratado.'}</p> : null}
+          {account && account.subscription.plan !== 'free' && account.subscription.provider ? <p className="account-copy mt-2 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{account.subscription.provider === 'apple' ? 'Para trocar de plano ou cancelar, abra “Gerenciar na App Store” acima.' : 'Para trocar de plano ou de loja, encerre a renovação atual e aguarde o fim do período contratado.'}</p> : null}
           <div className="mt-3 rounded-2xl border p-3 text-sm leading-relaxed" style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink-soft)' }} role="status" aria-live="polite">
             <p className="account-copy">{billingChecking ? 'Verificando a disponibilidade das assinaturas…' : billingFailed ? 'Não foi possível consultar as assinaturas. Verifique sua conexão e tente novamente.' : appleApp ? !billing?.appleConfigured || applePriceError ? 'Compras pela App Store ainda indisponíveis. Seu plano atual continua funcionando.' : 'Assinatura mensal pela App Store. O preço final é exibido pela Apple antes da confirmação.' : androidApp ? 'Compras pelo Google Play ainda em preparação. Seu plano atual continua funcionando.' : !billing?.configured ? 'As assinaturas estão temporariamente indisponíveis. Você pode continuar usando seu plano atual.' : billing.sandbox ? 'Pagamento em modo de teste. Nenhuma cobrança real será realizada.' : 'Pagamento seguro pelo Asaas. Assinatura mensal com renovação automática no cartão.'}</p>
             {!billingChecking && (billingFailed || (appleApp ? !billing?.appleConfigured || applePriceError : !billing?.configured)) ? <button className="mt-2 min-h-11 rounded-xl border px-3 text-xs font-bold" style={{ borderColor: 'var(--border)', color: 'var(--brand-strong)' }} onClick={() => setBillingRevision((value) => value + 1)}>Verificar novamente</button> : null}
