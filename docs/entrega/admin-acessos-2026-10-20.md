@@ -37,3 +37,22 @@ Testes novos: acesso anônimo/comum/admin de equipe negado; solicitação sem li
 Prévia local usa o componente real com dados fictícios e transporte isolado. Testados liberação/revisão/confirmar, notificações e formulário com 390 px sem rolagem horizontal. Capturas desta revisão: `artifacts/billing-admin-20261020/`. Sem envio de dados fictícios ou cobrança real em produção.
 
 A interface nova exige um próximo build nativo. O build 1.6.4 (22) enviado anteriormente não contém os controles novos; a aplicação web administrativa pode ser usada independentemente. Não reenviar build 22. Homologação física de gravação e compras Apple continua necessária antes de publicação pública.
+
+## Publicação e verificação de 20/10
+
+- Commit funcional: `52fc0ba`, enviado a `origin/main`.
+- Worker: release `1.6.4-admin-access-20261020`, versão `8513004d-c606-4e34-a386-453ca14fa810`.
+- Pages: https://cdb66ebc.alvoprompter.pages.dev; domínio https://app.alvoprompter.com.br.
+- Health HTTP 200: Asaas configurado em produção, e-mail administrativo e fila configurados. Rotas `/admin/overview`, `/admin/billing-status` e `/account` sem token retornam 401; origem não autorizada retorna 403.
+- E-mail real enviado ao titular usando a função `sendAdminEmail` compilada do código do Worker, com armazenamento de validação local. Resend confirmou **delivered**, e o titular enviou imagem da mensagem na caixa de entrada. Isso valida a chave, o remetente e o envio; não equivale a testar um vencimento futuro pela fila em produção. Timer, idempotência e recuperação foram testados automaticamente com relógio controlado.
+- Sessão autenticada da conta administrativa ainda pendente no Chrome: a janela Google ficou branca e o app continuou sem login. Não foi contornado o login, extraído token de sessão ou concedido acesso real a outras pessoas para testar. A consulta autenticada `Verificar conexão Asaas sem cobrar` e a tela do painel com dados reais aguardam essa sessão. A saúde pública informa presença das credenciais, não aceite da chave pelo Asaas.
+
+## Evidências da revisão de fluxo
+
+1. Conta e planos publicados: tela acessível, preços e recorrência descritos; login necessário para operações administrativas. Captura `01-conta-atual.png`.
+2. Administração de cortesia: componente real verificado em prévia local com dados fictícios. Revisão explícita antes de confirmar; formulário focado/rolado até a edição. Capturas `02-admin-desktop.png`, `03-revisao-liberacao.png`, `04-admin-mobile.png`. Em 390 px, largura do documento igual à janela, sem rolagem horizontal. Contraste, leitores de tela e teclado móvel físico não foram certificados.
+3. Aviso de vencimento: central e estado de envio visíveis na prévia; expiração exata e supressão de timers antigos cobertas pelos testes.
+4. E-mail: entrega real confirmada pelo Resend e pela imagem do titular; captura `05-email-delivered.png` e `06-email-na-caixa.png`.
+5. Diagnóstico autenticado Asaas e administração com dados reais: pendentes do login do titular no aplicativo. Não houve compra, débito ou troca de contrato durante a verificação.
+
+Referências consultadas: [Asaas — situação da conta](https://docs.asaas.com/reference/consultar-situacao-cadastral-da-conta), [Cloudflare — atraso e reenvio de mensagens](https://developers.cloudflare.com/queues/configuration/batching-retries/), [Resend — idempotência](https://resend.com/changelog/idempotency-keys), [Apple — compras e assinaturas](https://developer.apple.com/app-store/review/guidelines/), [Google Play — política de pagamentos](https://support.google.com/googleplay/android-developer/answer/10281818?hl=pt-BR).
