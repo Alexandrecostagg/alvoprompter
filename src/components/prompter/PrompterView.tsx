@@ -17,6 +17,9 @@ import { isShareCancelled, shareVideo } from '../../lib/share'
 import { recordSeconds, trackEvent } from '../../lib/stats'
 import SettingsPanel from './SettingsPanel'
 import AspectGuide from './AspectGuide'
+import { useRehearsalAudio } from '../../hooks/useRehearsalAudio'
+import { useRehearsalSave } from '../../hooks/useRehearsalSave'
+import type { View } from '../../lib/types'
 
 const ACTIVE_WORD_CLASS = 'word-active'
 const WORD_CLASS = 'prompter-word'
@@ -44,6 +47,7 @@ export default function PrompterView() {
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
   const [voiceFallback, setVoiceFallback] = useState(false)
+  const [pendingLeave, setPendingLeave] = useState<View | null>(null)
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
     let disposed = false
@@ -138,6 +142,8 @@ export default function PrompterView() {
     onFrame: applyFrame,
   })
   const startEngine = engine.start
+  const rehearsal = useRehearsalSave(currentScript, settings, engine)
+  const rehearsalAudio = useRehearsalAudio(currentScript, settings, () => engine.fraction.current)
 
   const statusRef = useRef({ state: engine.state, fraction: 0 })
   statusRef.current = { state: engine.state, fraction: engine.fraction.current }
@@ -195,7 +201,7 @@ export default function PrompterView() {
   const voice = useVoiceTrack({
     words,
     enabled:
-      settings.mode === 'voice' && !showResult && !iosCamera && (engine.state === 'running' || engine.state === 'paused'),
+      settings.mode === 'voice' && !rehearsalAudio.active && !showResult && !iosCamera && (engine.state === 'running' || engine.state === 'paused'),
     lang: settings.voiceLang,
     sensitivity: settings.voiceSensitivity,
     onWordMatch: (i) => engine.seekToWord(i),
@@ -294,9 +300,13 @@ export default function PrompterView() {
   }, [recorder.status, pauseEngine, stopVoice, stopTranscription])
 
   const startTake = () => {
+    if (rehearsalAudio.active || rehearsalAudio.unsaved) return
+    setPendingLeave(null)
     // Reset done/paused progress before starting the encoder, so the automatic
     // end-of-script effect cannot stop a brand new take on its first render.
+    const resumeFraction = engine.state === 'paused' ? engine.fraction.current : 0
     engine.stop()
+    if (resumeFraction > 0 && resumeFraction < 1) engine.seekToFraction(resumeFraction)
     voice.stop()
     voice.reset()
     transcription.stop()
@@ -355,7 +365,7 @@ export default function PrompterView() {
   useLayoutEffect(() => {
     activeIdxRef.current = -1
     measure()
-    applyFrame(0)
+    applyFrame(engine.fraction.current)
     const viewport = viewportRef.current
     if (!viewport) return
     const ro = new ResizeObserver(() => {
@@ -368,14 +378,14 @@ export default function PrompterView() {
 
   useEffect(() => {
     if (showResult) { stopVoice(); stopTranscription() }
-    if (settings.cameraOn && !showResult) void recorder.enable()
+    if (settings.cameraOn && !showResult && !rehearsalAudio.active && !rehearsalAudio.unsaved) void recorder.enable()
     else void recorder.disable()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.cameraOn, showResult])
+  }, [settings.cameraOn, showResult, rehearsalAudio.active, rehearsalAudio.unsaved])
 
   const visibilityActionsRef = useRef({
     isRecording: recorder.isRecording,
-    cameraOn: settings.cameraOn && !showResult,
+    cameraOn: settings.cameraOn && !showResult && !rehearsalAudio.active && !rehearsalAudio.unsaved,
     stopRecording,
     stopVoice: voice.stop,
     disableRecorder: recorder.disable,
@@ -384,7 +394,7 @@ export default function PrompterView() {
   })
   visibilityActionsRef.current = {
     isRecording: recorder.isRecording,
-    cameraOn: settings.cameraOn && !showResult,
+    cameraOn: settings.cameraOn && !showResult && !rehearsalAudio.active && !rehearsalAudio.unsaved,
     stopRecording,
     stopVoice: voice.stop,
     disableRecorder: recorder.disable,
@@ -409,13 +419,14 @@ export default function PrompterView() {
   }, [])
 
   useEffect(() => {
+    if (engine.state === 'done' && rehearsalAudio.status === 'recording') void rehearsalAudio.finish().catch(() => undefined)
     if (engine.state === 'done' && !settings.openMic && recorder.isRecording) {
       stopRecording()
     } else if (engine.state === 'done' && !recorder.isRecording && !recorder.isFinishing) {
       setShowResult(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine.state, settings.openMic, recorder.isRecording])
+  }, [engine.state, settings.openMic, recorder.isRecording, rehearsalAudio.status])
 
   const recordingSaveStatus = useAppStore(s => s.recordingSaveStatus)
   const recordingSaveError = useAppStore(s => s.recordingSaveError)
@@ -423,8 +434,19 @@ export default function PrompterView() {
   useEffect(() => {
     if (!recorder.videoBlob?.size || recorder.isFinishing || storedTakeRef.current === recorder.videoBlob) return
     storedTakeRef.current = recorder.videoBlob
-    useAppStore.getState().setRecording({ blob: recorder.videoBlob, url: '', srt: buildSrt(captionRef.current), utterances: captionRef.current.slice() })
-  }, [recorder.videoBlob, recorder.isFinishing])
+    useAppStore.getState().setRecording({ blob: recorder.videoBlob, url: '', srt: buildSrt(captionRef.current), utterances: captionRef.current.slice(), resumeFraction: engine.fraction.current })
+  }, [recorder.videoBlob, recorder.isFinishing, engine.fraction])
+
+  const saveAndLeave = async (view: View = 'library') => {
+    engine.pause()
+    try { await rehearsalAudio.finish(); await rehearsal.save() } catch { return }
+    if (recorder.isRecording) { setPendingLeave(view); stopRecording(); return }
+    if (recorder.isFinishing || (recorder.videoBlob && recordingSaveStatus !== 'saved')) { setPendingLeave(view); setShowResult(true); return }
+    setView(view)
+  }
+  useEffect(() => {
+    if (pendingLeave && !recorder.isFinishing && recorder.videoBlob && recordingSaveStatus === 'saved' && useAppStore.getState().recording?.blob === recorder.videoBlob) setView(pendingLeave)
+  }, [pendingLeave, recorder.isFinishing, recorder.videoBlob, recordingSaveStatus, setView])
 
   const { supported: transSupported, start: transStart, stop: transStop } = transcription
 
@@ -450,16 +472,16 @@ export default function PrompterView() {
       return
     }
     voice.reset()
-    const fallbackToAutomatic = settings.mode === 'voice' && (iosCamera || !voice.supported)
+    const fallbackToAutomatic = rehearsalAudio.active || (settings.mode === 'voice' && (iosCamera || !voice.supported))
     pausedByVoiceRef.current = false
     voiceFallbackRef.current = fallbackToAutomatic
     setVoiceFallback(fallbackToAutomatic)
     engine.start(fallbackToAutomatic ? 'fixed' : undefined)
-    if (settings.mode === 'voice' && voice.supported && !iosCamera) voice.start()
-  }, [engine, voice, settings.mode, iosCamera])
+    if (!rehearsalAudio.active && settings.mode === 'voice' && voice.supported && !iosCamera) voice.start()
+  }, [engine, voice, settings.mode, iosCamera, rehearsalAudio.active])
 
-  const refs = useRef({ handlePrimary, showSettings, settings, updateSettings, setView })
-  refs.current = { handlePrimary, showSettings, settings, updateSettings, setView }
+  const refs = useRef({ handlePrimary, showSettings, settings, updateSettings, setView: saveAndLeave })
+  refs.current = { handlePrimary, showSettings, settings, updateSettings, setView: saveAndLeave }
 
   const engineRef = useRef({ stop: engine.stop, nudge: engine.nudge })
   engineRef.current = { stop: engine.stop, nudge: engine.nudge }
@@ -489,7 +511,7 @@ export default function PrompterView() {
           break
         case 'Escape':
           if (open) setShowSettings(false)
-          else nav('library')
+          else void nav('library')
           break
         case 'ArrowUp':
           engine.nudge(-0.02)
@@ -713,7 +735,7 @@ export default function PrompterView() {
         className="relative z-10 grid shrink-0 min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 pb-2 pt-2 sm:px-4"
         style={{ borderColor: 'var(--border)', background: showScrim ? 'rgba(0,0,0,0.45)' : 'rgba(10,12,18,0.94)', backdropFilter: showScrim ? 'blur(6px)' : undefined, paddingTop: `calc(.5rem + max(env(safe-area-inset-top, 0px), ${nativeTop}px))` }}
       >
-        <button onClick={() => { if (recorder.isRecording) stopRecording(); else setView('editor') }} className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold" style={{ borderColor: 'rgba(255,255,255,.28)', color: '#fff', background: 'rgba(255,255,255,.08)' }} aria-label={recorder.isRecording ? 'Parar e revisar gravação' : 'Voltar ao roteiro'}>←</button>
+        <button onClick={() => { if (recorder.isRecording) stopRecording(); else void saveAndLeave('editor') }} className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold" style={{ borderColor: 'rgba(255,255,255,.28)', color: '#fff', background: 'rgba(255,255,255,.08)' }} aria-label={recorder.isRecording ? 'Parar e revisar gravação' : 'Salvar e voltar ao roteiro'}>←</button>
         <div className="min-w-0 text-center">
           {!immersive && <p className="truncate text-sm font-semibold text-white on-dark">{currentScript.title || 'Sem título'}</p>}
           <span
@@ -726,7 +748,7 @@ export default function PrompterView() {
             }}
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />
-            {recorder.isRecording ? 'GRAVANDO' : statusLabel}
+            {recorder.isRecording ? 'GRAVANDO' : rehearsalAudio.status === 'recording' ? 'GRAVANDO ÁUDIO' : statusLabel}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -820,11 +842,11 @@ export default function PrompterView() {
               🎮 pedal ativo
             </span>
           )}
-          {!settings.cameraOn && <button onClick={() => updateSettings({ cameraOn: true })} className="min-h-12 rounded-2xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)' }}>Ligar câmera</button>}
+          {!settings.cameraOn && <button disabled={rehearsalAudio.active || rehearsalAudio.unsaved} onClick={() => updateSettings({ cameraOn: true })} className="min-h-12 rounded-2xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)' }}>Ligar câmera</button>}
           {settings.cameraOn && (
             <button
               onClick={() => { if (recorder.isRecording) stopRecording(); else startTake() }}
-              disabled={recorder.status !== 'ready' && !recorder.isRecording}
+              disabled={rehearsalAudio.active || rehearsalAudio.unsaved || (recorder.status !== 'ready' && !recorder.isRecording)}
               className="flex h-12 shrink-0 items-center gap-2 rounded-2xl border px-3 text-sm font-semibold"
               style={{
                 borderColor: recorder.isRecording ? 'var(--danger)' : 'var(--border)',
@@ -845,6 +867,18 @@ export default function PrompterView() {
             </button>
           )}
         </div>
+        {!showResult && <div className="mx-auto mt-2 flex max-w-4xl flex-wrap justify-center gap-2">
+          <button disabled={recorder.isRecording || recorder.isFinishing || rehearsalAudio.status === 'requesting' || rehearsalAudio.status === 'saving'} className="min-h-11 rounded-xl border px-3 text-xs font-semibold" onClick={() => { void (async () => {
+            if (rehearsalAudio.status === 'recording' || rehearsalAudio.unsaved) { engine.pause(); await rehearsalAudio.finish(); await rehearsal.save(); return }
+            engine.pause(); voice.stop(); transcription.stop(); updateSettings({ cameraOn: false, mode: 'fixed' }); await recorder.disable()
+            if (await rehearsalAudio.start()) { setShowResult(false); engine.start('fixed') }
+          })().catch(() => undefined) }}>{rehearsalAudio.status === 'recording' ? `Parar e salvar áudio · ${formatElapsed(rehearsalAudio.elapsed)}` : rehearsalAudio.status === 'saving' ? 'Salvando áudio…' : rehearsalAudio.unsaved ? 'Tentar salvar áudio' : rehearsalAudio.status === 'requesting' ? 'Abrindo microfone…' : 'Gravar áudio do ensaio'}</button>
+          <button disabled={recorder.isFinishing || rehearsalAudio.status === 'saving' || rehearsalAudio.status === 'requesting'} className="min-h-11 rounded-xl border px-3 text-xs font-semibold" onClick={() => { engine.pause(); void (async () => { await rehearsalAudio.finish(); await rehearsal.save() })().catch(() => undefined) }}>Salvar ensaio</button>
+          <button disabled={recorder.isFinishing} className="min-h-11 rounded-xl border px-3 text-xs font-semibold" onClick={() => void saveAndLeave()}>{recorder.isRecording ? 'Salvar tomada e sair' : 'Salvar e continuar depois'}</button>
+        </div>}
+        {!showResult && rehearsal.resume && engine.state === 'idle' && <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs"><span>Ensaio guardado · {Math.round(rehearsal.resume.fraction * 100)}%</span><button className="min-h-11 rounded-xl border px-3 font-semibold" onClick={() => { rehearsal.restore(); setProgressPct(Math.round(engine.fraction.current * 100)) }}>{rehearsal.resume.fraction >= 1 ? 'Recuperar ajustes do ensaio' : 'Continuar do ponto salvo'}</button></div>}
+        {rehearsalAudio.message && <p role="status" className="mt-2 text-center text-xs">{rehearsalAudio.message}</p>}
+        {rehearsal.message && <p role="status" className="mt-2 text-center text-xs">{rehearsal.message}</p>}
         {!showResult && !recorder.isRecording && !recorder.isFinishing && (recorder.videoUrl || recorder.error) && <button className="mx-auto mt-3 block min-h-11 rounded-xl border px-4 text-sm" onClick={() => setShowResult(true)}>{recorder.error ? 'Resolver problema da gravação' : 'Ver último vídeo'}</button>}
         <p className="mt-2 hidden text-center text-[11px] sm:block" style={{ color: 'var(--muted)' }}>
           Espaço: iniciar/pausar · ↑↓: ajustar posição · M: espelhar · Esc: sair
@@ -853,7 +887,7 @@ export default function PrompterView() {
       </div>
 
       {showSettings && (
-        <SettingsPanel settings={settings} filterUnavailable={recorder.filterUnavailable} isRecording={recorder.isRecording} wordCount={words.length} onClose={() => setShowSettings(false)} />
+        <SettingsPanel settings={settings} filterUnavailable={recorder.filterUnavailable} isRecording={recorder.isRecording || rehearsalAudio.active} wordCount={words.length} onClose={() => setShowSettings(false)} />
       )}
 
       {showResult && (
@@ -873,8 +907,9 @@ export default function PrompterView() {
                 <button className="min-h-11 rounded-xl border px-4" onClick={() => setView('editor')}>Voltar ao roteiro</button>
               </div>
             </div> : recorder.videoUrl ? <video src={recorder.videoUrl} onPlay={prepareRecordedPlayback} controls playsInline className="mb-4 max-h-[45dvh] w-full rounded-lg" /> : <div className="space-y-4">
-              <p className="text-sm">Você terminou o ensaio. Agora pode gravar ou ajustar o roteiro.</p>
+              <p className="text-sm">Você terminou o ensaio de leitura. Guarde o roteiro, os ajustes e o ponto de leitura para usar depois. Para guardar imagem e som, use Gravar.</p>
               <div className="flex flex-wrap gap-2">
+                <button className="min-h-11 rounded-xl border px-4 font-semibold" onClick={() => void saveAndLeave()}>Salvar ensaio e sair</button>
                 <button className="min-h-11 rounded-xl border px-4" onClick={() => { engine.stop(); setShowResult(false); if (!settings.cameraOn) updateSettings({ cameraOn: true }) }}>Preparar gravação</button>
                 <button className="min-h-11 rounded-xl border px-4" onClick={() => { engine.stop(); setShowResult(false) }}>Ensaiar novamente</button>
                 <button className="min-h-11 rounded-xl border px-4" onClick={() => setView('editor')}>Editar roteiro</button>
@@ -995,6 +1030,7 @@ export default function PrompterView() {
               <p className="mb-3 text-right text-xs" style={{ color: 'var(--muted)' }}>{shareMsg}</p>
             )}
             <div className="flex flex-wrap justify-end gap-2">
+              <button className="min-h-11 rounded-xl border px-4 text-sm font-semibold" onClick={() => void saveAndLeave()}>Salvar e continuar depois</button>
               <button
                 onClick={() => { engine.stop(); setShowResult(false) }}
                 className="rounded-lg border px-4 py-2 text-sm"
@@ -1017,7 +1053,7 @@ export default function PrompterView() {
                 className="rounded-lg border px-4 py-2 text-sm font-medium"
                 style={{ borderColor: 'var(--accent-2)', color: 'var(--accent-2)' }}
               >
-                🎬 Editar vídeo
+                Editar / usar um trecho
               </button>
               <button
                 onClick={() => void handleShareRecording()}

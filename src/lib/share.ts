@@ -77,7 +77,7 @@ async function shareNativeVideo(options: ShareVideoOptions): Promise<void> {
     title: options.title,
     text: options.text,
     files: [uri],
-    dialogTitle: 'Compartilhar vídeo',
+    dialogTitle: options.blob.type.startsWith('audio/') ? 'Salvar ou compartilhar áudio' : 'Compartilhar vídeo',
   })
 }
 
@@ -109,6 +109,24 @@ export async function shareVideo(options: ShareVideoOptions): Promise<ShareOutco
 
   downloadBlob(options.blob, fileName)
   return 'downloaded'
+}
+
+export async function shareVideoFiles(files: ShareVideoOptions[]): Promise<ShareOutcome> {
+  if (!files.length || files.length > 30) throw new Error('Selecione de 1 a 30 partes para compartilhar.')
+  if (Capacitor.isNativePlatform()) {
+    const uris: string[] = []
+    const group = Date.now()
+    for (const file of files) {
+      const path = `compartilhamentos/${group}-${safeShareFileName(file.fileName)}`
+      await Filesystem.writeFile({ path, data: await blobToBase64(file.blob), directory: Directory.Cache, recursive: true })
+      uris.push((await Filesystem.getUri({ path, directory: Directory.Cache })).uri)
+    }
+    await Share.share({ files: uris, title: 'Stories em ordem', dialogTitle: 'Salvar ou compartilhar as partes' })
+    return 'shared'
+  }
+  const data = { files: files.map(file => new File([file.blob], safeShareFileName(file.fileName), { type: file.blob.type })) }
+  if (navigator.share && navigator.canShare?.(data)) { await navigator.share(data); return 'shared' }
+  throw new Error('Este navegador não compartilha várias partes de uma vez. Salve cada parte pelos botões abaixo.')
 }
 
 export async function shareDataUrl(

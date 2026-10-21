@@ -107,7 +107,7 @@ export type AiPanelTab = 'generate' | 'improve' | 'titles'
 
 export type ScrollMode = 'voice' | 'fixed' | 'manual' | 'timed'
 
-export type AspectGuideRatio = 'none' | '9:16' | '1:1' | '16:9'
+export type AspectGuideRatio = 'none' | '9:16' | '4:5' | '1:1' | '16:9'
 
 export type BeautyPreset = 'none' | 'smooth' | 'classic' | 'glamour'
 

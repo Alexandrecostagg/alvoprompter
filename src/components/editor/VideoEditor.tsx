@@ -9,7 +9,8 @@ import { generateAvatar, transcribeAudio } from '../../lib/cloudflare'
 import { MUSIC_LIBRARY, generateMusicTrack, type MusicTrack } from '../../lib/music'
 import { trackEvent } from '../../lib/stats'
 import { createVideoPage, videoPageShareUrl } from '../../lib/videopage'
-import { isShareCancelled, shareVideo } from '../../lib/share'
+import { isShareCancelled, shareVideo, shareVideoFiles } from '../../lib/share'
+import { readVideoInfo } from '../../lib/video/metadata'
 import {
   CAPTION_THEMES,
   computeCrop,
@@ -26,13 +27,14 @@ import { getVideoVersion, listVideoVersions, saveVideoVersion, updateVideoProjec
 import { prepareRecordedPlayback } from '../../lib/recordingAudio'
 import CutPreview from './CutPreview'
 import { applyTimeCut, cutHistoryReducer, emptyCutHistory, intersectRanges, normalizeRanges, removeRange } from '../../lib/editRanges'
-import { SOCIAL_DESTINATIONS, socialDestination, socialFileName, exportWarnings, type SocialDestinationId, type ExportFileInfo } from '../../lib/socialExport'
+import { SOCIAL_DESTINATIONS, socialDestination, socialFileName, storyRanges, storyFileName, exportWarnings, type SocialDestinationId, type ExportFileInfo, type ExportAspect } from '../../lib/socialExport'
 
-type AspectOption = 'original' | '9:16' | '1:1' | '16:9'
+type AspectOption = ExportAspect
 
 const ASPECT_OPTIONS: { value: AspectOption; label: string; w?: number; h?: number }[] = [
   { value: 'original', label: 'Original' },
   { value: '9:16', label: '9:16', w: 1080, h: 1920 },
+  { value: '4:5', label: '4:5', w: 1080, h: 1350 },
   { value: '1:1', label: '1:1', w: 1080, h: 1080 },
   { value: '16:9', label: '16:9', w: 1920, h: 1080 },
 ]
@@ -68,6 +70,12 @@ function Editor() {
   const [aspect, setAspect] = useState<AspectOption>(saved?.aspect ?? '9:16')
   const [destination, setDestination] = useState<SocialDestinationId>(() => saved?.socialDestination ? socialDestination(saved.socialDestination).id : saved?.aspect && saved.aspect !== '9:16' ? 'custom' : 'reels')
   const [publicationText, setPublicationText] = useState(saved?.publicationText ?? currentScript?.title ?? '')
+  const [exportQuality, setExportQuality] = useState<'hd' | 'compact'>(saved?.exportQuality ?? 'hd')
+  const [storySeconds, setStorySeconds] = useState(saved?.storySeconds ?? 60)
+  const [storyParts, setStoryParts] = useState<{ blob: Blob; url: string; name: string; duration: number }[]>([])
+  const storyPartsRef = useRef(storyParts)
+  storyPartsRef.current = storyParts
+  useEffect(() => () => storyPartsRef.current.forEach(part => URL.revokeObjectURL(part.url)), [])
   const [outputInfo, setOutputInfo] = useState<(ExportFileInfo & { destination: SocialDestinationId; checked: boolean }) | null>(null)
   const [burnCaptions, setBurnCaptions] = useState(saved?.burnCaptions ?? true)
   const [highlightWords, setHighlightWords] = useState(saved?.highlightWords ?? true)
@@ -246,7 +254,7 @@ function Editor() {
     logoBlob, logoPosition, logoWidth, musicBlob, musicTrackId, musicVolume,
     motion, chromaEnabled, chromaColor, chromaSimilarity, chromaSmoothness, chromaBg,
     reframe, eyeContact, introEnabled, introText, introSeconds, outroEnabled, outroText, outroSeconds, brandFrom, brandTo])
-  const edit = useMemo(() => renderEdit ? { ...renderEdit, socialDestination: destination, publicationText } : null, [renderEdit, destination, publicationText])
+  const edit = useMemo(() => renderEdit ? { ...renderEdit, socialDestination: destination, publicationText, exportQuality, storySeconds } : null, [renderEdit, destination, publicationText, exportQuality, storySeconds])
   const projectSave = useVideoProjectSave(recording?.project, edit)
   useEffect(() => {
     const project = recording?.project
@@ -257,7 +265,8 @@ function Editor() {
   }, [recording, versionRevision])
   useEffect(() => {
     setOutUrl(null); setOutBlob(null); setOutputInfo(null); setPageReview(false); setShareMsg(null)
-  }, [renderEdit])
+    storyPartsRef.current.forEach(part => URL.revokeObjectURL(part.url)); setStoryParts([])
+  }, [renderEdit, exportQuality, storySeconds])
 
   const promptResults = useMemo<ClipPromptResult[]>(
     () => (promptText.trim().length > 2 ? parseClipPrompt(promptText) : []),
@@ -523,8 +532,15 @@ function Editor() {
     setShareMsg(null)
     setProgress(0)
     const target = ASPECT_OPTIONS.find((a) => a.value === aspect)!
-    const targetW = target.w ?? meta.w
-    const targetH = target.h ?? meta.h
+    const scale = exportQuality === 'compact' ? Math.min(1, 1280 / Math.max(target.w ?? meta.w, target.h ?? meta.h)) : 1
+    const targetW = Math.max(2, Math.round((target.w ?? meta.w) * scale / 2) * 2)
+    const targetH = Math.max(2, Math.round((target.h ?? meta.h) * scale / 2) * 2)
+    const makeStories = destination === 'stories' && storySeconds > 0
+    if (makeStories) {
+      try { storyRanges(selectedDuration + (introEnabled && introText.trim() ? introSeconds : 0) + (outroEnabled && outroText.trim() ? outroSeconds : 0), storySeconds, .15) }
+      catch (error) { setError((error as Error).message); return }
+    }
+    storyPartsRef.current.forEach(part => URL.revokeObjectURL(part.url)); setStoryParts([])
     const crop =
       aspect === 'original'
         ? { sx: 0, sy: 0, sw: meta.w, sh: meta.h }
@@ -575,7 +591,8 @@ function Editor() {
             }
           : undefined,
         brandGradient: [brandFrom, brandTo],
-        onProgress: (p) => setProgress(0.4 + 0.6 * p),
+        videoBitsPerSecond: exportQuality === 'compact' ? 2_500_000 : 8_000_000,
+        onProgress: (p) => setProgress(makeStories ? 0.45 * p : 0.4 + 0.6 * p),
         signal: controller.signal,
       })
       const url = URL.createObjectURL(blob)
@@ -583,12 +600,26 @@ function Editor() {
       setOutUrl(url)
       setOutBlob(blob)
       setOutputInfo({ width: targetW, height: targetH, duration: totalRangesDuration(ranges), bytes: blob.size, type: blob.type, destination, checked: false })
-      setProgress(1)
+      setProgress(makeStories ? .45 : 1)
       if (recording.project && edit) {
         try { await saveVideoVersion(recording.project.id, recording.project.scope, blob, edit); setVersionRevision(r => r + 1) }
         catch { setError('Vídeo gerado, mas não foi possível guardar a versão. Baixe o arquivo antes de sair.') }
       }
       trackEvent('video_exported')
+      if (makeStories) {
+        const info = await readVideoInfo(blob, controller.signal)
+        const parts = storyRanges(info.duration, storySeconds, .15)
+        for (let index = 0; index < parts.length; index++) {
+          const range = parts[index]!
+          const part = await renderVideo({ sourceBlob: blob, targetWidth: info.width, targetHeight: info.height, crop: { sx: 0, sy: 0, sw: info.width, sh: info.height }, keepRanges: [range], captions: [], theme: CAPTION_THEMES.find(t => t.key === 'none')!, videoBitsPerSecond: exportQuality === 'compact' ? 2_500_000 : 8_000_000, signal: controller.signal, onProgress: p => setProgress(0.45 + 0.55 * (index + p) / parts.length) })
+          const name = storyFileName(index, parts.length, part.type)
+          setStoryParts(previous => [...previous, { blob: part, url: URL.createObjectURL(part), name, duration: range.end - range.start }])
+          if (recording.project && edit) await saveVideoVersion(recording.project.id, recording.project.scope, part, edit, `Instagram Stories · parte ${index + 1} de ${parts.length}`)
+          setVersionRevision(r => r + 1)
+        }
+        setShareMsg('Partes numeradas e salvas na biblioteca. Confira cada uma e publique na ordem indicada.')
+        setProgress(1)
+      }
     } catch (err) {
       const cancelled = (err as Error).name === 'AbortError'
       setError(cancelled ? 'Exportação cancelada. Sua edição foi mantida; você pode tentar novamente.' : (err as Error).message)
@@ -756,6 +787,7 @@ function Editor() {
           </button>
           <div><p className="studio-eyebrow">SEU VÍDEO, DO SEU JEITO</p><h1 className="text-xl font-semibold">Finalizar vídeo</h1><p className="text-sm" style={{ color: 'var(--muted)' }}>{recording.project?.title ?? currentScript?.title ?? 'Minha gravação'}</p></div>
         </div>
+        <button disabled={processing || transcribing || !edit || projectSave.status === 'saving'} className="min-h-11 rounded-xl border px-4 text-sm font-semibold" onClick={() => void projectSave.flush().then(() => setView('library')).catch(() => setError('Não foi possível salvar. Mantenha a tela aberta e tente novamente.'))}>Salvar e continuar depois</button>
         <button
           disabled={processing || transcribing || Boolean(musicBusy) || logoBusy}
           onClick={() => {
@@ -801,9 +833,20 @@ function Editor() {
               {SOCIAL_DESTINATIONS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
             </select>
             <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-              {aspect === 'original' ? 'Preserva o formato da gravação.' : `${aspect} · ${ASPECT_OPTIONS.find(a => a.value === aspect)?.w} × ${ASPECT_OPTIONS.find(a => a.value === aspect)?.h}.`} MP4 quando disponível neste aparelho.
+              {aspect === 'original' ? 'Preserva o formato da gravação.' : `${aspect}${exportQuality === 'compact' ? ' · resolução reduzida para um arquivo menor.' : ` · ${ASPECT_OPTIONS.find(a => a.value === aspect)?.w} × ${ASPECT_OPTIONS.find(a => a.value === aspect)?.h}.`}`} MP4 quando disponível neste aparelho.
               {aspect !== 'original' && ' O formato pode recortar as bordas. Confira o enquadramento na prévia final.'}
             </p>
+            <label className="mt-3 block text-xs font-semibold" htmlFor="export-quality">Tamanho do arquivo</label>
+            <select id="export-quality" className="mt-1 min-h-11 w-full rounded-xl border px-3 text-sm" value={exportQuality} onChange={e => setExportQuality(e.target.value as 'hd' | 'compact')}>
+              <option value="hd">Alta qualidade</option><option value="compact">Compacto · até 720p, arquivo menor</option>
+            </select>
+            {destination === 'stories' && <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--border)' }}>
+              <label className="block text-xs font-semibold" htmlFor="story-seconds">Entrega dos Stories</label>
+              <select id="story-seconds" className="mt-1 min-h-11 w-full rounded-xl border px-2 text-sm" value={storySeconds} onChange={e => setStorySeconds(Number(e.target.value))}>
+                <option value={60}>Partes de até 60 segundos</option><option value={30}>Partes de até 30 segundos</option><option value={15}>Partes de até 15 segundos</option><option value={0}>Um vídeo completo</option>
+              </select>
+              <p className="mt-2 text-xs leading-relaxed">Formato vertical 9:16. As partes seguem a linha do vídeo editado, sem repetir a abertura, com arquivos numerados. Elas ficam guardadas em Versões exportadas. Mantenha o app aberto durante o preparo e confira o limite disponível no Instagram antes de publicar.</p>
+            </div>}
           </fieldset>
           <div className="mt-4 flex flex-col gap-4" aria-live="polite">
           {error && (
@@ -838,10 +881,24 @@ function Editor() {
               className="w-full rounded-lg py-3 text-sm font-semibold text-white disabled:opacity-40"
               style={{ background: 'var(--brand-gradient)' }}
             >
-              {`Preparar vídeo${destination === 'custom' ? '' : ` para ${socialDestination(destination).label}`}`}
+              {destination === 'stories' && storySeconds > 0 ? 'Preparar Stories em partes' : `Preparar vídeo${destination === 'custom' ? '' : ` para ${socialDestination(destination).label}`}`}
             </button>
           )}
 
+          {destination === 'stories' && storyParts.length > 0 && <section aria-label="Stories preparados" className="rounded-xl border p-3" style={{ borderColor: 'var(--border)' }}>
+            <h2 className="font-semibold">Seus Stories em ordem</h2>
+            <p className="my-2 text-xs">Assista às partes antes de publicar. Salve no Fotos/arquivos pelo menu do aparelho e selecione na ordem indicada no Instagram.</p>
+            <button className="mb-3 min-h-11 w-full rounded-xl border px-3 text-sm font-semibold" disabled={processing || shareBusy} onClick={async () => {
+              setShareBusy(true)
+              try { await shareVideoFiles(storyParts.map(part => ({ blob: part.blob, fileName: part.name }))); setShareMsg('Menu aberto com as partes em ordem. Escolha salvar ou compartilhar; confirme a ordem no Instagram.') }
+              catch (error) { if (!isShareCancelled(error)) setShareMsg((error as Error).message) }
+              finally { setShareBusy(false) }
+            }}>Salvar / compartilhar todas as partes</button>
+            <div className="grid grid-cols-2 gap-3">{storyParts.map((part, index) => <article key={part.url} className="min-w-0 rounded-xl border p-2" style={{ borderColor: 'var(--border)' }}>
+              <p className="mb-2 text-xs font-semibold">Parte {index + 1} · {part.duration.toFixed(1)} s</p><video aria-label={`Prévia do Story ${index + 1}`} src={part.url} controls playsInline onPlay={prepareRecordedPlayback} className="max-h-56 w-full rounded-lg" />
+              <button disabled={processing || shareBusy} className="mt-2 min-h-11 w-full rounded-lg border px-2 text-xs" onClick={async () => { try { await shareVideo({ blob: part.blob, fileName: part.name, title: `Story ${index + 1}` }) } catch (error) { if (!isShareCancelled(error)) setShareMsg((error as Error).message) } }}>Salvar / compartilhar parte {index + 1}</button>
+            </article>)}</div>
+          </section>}
           {outUrl && (
             <div className="rounded-xl border p-3" style={{ borderColor: 'var(--ok)', background: 'var(--panel)' }}>
               <p className="mb-2 text-xs font-medium" style={{ color: 'var(--ok)' }}>
@@ -905,8 +962,8 @@ function Editor() {
             </div>
           )}
 
-          <a href={recording.url} download={`gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}`} className="min-h-11 rounded-xl border px-4 py-3 text-center text-sm">Baixar original</a>
-          {versions.length > 0 && <details><summary>Versões exportadas ({versions.length})</summary><div className="space-y-2">{versions.map((version, index) => <button key={version.id} className="min-h-11 w-full rounded-xl border px-3 text-left text-sm" onClick={() => { void getVideoVersion(version.id, version.scope).then(savedVersion => { if (!savedVersion) throw new Error(); const oldTarget = ASPECT_OPTIONS.find(a => a.value === savedVersion.edit.aspect)!; setOutputInfo({width: oldTarget.w ?? meta?.w ?? 0, height: oldTarget.h ?? meta?.h ?? 0, duration: totalRangesDuration(savedVersion.edit.cuts.present), bytes: savedVersion.blob.size, type: savedVersion.blob.type, destination: socialDestination(savedVersion.edit.socialDestination).id, checked: false}); setOutBlob(savedVersion.blob); setOutUrl(URL.createObjectURL(savedVersion.blob)) }).catch(() => setError('Não foi possível abrir essa versão. Tente novamente.')) }}>Assistir versão {versions.length - index} · {new Date(version.createdAt).toLocaleString('pt-BR')}</button>)}</div></details>}
+          <button onClick={() => void shareVideo({ blob: recording.blob, fileName: `gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}` }).catch(error => { if (!isShareCancelled(error)) setError((error as Error).message) })} className="min-h-11 rounded-xl border px-4 py-3 text-center text-sm">Salvar original no aparelho / compartilhar</button>
+          {versions.length > 0 && <details><summary>Versões exportadas ({versions.length})</summary><div className="space-y-2">{versions.map((version, index) => <button key={version.id} className="min-h-11 w-full rounded-xl border px-3 text-left text-sm" onClick={() => { void getVideoVersion(version.id, version.scope).then(savedVersion => { if (!savedVersion) throw new Error(); const oldTarget = ASPECT_OPTIONS.find(a => a.value === savedVersion.edit.aspect)!; setOutputInfo({width: oldTarget.w ?? meta?.w ?? 0, height: oldTarget.h ?? meta?.h ?? 0, duration: totalRangesDuration(savedVersion.edit.cuts.present), bytes: savedVersion.blob.size, type: savedVersion.blob.type, destination: socialDestination(savedVersion.edit.socialDestination).id, checked: false}); setOutBlob(savedVersion.blob); setOutUrl(URL.createObjectURL(savedVersion.blob)) }).catch(() => setError('Não foi possível abrir essa versão. Tente novamente.')) }}>Assistir {version.label ?? `versão ${versions.length - index}`} · {new Date(version.createdAt).toLocaleString('pt-BR')}</button>)}</div></details>}
           </div>
         </div>
 

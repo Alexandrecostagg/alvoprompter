@@ -16,6 +16,7 @@ import { createVideoProject, mediaScope, videoStorageError, type VideoProject } 
 import type { CaptionUtterance } from '../lib/srt'
 
 export interface RecordingData {
+  resumeFraction?: number
   project?: VideoProject
   blob: Blob
   url: string
@@ -212,6 +213,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: newKey('take'), scope, scriptKey: get().currentScript?.key,
       title: get().currentScript?.title || 'Minha gravação', createdAt: Date.now(), updatedAt: Date.now(),
       blob: recording.blob, utterances: recording.utterances, srt: recording.srt,
+      scriptContent: get().currentScript?.content, resumeFraction: recording.resumeFraction,
     } : undefined
     set({ recording: recording ? { ...recording, project, url: URL.createObjectURL(recording.blob) } : null, recordingSaveError: null, recordingSaveStatus: project ? 'saving' : null })
     if (project) void createVideoProject(project).then(() => {

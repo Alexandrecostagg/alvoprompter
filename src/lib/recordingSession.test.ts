@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { startRecordingSession } from './recordingSession'
+import { startRecordingSession, startAudioRecordingSession } from './recordingSession'
 
 class Encoder {
   static instance: Encoder
@@ -38,7 +38,7 @@ describe('recording completion', () => {
   })
   it('reports empty output without substituting any previous recording', async () => {
     const session = startRecordingSession(stream)
-    const failure = expect(session.result).rejects.toThrow('não gerou o vídeo')
+    const failure = expect(session.result).rejects.toThrow('não gerou a gravação')
     session.stop(); Encoder.instance.emit(''); Encoder.instance.onstop?.()
     await failure
   })
@@ -55,5 +55,21 @@ describe('recording completion', () => {
   })
   it('does not start with a disconnected camera', () => {
     expect(() => startRecordingSession({ getVideoTracks: () => [{ readyState: 'ended' }] } as unknown as MediaStream)).toThrow('não está pronta')
+  })
+})
+
+describe('audio-only rehearsal capture', () => {
+  it('records and finalizes without requiring any camera track', async () => {
+    const session = startAudioRecordingSession({ getAudioTracks: () => [track] } as unknown as MediaStream)
+    Encoder.instance.mimeType = 'audio/mp4'
+    Encoder.instance.emit('voice'); session.stop(); Encoder.instance.onstop?.()
+    expect((await session.result).type).toBe('audio/mp4')
+    expect(track.stop).not.toHaveBeenCalled()
+  })
+  it('rejects an encoder interruption even when a partial chunk exists', async () => {
+    const session = startAudioRecordingSession({ getAudioTracks: () => [track] } as unknown as MediaStream)
+    const failure = expect(session.result).rejects.toThrow('interrompida')
+    Encoder.instance.emit('partial'); Encoder.instance.onerror?.(); Encoder.instance.onstop?.()
+    await failure
   })
 })

@@ -80,6 +80,12 @@ const DURATION_GUIDANCE: Record<string, string> = {
 }
 
 const FORMAT_GUIDANCE: Record<string, string> = {
+  'Instagram Reels': 'Comece com um gancho concreto, desenvolva uma ideia por vez e termine com um convite curto; respeite a duração solicitada.',
+  'Instagram Stories · uma história': 'Escreva uma história curta e pessoal, com começo, desenvolvimento e convite; use a duração solicitada e linguagem de conversa.',
+  'Instagram Stories · sequência em partes': 'Crie uma sequência coerente de histórias curtas. Termine cada bloco em uma frase completa e conecte naturalmente ao próximo. Não inclua rótulos, numeração nem instruções de cena no texto falado.',
+  'Instagram Feed': 'Entregue contexto suficiente para quem chegou pela publicação, uma mensagem central e um convite claro; respeite a duração solicitada.',
+  TikTok: 'Abra com curiosidade ou benefício concreto; mantenha progressão rápida e fala espontânea, sem saudação longa.',
+  'YouTube Shorts': 'Abra uma curiosidade nos primeiros segundos, entregue a promessa e termine com um convite breve; respeite a duração solicitada.',
   'TikTok / Reels (até 1 min)':
     'Comece direto no conflito, benefício ou curiosidade; não use saudação; crie progressão rápida e finalize com CTA de uma frase.',
   'YouTube Shorts (até 60s)':

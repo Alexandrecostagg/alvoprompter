@@ -4,6 +4,8 @@ import { db } from './db'
 import { deleteLocalAccount } from './deleteLocalAccount'
 import { journalDraft, readDrafts } from './drafts'
 import { createVideoProject, mediaScope } from './videoProjects'
+import { saveRehearsalAudio, saveRehearsal } from './rehearsals'
+import { DEFAULT_SETTINGS } from './types'
 
 function memoryStorage() {
   const values = new Map<string,string>()
@@ -15,6 +17,7 @@ beforeEach(async () => {
 })
 const script = (key:string, workspace?:string) => ({key,title:key,content:'test',createdAt:1,updatedAt:1,cloudWorkspaceId:workspace})
 it('removes the departing account media and workspace cache while keeping another account and guest data',async()=>{
+  for (const owner of ['alice','bob',null]) await saveRehearsal({ scope: mediaScope(owner,null), scriptKey:'reading', title:'Ensaio', content:'Texto', fraction:.5, settings:DEFAULT_SETTINGS, updatedAt:1 })
   for (const uid of ['alice','bob',null]) await createVideoProject({id:String(uid),scope:mediaScope(uid,null),scriptKey:'script',title:'Video',createdAt:1,updatedAt:1,blob:new Blob(['video']),utterances:[],srt:null})
   await db.scripts.bulkAdd([script('alice-script','alice-team'),script('bob-script','bob-team'),script('guest-script')])
   for (const workspace of ['alice-team','bob-team']) await db.posts.add({title:workspace,description:'test',channels:[],scheduledAt:1,status:'scheduled',createdAt:1,updatedAt:1,cloudWorkspaceId:workspace})
@@ -27,6 +30,7 @@ it('removes the departing account media and workspace cache while keeping anothe
   expect((await db.posts.toArray()).map(p=>p.cloudWorkspaceId)).toEqual(['bob-team'])
   expect(readDrafts().map(s=>s.key).sort()).toEqual(['bob-draft','guest-draft'])
   expect(sessionStorage.getItem('alvoprompt-sync-pass')).toBeNull()
+  expect((await db.rehearsals.toArray()).map(s=>JSON.parse(s.scope)[0]).sort()).toEqual(['bob',null].sort())
 })
 it('clears every app table and recovery journal only with explicit device erasure',async()=>{
   await db.scripts.add(script('guest')); journalDraft(script('draft'))
@@ -34,4 +38,13 @@ it('clears every app table and recovery journal only with explicit device erasur
   await deleteLocalAccount('alice',[],true)
   for (const table of db.tables) expect(await table.count()).toBe(0)
   expect(readDrafts()).toEqual([])
+})
+
+it('deletes only the departing account rehearsal audio and its original blob', async () => {
+  for (const uid of ['alice', 'bob']) await saveRehearsalAudio({ id: `voice-${uid}`, scope: mediaScope(uid,null), scriptKey:'s', title:'Ensaio', content:'Texto', fraction:.5, settings:DEFAULT_SETTINGS, createdAt:1, duration:5, type:'audio/mp4' }, new Blob(['voice'], { type:'audio/mp4' }))
+  await deleteLocalAccount('alice', [], false)
+  expect(await db.rehearsalAudios.get('voice-alice')).toBeUndefined()
+  expect(await db.videoSources.get('voice-alice')).toBeUndefined()
+  expect(await db.rehearsalAudios.get('voice-bob')).toBeDefined()
+  expect((await db.videoSources.get('voice-bob'))?.blob.size).toBe(5)
 })

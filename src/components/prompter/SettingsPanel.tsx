@@ -543,6 +543,7 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
                 options={[
                   { value: 'none', label: 'Nenhum' },
                   { value: '9:16', label: '9:16' },
+                  { value: '4:5', label: '4:5 · Feed' },
                   { value: '1:1', label: '1:1' },
                   { value: '16:9', label: '16:9' },
                 ]}

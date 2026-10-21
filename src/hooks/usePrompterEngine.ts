@@ -89,6 +89,7 @@ export function usePrompterEngine({ mode, wordCount, wpm, onFrame }: EngineOptio
     const clamped = Math.max(0, Math.min(1, f))
     fractionRef.current = clamped
     optsRef.current.onFrame(clamped)
+    if (clamped > 0 && clamped < 1 && (stateRef.current === 'idle' || stateRef.current === 'done')) setEngineState('paused')
     if (clamped >= 1 && stateRef.current === 'running') {
       cancelAnimationFrame(rafRef.current)
       setEngineState('done')

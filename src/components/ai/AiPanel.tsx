@@ -2,6 +2,8 @@ import { currentUser, requestAccount } from '../../lib/auth'
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import type { AiPanelTab } from '../../lib/types'
+import type { Script } from '../../lib/types'
+import { newScriptKey } from '../../lib/db'
 import {
   generateScript,
   improveScript,
@@ -11,8 +13,12 @@ import {
 } from '../../lib/ai'
 
 const FORMATS = [
-  'TikTok / Reels (até 1 min)',
-  'YouTube Shorts (até 60s)',
+  'Instagram Reels',
+  'Instagram Stories · uma história',
+  'Instagram Stories · sequência em partes',
+  'Instagram Feed',
+  'TikTok',
+  'YouTube Shorts',
   'YouTube (5+ min)',
   'Vídeo de vendas',
   'Vlog',
@@ -48,7 +54,7 @@ interface AiPanelProps {
 }
 
 export default function AiPanel({ tab }: AiPanelProps) {
-  const { currentScript, selectScript, upsertScript, closeAiPanel } = useAppStore()
+  const { currentScript, selectScript, upsertScript, closeAiPanel, updateSettings } = useAppStore()
   const [activeTab, setActiveTab] = useState<AiPanelTab>(tab)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -74,6 +80,31 @@ export default function AiPanel({ tab }: AiPanelProps) {
   const [notes, setNotes] = useState('')
   const [generated, setGenerated] = useState('')
   const [generating, setGenerating] = useState(false)
+  const generatedDraft = useRef<Script | null>(null)
+  const [draftSaved, setDraftSaved] = useState(false)
+  const generationScope = useRef('')
+  const scopeNow = () => JSON.stringify([useAppStore.getState().mediaOwner, useAppStore.getState().cloudWorkspace?.id])
+  const saveGenerated = async (text: string, open?: 'editor' | 'library') => {
+    if (!text.trim() || generationScope.current !== scopeNow()) throw new Error('A conta ou o espaço mudou. Gere o roteiro novamente neste espaço.')
+    const now = Date.now()
+    const draft = generatedDraft.current ?? { key: newScriptKey(), title: topic.trim().slice(0, 120) || 'Roteiro com IA', content: text, createdAt: now, updatedAt: now, ...(useAppStore.getState().cloudWorkspace ? { cloudWorkspaceId: useAppStore.getState().cloudWorkspace!.id } : {}) }
+    generatedDraft.current = draft
+    await upsertScript(draft)
+    if (generationScope.current !== scopeNow()) return
+    setDraftSaved(true)
+    if (open) {
+      if (open === 'editor') selectScript(useAppStore.getState().scripts.find(s => s.key === draft.key) ?? draft)
+      closeAiPanel()
+      useAppStore.getState().setView(open)
+    }
+  }
+
+  const closeSafely = async () => {
+    if (generated.trim() && !generating && !draftSaved) {
+      try { await saveGenerated(generated) } catch { setError('O roteiro ainda não foi salvo. Libere espaço e tente Salvar para depois antes de fechar.'); return }
+    }
+    closeAiPanel()
+  }
 
   // ---- Melhorar ----
   const [improveAction, setImproveAction] = useState<ImproveAction>('fluencia')
@@ -99,14 +130,20 @@ export default function AiPanel({ tab }: AiPanelProps) {
 
   const handleGenerate = async () => {
     if (!topic.trim() || busy) return
+    if (generated.trim() && !draftSaved) {
+      try { await saveGenerated(generated) } catch { setError('Salve o roteiro atual antes de gerar outro. Libere espaço e tente novamente.'); return }
+    }
     setError(null)
     setBusy(true)
     setGenerating(true)
     setGenerated('')
+    setDraftSaved(false)
+    generatedDraft.current = null
+    generationScope.current = scopeNow()
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      await generateScript(
+      const result = await generateScript(
         {
           topic: topic.trim(),
           format,
@@ -117,6 +154,10 @@ export default function AiPanel({ tab }: AiPanelProps) {
         },
         { onToken: (full) => { if (!controller.signal.aborted) setGenerated(full) }, signal: controller.signal },
       )
+      if (!controller.signal.aborted && generationScope.current === scopeNow()) {
+        try { await saveGenerated(result) }
+        catch { setError('O texto foi gerado, mas ainda não foi salvo. Use Salvar para depois antes de fechar.') }
+      }
     } catch (err) {
       if (abortRef.current !== controller) return
       setGenerated('')
@@ -235,8 +276,8 @@ export default function AiPanel({ tab }: AiPanelProps) {
       ref={dialogRef}
       aria-labelledby="ai-assistant-title"
       className="ai-assistant-dialog"
-      onCancel={closeAiPanel}
-      onClick={(event) => { if (event.target === event.currentTarget) closeAiPanel() }}
+      onCancel={event => { event.preventDefault(); void closeSafely() }}
+      onClick={(event) => { if (event.target === event.currentTarget) void closeSafely() }}
     >
       <div
         className="ai-assistant-sheet flex h-full min-h-0 w-full max-w-md flex-col border-l"
@@ -252,7 +293,7 @@ export default function AiPanel({ tab }: AiPanelProps) {
           </h2>
           <button
             autoFocus
-            onClick={closeAiPanel}
+            onClick={() => void closeSafely()}
             aria-label="Fechar assistente IA"
             className="min-h-11 shrink-0 rounded-xl border px-3 py-2 text-sm font-semibold"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
@@ -298,11 +339,11 @@ export default function AiPanel({ tab }: AiPanelProps) {
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium" style={{ color: 'var(--muted)' }}>
-                    Formato
+                    Plataforma / tipo de vídeo
                   </span>
                   <select
                     value={format}
-                    onChange={(e) => setFormat(e.target.value)}
+                    onChange={(e) => { const next = e.target.value; setFormat(next); if (/Instagram Feed/.test(next)) updateSettings({ aspectGuide: '4:5' }); else if (/Instagram|TikTok|Shorts/.test(next)) updateSettings({ aspectGuide: '9:16' }) }}
                     className="w-full rounded-lg border bg-transparent px-2 py-2 text-sm text-[var(--text)]"
                     style={{ borderColor: 'var(--border)' }}
                   >
@@ -383,7 +424,8 @@ export default function AiPanel({ tab }: AiPanelProps) {
                     className="w-full resize-none rounded-lg border p-3 text-sm leading-relaxed text-[var(--text)]"
                     style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
                   />
-                  <div className="flex gap-2">
+                  {draftSaved && <p role="status" className="text-sm" style={{ color: 'var(--ok)' }}>Roteiro salvo na biblioteca. Você pode usá-lo agora ou depois.</p>}
+                  <div className="flex flex-wrap gap-2">
                     {generating ? (
                       <button
                         onClick={cancel}
@@ -395,18 +437,18 @@ export default function AiPanel({ tab }: AiPanelProps) {
                     ) : (
                       <>
                         <button
-                          onClick={() => setGenerated('')}
-                          className="flex-1 rounded-lg border py-2.5 text-sm"
+                          onClick={() => void saveGenerated(generated, 'library').catch(() => setError('Não foi possível salvar. Mantenha esta tela aberta e tente novamente.'))}
+                          className="min-h-11 flex-1 rounded-lg border px-3 py-2.5 text-sm"
                           style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
                         >
-                          Descartar
+                          Salvar para depois
                         </button>
                         <button
-                          onClick={() => applyToScript(generated)}
-                          className="flex-1 rounded-lg py-2.5 text-sm font-semibold text-black"
+                          onClick={() => void saveGenerated(generated, 'editor').catch(() => setError('Não foi possível salvar. Tente novamente.'))}
+                          className="min-h-11 flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold text-black"
                           style={{ background: 'var(--ok)' }}
                         >
-                          Usar este roteiro
+                          Salvar e editar agora
                         </button>
                       </>
                     )}

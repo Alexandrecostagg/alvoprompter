@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { AspectGuideRatio } from '../../lib/types'
 
 const LABELS: Record<Exclude<AspectGuideRatio, 'none'>, string> = {
-  '9:16': '9:16 · TikTok / Reels / Shorts',
+  '9:16': '9:16 · Instagram Stories / Reels / TikTok / Shorts',
+  '4:5': '4:5 · Instagram Feed',
   '1:1': '1:1 · Feed',
   '16:9': '16:9 · YouTube',
 }

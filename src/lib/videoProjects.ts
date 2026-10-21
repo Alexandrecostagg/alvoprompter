@@ -8,7 +8,9 @@ export interface VideoEdit {
   socialDestination?: string
   publicationText?: string
   cuts: CutHistory
-  aspect: 'original' | '9:16' | '1:1' | '16:9'
+  aspect: 'original' | '9:16' | '4:5' | '1:1' | '16:9'
+  exportQuality?: 'hd' | 'compact'
+  storySeconds?: number
   burnCaptions: boolean; highlightWords: boolean; themeKey: CaptionThemeKey
   segments: SrtSegment[]; alignedWords: TimedWord[]
   logoBlob: Blob | null; logoPosition: LogoPosition; logoWidth: number
@@ -23,9 +25,10 @@ export interface VideoProject {
   id: string; scope: string; scriptKey?: string; title: string
   createdAt: number; updatedAt: number; deletedAt?: number
   blob: Blob; utterances: CaptionUtterance[]; srt: string | null
+  scriptContent?: string; resumeFraction?: number
   edit?: VideoEdit; exportState?: 'rendering' | 'ready' | 'cancelled' | 'failed'
 }
-export interface VideoVersion { id: string; projectId: string; scope: string; createdAt: number; blob: Blob; edit: VideoEdit }
+export interface VideoVersion { id: string; projectId: string; scope: string; createdAt: number; blob: Blob; edit: VideoEdit; label?: string }
 export type VideoVersionSummary = Omit<VideoVersion, 'blob' | 'edit'>
 export type VideoProjectSummary = Omit<VideoProject, 'blob' | 'utterances' | 'srt' | 'edit'>
 export const mediaScope = (owner: string | null, workspace: string | null) => JSON.stringify([owner, workspace])
@@ -61,13 +64,13 @@ export async function updateVideoProject(id: string, scope: string, patch: Pick<
     await db.videoProjects.update(id, { ...patch, updatedAt: Date.now() })
   })
 }
-export async function saveVideoVersion(projectId: string, scope: string, blob: Blob, edit: VideoEdit): Promise<void> {
+export async function saveVideoVersion(projectId: string, scope: string, blob: Blob, edit: VideoEdit, label?: string): Promise<void> {
   if (!blob.size) throw new Error('O vídeo exportado está vazio.')
   await db.transaction('rw', db.videoProjects, db.videoVersions, db.videoSources, async () => {
     const project = await db.videoProjects.get(projectId)
     if (!project || project.scope !== scope || project.deletedAt) throw new Error('Gravação indisponível.')
     const id = newKey('v')
-    await db.videoVersions.add({ id, projectId, scope, createdAt: Date.now(), edit })
+    await db.videoVersions.add({ id, projectId, scope, createdAt: Date.now(), edit, label })
     await db.videoSources.add({ id, blob })
     await db.videoProjects.update(projectId, { exportState: 'ready', updatedAt: Date.now() })
   })

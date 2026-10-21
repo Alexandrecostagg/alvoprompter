@@ -12,7 +12,7 @@ import ScriptAnalysis from './ScriptAnalysis'
 const SPEEDS = [100, 130, 150, 180, 200]
 
 export default function ScriptEditor() {
-  const { currentScript, upsertScript, setView, settings, updateSettings, cloudWorkspace, saveStatus, saveError, aiPanelTab, openAiPanel, closeAiPanel } =
+  const { currentScript, upsertScript, setView, settings, updateSettings, cloudWorkspace, saveStatus, saveError, aiPanelTab, openAiPanel } =
     useAppStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const stopReading = useRef<(() => void) | null>(null)
@@ -32,14 +32,7 @@ export default function ScriptEditor() {
   }, [currentScript?.id, currentScript?.content])
 
 
-  useEffect(() => {
-    if (aiPanelTab == null) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeAiPanel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [aiPanelTab, closeAiPanel])
+
 
   if (!currentScript) {
     return (

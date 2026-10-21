@@ -1,4 +1,5 @@
 import type { VideoProject, VideoVersion } from './videoProjects'
+import type { RehearsalAudio, Rehearsal } from './rehearsals'
 import Dexie, { type Table } from 'dexie'
 import type { AvatarTwin, ScheduledPost, Script, VoiceProfile, Workspace } from './types'
 
@@ -13,6 +14,8 @@ export function newScriptKey(): string {
 }
 
 class AlvoPrompterDB extends Dexie {
+  rehearsalAudios!: Table<RehearsalAudio, string>
+  rehearsals!: Table<Rehearsal, [string, string]>
   videoProjects!: Table<Omit<VideoProject, 'blob'>, string>
   videoSources!: Table<{ id: string; blob: Blob }, string>
   videoVersions!: Table<Omit<VideoVersion, 'blob'>, string>
@@ -56,6 +59,8 @@ class AlvoPrompterDB extends Dexie {
         }
       }
     })
+    this.version(7).stores({ rehearsals: '[scope+scriptKey], scope, updatedAt' })
+    this.version(8).stores({ rehearsalAudios: 'id, scope, scriptKey, createdAt' })
   }
 }
 

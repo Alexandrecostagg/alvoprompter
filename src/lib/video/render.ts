@@ -124,6 +124,7 @@ export interface RenderConfig {
   /** Cores [início, fim] do gradiente usado nos cards de intro/outro (brand kit). */
   brandGradient?: [string, string]
   fps?: number
+  videoBitsPerSecond?: number
   onProgress?: (fraction: number) => void
   signal?: AbortSignal
 }
@@ -474,7 +475,8 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
     }
     for (const track of dest.stream.getAudioTracks()) out.addTrack(track)
     const mime = MIME_PREFERRED.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
-    const recorder = mime ? new MediaRecorder(out, { mimeType: mime, videoBitsPerSecond: 8_000_000 }) : new MediaRecorder(out)
+    const videoBitsPerSecond = Math.max(1_000_000, Math.min(12_000_000, cfg.videoBitsPerSecond ?? 8_000_000))
+    const recorder = new MediaRecorder(out, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond })
     rec = recorder
     return await new Promise<Blob>((resolve, reject) => {
       const chunks: Blob[] = []
