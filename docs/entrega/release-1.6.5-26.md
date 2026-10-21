@@ -33,7 +33,7 @@ O teste do navegador não homologa microfone, roteamento de áudio, compartilham
 ## Distribuição
 
 - Build 26 em iOS e Android. Archive Xcode e AAB assinados aprovados, usando um único job/worker por compilação.
-- Xcode confirmou `Upload succeeded` e `EXPORT SUCCEEDED` às 17h23 (Belém). A sessão web da Apple expirou; a confirmação de processamento e a associação ao grupo interno ainda aguardam login do titular. Não foi enviada versão pública.
+- Xcode confirmou `Upload succeeded` e `EXPORT SUCCEEDED` às 17h23 (Belém). Após o titular renovar a sessão, App Store Connect confirmou processamento. Build associado ao grupo interno Equipe AlvoPrompter (1 tester); tabela do grupo confirmou status Em testes. Instruções preenchidas e botão Salvo confirmado. Evidências privadas: testflight-26-notas.jpg e testflight-26-grupo.jpg em artifacts/release-1.6.5-26. Não foi enviada versão pública.
 - AAB: `artifacts/alvoprompter-1.6.5-code26.aab`, com SHA-256 ao lado e assinatura verificada. Ainda não enviado à Play Console nesta entrega.
 - Web publicada em `https://63b3bac6.alvoprompter.pages.dev`, projeto de produção `alvoprompter`. Backend não alterado.
 - Scanner de segredos: 453 arquivos e histórico Git, sem correspondências privadas nos padrões examinados. Isso não equivale a certificação integral de segurança.
