@@ -19,6 +19,7 @@ const streams: MediaStream[] = []
 if (query.has('unsupported-filter')) Reflect.deleteProperty(CanvasRenderingContext2D.prototype, 'filter')
 // Synthetic camera only: this harness never requests camera/microphone hardware.
 navigator.mediaDevices.getUserMedia = async () => {
+  if (query.has('denied')) throw new DOMException('Camera permission denied for regression test', 'NotAllowedError')
   const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360
   const ctx = canvas.getContext('2d')!
   let x = 0

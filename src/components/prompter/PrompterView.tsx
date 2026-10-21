@@ -34,7 +34,7 @@ export default function PrompterView() {
   const [showSettings, setShowSettings] = useState(false)
   const [showResult, setShowResult] = useState(false)
   const resultModalRef = useRef<HTMLDivElement>(null)
-  useModalFocus(resultModalRef, showResult, () => { if (!recorder.isFinishing) setShowResult(false) })
+  useModalFocus(resultModalRef, showResult, () => { if (!recorder.isFinishing) closeResult() })
   const [progressPct, setProgressPct] = useState(0)
   const [srtText, setSrtText] = useState<string | null>(null)
   const [transLangIdx, setTransLangIdx] = useState(0)
@@ -204,6 +204,12 @@ export default function PrompterView() {
   })
 
   const recorder = useRecorder()
+  const closeResult = () => {
+    // A failed camera must not be enabled again just because its dialog closed.
+    // Keep rehearsal available; the user can explicitly turn the camera back on.
+    if (recorder.error) updateSettings({ cameraOn: false })
+    setShowResult(false)
+  }
   const transcription = useTranscription()
   const pauseEngine = engine.pause
   const stopVoice = voice.stop
@@ -858,7 +864,7 @@ export default function PrompterView() {
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <h3 id="recording-result-title" className="font-semibold text-white on-dark">{recorder.isFinishing ? 'Salvando gravação…' : recorder.error ? 'Precisamos ajustar a gravação' : recorder.videoUrl ? 'Gravação concluída' : 'Leitura concluída'}</h3>
-              {!recorder.isFinishing && <button onClick={() => setShowResult(false)} className="min-h-11 shrink-0 rounded-xl border px-3 text-sm" style={{ borderColor: 'var(--border)' }}>Fechar</button>}
+              {!recorder.isFinishing && <button onClick={closeResult} className="min-h-11 shrink-0 rounded-xl border px-3 text-sm" style={{ borderColor: 'var(--border)' }}>Fechar</button>}
             </div>
             {recorder.isFinishing ? <p role="status" className="py-6 text-sm">Aguarde enquanto o aparelho finaliza o vídeo.</p> : recorder.error ? <div role="alert" className="space-y-4">
               <p className="text-sm leading-relaxed">{recorder.error}</p>
