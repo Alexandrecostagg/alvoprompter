@@ -18,7 +18,7 @@ O build 23 foi enviado como TestFlight Internal Only e não pode ser submetido �
 - Campo O que testar dos builds 23 e 24 preenchido e salvo; cobre cadastro/login, IA, roteiro, captura/reprodução de áudio, edição/exportação, áreas seguras e exclusão somente em conta descartável. Evidências `artifacts/release-1.6.5/test-notes-23-saved.png` e `artifacts/release-1.6.5-24/test-notes-24-saved.png`. Build 24 adicionado ao grupo interno existente Equipe AlvoPrompter, com um tester.
 - Rascunho público estava em 1.4.0 com build 14. Associação antiga retirada, sem apagar o binário do TestFlight; versão do rascunho salva em 1.6.5. Orientações da revisão atualizadas para o fluxo local, login, compras iOS/restore e exclusão de conta. Lançamento manual preservado.
 - A revisão automática inicialmente rejeitou a retirada da associação do build 14 por possível dificuldade de reversão. Documentação oficial confirmou que a seleção pode ser trocada até a submissão e que remover a associação não remove o build da conta. Nova tentativa aceita após essa evidência; bloqueio resolvido, nenhuma compilação excluída.
-- Usuário preencheu e salvou as credenciais diretamente na Apple. A conferência identificou que o nome de usuário salvo ainda corresponde à conta administrativa principal; a senha não foi lida. Antes da submissão, o titular precisa substituir esse acesso por uma conta comum de revisão. Nenhuma credencial foi copiada para o repositório.
+- Usuário corrigiu e salvou as credenciais diretamente na Apple. Conferência posterior confirmou o alias comum de revisão com “+apple”, diferente do e-mail administrativo, e o botão Salvar desabilitado. Consulta somente de leitura no D1 confirmou uma conta para esse alias. A senha não foi extraída nem copiada para o repositório; a autenticação com a conta de revisão ainda precisa ser validada pelo titular ou em teste autorizado.
 - Os produtos de assinatura existentes continuam em Preparar para envio. A configuração de revisão das assinaturas, incluindo a captura solicitada pela Apple, ainda precisa ser concluída/conferida antes de afirmar que as compras estão prontas para revisão pública. Não houve alteração de preço nem contratação nesta etapa.
 - Nenhuma submissão pública ou lançamento foi executado nesta etapa. Não elevar regra de atualização obrigatória antes da disponibilidade real.
 
@@ -68,6 +68,16 @@ Fontes técnicas:
 - https://firebase.google.com/docs/ios/app-store-data-collection
 - https://developers.google.com/identity/sign-in/ios/app-privacy
 - Manifestos `GoogleSignIn_GoogleSignIn.bundle/PrivacyInfo.xcprivacy` e `Firebase_FirebaseAuth.bundle/PrivacyInfo.xcprivacy` do archive 1.6.5 (24).
+
+## Ponto de retomada após reinício do Mac — 21/10, 11h39 (Belém)
+
+- A versão pública continua em Preparar para envio com build 24; não foi submetida. Privacidade publicada e alias de revisão corrigido, conforme verificações acima.
+- Três capturas atuais da interface web compartilhada foram preservadas em `artifacts/store-assets-20261021/current-ui/`: estúdio, resultado real da IA e editor. O roteiro demonstrativo foi gerado na produção e salvo localmente no navegador. Essas capturas ainda não constituem uma galeria final aprovada nem validação dos binários nativos.
+- A nova galeria não foi montada/enviada. A captura do editor ainda requer revisão do foco/estado de salvamento. Falta obter demonstrações adequadas de gravação, legendas e exportação.
+- A assinatura Studio mantém preços e disponibilidade anteriores; ainda falta a captura de revisão da tela real de contratação, e as notas de revisão não foram preenchidas. Criador também precisa de conferência final. Nenhuma assinatura foi adicionada à revisão nesta retomada.
+- Conversão de mídia demonstrativa interrompida pelo reinício; arquivo incompleto de 48 bytes descartado. Não reutilizar como evidência de exportação funcional. Não retomar conversão pesada enquanto o Mac estiver sob pressão de recursos; limitar processos e duração em eventual nova conversão.
+- Após o reinício, volume de dados com cerca de 10 GiB livres, RAM física de 8 GiB e uso significativo de compressão/swap. Carga inicial de 1 minuto em 73,1, depois 4,81. Isso não comprova a causa do reinício. O relatório recente de falha encontrado era do Warsaw após o boot; o panic localizado era antigo, de março, e não foi atribuído a este incidente.
+- Removidos somente caches regeneráveis, sem compilação relacionada ativa: Gradle (2507 MiB), Build do AlvoPrompter (265 MiB), ModuleCache (238 MiB) e temporários do atualizador (1826 MiB). Cerca de 4,7 GiB liberados; volume passou a aproximadamente 15 GiB livres. Projetos, credenciais, arquivos pessoais, archives e processo de atualização do WhatsApp preservados.
 
 ## Referências
 
