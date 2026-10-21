@@ -54,3 +54,12 @@ AAB 25 recebido e processado pela Play Console na faixa fechada Dia 23 de Setemb
 A tentativa PNG da Apple também terminou com alerta visual. A associação temporária da sexta captura foi retirada junto às cinco JPEGs com alerta; preservados os arquivos na biblioteca. Recuperação da galeria anterior pela Biblioteca de Ativos concluída: três PNGs do iPhone e um PNG do iPad, com miniaturas visíveis sem alertas. Não há nova submissão pública Apple. O TestFlight 25 permanece liberado ao grupo interno.
 
 Conferência após novo relato de travamento: o formulário financeiro do Google voltou a mostrar o perfil selecionado sem botão de continuação. Após recarregar e reabrir o fluxo preparatório, permaneceu carregando; não houve confirmação financeira nem vinculação. A cobrança Google permanece desativada. Mac com aproximadamente 10 GiB livres no volume de dados; não há diagnóstico confirmado de falta de espaço como causa dessa falha web.
+
+## Investigação da retenção de pagamentos — 21/10/2026
+
+- Nova tentativa com a aba do formulário ativa revelou a mensagem do próprio Google: “Entre em contato para remover a retenção de sua conta. [OR-ICRA-02]”. Há um bloqueio da conta de pagamentos; não atribuir a falha somente ao carregamento do Chrome ou ao espaço do Mac.
+- Central de Pagamentos, na mesma conta Google, mostrou um alerta crítico de confirmação das informações de pagamento vinculado ao Google Cloud. A ação “Verificar agora” abriu a verificação de um cartão já cadastrado, com botão “Receber código” e aviso de cobrança temporária.
+- A verificação do cartão foi deixada para o titular. O agente não iniciou a cobrança temporária, não acessou o banco, não solicitou o código pela conversa e não enviou chamado ao suporte.
+- É necessário concluir a verificação e repetir a seleção do perfil no Play Console para confirmar se a retenção OR-ICRA-02 foi removida. O alerta do Cloud, isoladamente, não prova que seja a única causa do bloqueio do cadastro de comerciante. Se o erro continuar, usar o atendimento indicado pelo próprio erro.
+- Cobrança Google continua desativada. Não há confirmação de vinculação, produto de assinatura homologado ou compra Google validada.
+- Referência oficial para verificação: https://support.google.com/paymentscenter/answer/7644078 . Evidências locais privadas em artifacts/release-1.6.5-25/google-billing-or-icra-02.jpg e google-cartao-verificacao-pendente.jpg; não incluir essas capturas no Git.
