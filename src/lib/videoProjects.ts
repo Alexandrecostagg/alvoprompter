@@ -5,6 +5,8 @@ import type { CaptionThemeKey, LogoPosition, MotionPreset } from './video/render
 
 export interface TimedWord { word: string; start: number; end: number }
 export interface VideoEdit {
+  socialDestination?: string
+  publicationText?: string
   cuts: CutHistory
   aspect: 'original' | '9:16' | '1:1' | '16:9'
   burnCaptions: boolean; highlightWords: boolean; themeKey: CaptionThemeKey

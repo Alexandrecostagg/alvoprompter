@@ -6,11 +6,18 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "artifacts/store-assets-20261021/current-ui"
 ALLOWED_UI = {"home.jpg", "ai.png", "editor.jpg", "prompter.jpg", "settings.jpg", "ipad-home.jpg", "ipad-editor.jpg"}
+EVIDENCE = ROOT / "artifacts/export-security-20261021"
+ALLOWED_EVIDENCE = {"02-formato-antes.jpg", "07-resultado-mobile.jpg", "08-youtube-desktop.jpg", "legenda-margem.png"}
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
-        if path in {"/", "/gallery.html"}:
+        if path == "/revisao":
+            file, kind = ROOT / "audit/revisao-export-seguranca-20261021.html", "text/html; charset=utf-8"
+        elif path.startswith("/evidence/") and path[10:] in ALLOWED_EVIDENCE:
+            file = EVIDENCE / path[10:]
+            kind = "image/png" if file.suffix == ".png" else "image/jpeg"
+        elif path in {"/", "/gallery.html"}:
             file, kind = ROOT / "audit/store-gallery-20261021.html", "text/html; charset=utf-8"
         elif path == "/brand/icon.png":
             file, kind = ROOT / "public/icon-512.png", "image/png"

@@ -1,7 +1,7 @@
 import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { generateKeyPair, exportSPKI, importSPKI, SignJWT } from 'jose'
 import worker, { type Env } from '../api/transcribe/src/index'
-import { fetchImport, readLimited, takeRateLimit } from '../api/transcribe/src/security'
+import { fetchImport, readLimited, takeRateLimit, mediaSignatureMatches, validatedMediaStream } from '../api/transcribe/src/security'
 import { testDatabase } from './d1-test-db'
 
 // Only certificate decoding is adapted to an ephemeral test key. Signature,
@@ -115,19 +115,20 @@ describe('security boundaries with real signed JWTs', () => {
       constructor(length: number) { let seen = 0; super({ transform(chunk, c) { seen += chunk.length; if (seen > length) throw new Error('overflow'); c.enqueue(chunk) }, flush() { if (seen !== length) throw new Error('truncated') } }) }
     })
     const { req, env } = await setup()
-    expect((await req('/media/private.mp4', 'PUT', 'clip', undefined, { 'Content-Length': '4', 'Content-Type': 'video/mp4' })).status).toBe(200)
+    const clip = '\u0000\u0000\u0000\u0018ftypisom\u0000\u0000\u0000\u0000isommp42'
+    expect((await req('/media/private.mp4', 'PUT', clip, undefined, { 'Content-Length': String(clip.length), 'Content-Type': 'video/mp4' })).status).toBe(200)
     const bob = await token('bob')
     expect((await req('/media/private.mp4', 'GET', undefined, bob)).status).toBe(404)
     expect((await req('/videopages', 'POST', JSON.stringify({ title: 'Stolen', mediaKey: 'private.mp4' }), bob)).status).toBe(400)
     await req('/media/private.mp4', 'DELETE', undefined, bob)
     const mine = await req('/media/private.mp4')
-    expect(await mine.text()).toBe('clip')
+    expect(await mine.text()).toBe(clip)
     expect(mine.headers.get('Content-Disposition')).toBe('attachment')
     const published = await req('/videopages', 'POST', JSON.stringify({ title: '<script>inert text</script>', mediaKey: 'private.mp4' }))
     expect(published.status).toBe(200)
     const page = await published.json() as { id: string; passHash?: string }
     expect(page.passHash).toBeUndefined()
-    expect(await (await req(`/videopages/${page.id}/play`, 'GET', undefined, null)).text()).toBe('clip')
+    expect(await (await req(`/videopages/${page.id}/play`, 'GET', undefined, null)).text()).toBe(clip)
     expect(env.alvoprompt_media.put).toHaveBeenCalledTimes(1)
   })
   it('keeps the Pexels credential on the server and requires authentication', async () => {
@@ -156,6 +157,35 @@ describe('security boundaries with real signed JWTs', () => {
 })
 
 describe('resource and SSRF limits', () => {
+  it('atomically enforces a byte budget under concurrent uploads', async () => {
+    const { db } = testDatabase()
+    const results = await Promise.all(Array.from({length:10},()=>takeRateLimit(db,'media-bytes:alice',10,86400,3)))
+    expect(results.filter(Boolean)).toHaveLength(3)
+    expect(await takeRateLimit(db,'media-bytes:bob',10,86400,10)).toBe(true)
+    expect(await takeRateLimit(db,'media-bytes:bob',10,86400,1)).toBe(false)
+  })
+  it('rejects an executable body disguised with an allowed media type before R2', async () => {
+    const { req, env } = await setup()
+    const body = '<html><script>alert(1)</script></html>'
+    const result = await req('/media/fake.mp4', 'PUT', body, undefined, { 'Content-Length': String(body.length), 'Content-Type': 'video/mp4' })
+    expect(result.status).toBe(415)
+    expect(env.alvoprompt_media.put).not.toHaveBeenCalled()
+  })
+  it.each(['video/mp4','video/quicktime','audio/mp4','video/webm','audio/webm','image/png','image/jpeg','image/webp','audio/wav','audio/mpeg'])('rejects a false signature for %s', type => {
+    expect(mediaSignatureMatches(new TextEncoder().encode('<script>executable</script>'), type)).toBe(false)
+  })
+  it('preserves every byte when a valid signature arrives in tiny chunks', async () => {
+    const bytes = new Uint8Array([137,80,78,71,13,10,26,10,1,2,3,4,5,6,7,8,9,10])
+    const body = new ReadableStream<Uint8Array>({start(c){bytes.forEach(b=>c.enqueue(new Uint8Array([b])));c.close()}})
+    const stream = await validatedMediaStream(body, 'image/png')
+    expect(new Uint8Array(await new Response(stream).arrayBuffer())).toEqual(bytes)
+  })
+  it('cancels an invalid upload stream', async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({start(c){c.enqueue(new Uint8Array(20))},cancel})
+    await expect(validatedMediaStream(body, 'video/mp4')).rejects.toMatchObject({status:415})
+    expect(cancel).toHaveBeenCalledOnce()
+  })
   it('applies a rate limit atomically to concurrent attempts', async () => {
     const { db } = testDatabase()
     const results = await Promise.all(Array.from({ length: 20 }, () => takeRateLimit(db, 'same-user', 5)))

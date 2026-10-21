@@ -7,6 +7,8 @@ const patterns = [
   /\bsk-(?:proj-)?[A-Za-z0-9_-]{30,}/g,
   /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})/g,
   /\bAKIA[A-Z0-9]{16}\b/g,
+  /\bre_[A-Za-z0-9_-]{25,}\b/g,
+  /\$aact_[A-Za-z0-9_$.-]{30,}/g,
   /\bAIza[A-Za-z0-9_-]{30,}/g,
 ]
 // Firebase web config is a public application identifier, not an admin credential.
@@ -30,6 +32,20 @@ function walk(dir) {
 }
 walk('public'); walk('dist')
 let failed = false
+if (process.argv.includes('--history')) {
+  const patch = execFileSync('git', ['log', '--all', '--format=commit:%H', '-p', '--no-ext-diff', '--', '.', ':(exclude)package-lock.json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  let commit = '', path = ''
+  const findings = new Set()
+  for (const line of patch.split('\n')) {
+    if (/^commit:[a-f0-9]{40}$/.test(line)) { commit = line.slice(7); continue }
+    if (line.startsWith('diff --git a/')) { path = line.slice(13).split(' b/')[0]; continue }
+    if (!/^[+-]/.test(line) || /^[+-]{3}/.test(line)) continue
+    if (patterns.some(pattern => [...line.matchAll(pattern)].some(m => !publicKeys.has(m[0])))) findings.add(`${commit.slice(0,12)} ${path}`)
+  }
+  for (const finding of findings) console.error(`Possível segredo histórico em ${finding}; valor omitido.`)
+  if (findings.size) failed = true
+  else console.log('Histórico Git: nenhuma correspondência privada nos padrões examinados em todas as referências locais.')
+}
 for (const file of files) {
   if (!existsSync(file) || statSync(file).size > 10_000_000) continue
   const content = readFileSync(file, 'utf8')

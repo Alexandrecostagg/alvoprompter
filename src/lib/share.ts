@@ -73,7 +73,6 @@ async function shareNativeVideo(options: ShareVideoOptions): Promise<void> {
     recursive: true,
   })
   const { uri } = await Filesystem.getUri({ path, directory: Directory.Cache })
-  await copyTextSilently(options.text)
   await Share.share({
     title: options.title,
     text: options.text,
@@ -109,7 +108,6 @@ export async function shareVideo(options: ShareVideoOptions): Promise<ShareOutco
   }
 
   downloadBlob(options.blob, fileName)
-  await copyTextSilently(options.text)
   return 'downloaded'
 }
 

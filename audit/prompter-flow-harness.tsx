@@ -52,6 +52,12 @@ if (query.has('empty')) {
 useAppStore.setState({ view: 'prompter', currentScript: { id: 991, title: 'Teste de gravação', content: 'Primeiro prepare seu roteiro. Depois olhe para a câmera e fale com calma.', createdAt: Date.now(), updatedAt: Date.now() }, settings: { ...DEFAULT_SETTINGS, cameraOn: !query.has('reading'), mode: query.has('voice') ? 'voice' : 'fixed', wpm: 300, fontSize: 48, beauty: query.has('unsupported-filter') ? 'glamour' : 'none' } })
 function Harness() {
   const view = useAppStore(s => s.view)
+  useEffect(() => {
+    const take = useAppStore.getState().recording
+    if (query.has('captions') && view === 'video-editor' && take && !take.utterances.length) {
+      useAppStore.setState({ recording: { ...take, utterances: [{ text: 'Seu próximo vídeo começa aqui.', at: 2 }] } })
+    }
+  }, [view])
   const [capture, setCapture] = useState('')
   useEffect(() => {
     const timer = setInterval(() => setCapture(`microfones ativos: ${streams.flatMap(s => s.getAudioTracks()).filter(t => t.readyState === 'live').length}; sessão: ${audioSession.type}`), 100)
@@ -59,4 +65,6 @@ function Harness() {
   }, [])
   return <><output aria-label="Diagnóstico de captura" style={{position:'fixed',bottom:0,right:0,zIndex:100,fontSize:9,background:'#fff',color:'#000'}}>{capture}</output>{view === 'video-editor' ? <VideoEditor /> : view === 'editor' ? <p>Roteiro recuperado</p> : <PrompterView />}</>
 }
-createRoot(document.getElementById('root')!).render(<Harness />)
+const root = import.meta.hot?.data.root ?? createRoot(document.getElementById('root')!)
+if (import.meta.hot) import.meta.hot.data.root = root
+root.render(<Harness />)

@@ -2,7 +2,7 @@ import { adminEmailConfigured, reviewGrant, sendAdminEmail, type BillingMessage 
 import { transcribeWithTimestamps } from './transcription'
 import { publicAppPolicy } from './appPolicy'
 import { deletionStatus, registerNamespace, registerResource, deletionHash, processAccountDeletion } from './accountDeletion'
-import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits } from './security'
+import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits, validatedMediaStream } from './security'
 import { billingAvailability } from './billing'
 import { appleBillingConfigured } from './appleBilling'
 import { cascadeChat, chatHealth, type ChatEnv } from './chat'
@@ -780,8 +780,15 @@ const api = {
         if (!request.body) return json({ error: 'Arquivo vazio.' }, 400)
         // Cloudflare's fixed-length stream aborts on both overflow and truncation;
         // an incomplete object is not committed to R2.
+        const verifiedBody = await validatedMediaStream(request.body, type)
+        // Bound bytes too: request counts alone allow thousands of 100 MB uploads.
+        // Reservations include failed writes so repeated retries cannot evade the budget.
+        if (!await takeRateLimit(env.DB!, `media-bytes:${uid}`, 512 * 1024 * 1024, 86400, length)) {
+          await verifiedBody.cancel().catch(() => undefined)
+          return json({ error: 'Limite diário de envio de mídia atingido (512 MB por conta, incluindo tentativas). Tente novamente amanhã.' }, 429)
+        }
         const bounded = new FixedLengthStream(length)
-        const piping = request.body.pipeTo(bounded.writable)
+        const piping = verifiedBody.pipeTo(bounded.writable)
         const saving = env.alvoprompt_media.put(key, bounded.readable, { httpMetadata: { contentType: type } })
         await Promise.all([piping, saving])
         return json({ ok: true, key: rawKey })

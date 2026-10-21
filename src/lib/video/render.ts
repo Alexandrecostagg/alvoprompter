@@ -249,7 +249,9 @@ function drawCaption(
   ctx.textBaseline = 'middle'
   const total = ctx.measureText(text).width
   const x = w / 2 - total / 2
-  const y = h - Math.max(28, fontSize * 1.1)
+  // Leave breathing room for captions/buttons drawn by short-video apps.
+  // This is a conservative guide; the final social preview remains authoritative.
+  const y = h - Math.max(h > w ? h * 0.2 : 28, fontSize * 1.1)
   let activeIdx = -1
   if (highlight && words.length > 0 && cue.end > cue.start) {
     activeIdx = cue.words?.length === words.length ? cue.words.findIndex(word => t >= word.start && t < word.end) : Math.min(

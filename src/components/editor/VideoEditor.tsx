@@ -26,6 +26,7 @@ import { getVideoVersion, listVideoVersions, saveVideoVersion, updateVideoProjec
 import { prepareRecordedPlayback } from '../../lib/recordingAudio'
 import CutPreview from './CutPreview'
 import { applyTimeCut, cutHistoryReducer, emptyCutHistory, intersectRanges, normalizeRanges, removeRange } from '../../lib/editRanges'
+import { SOCIAL_DESTINATIONS, socialDestination, socialFileName, exportWarnings, type SocialDestinationId, type ExportFileInfo } from '../../lib/socialExport'
 
 type AspectOption = 'original' | '9:16' | '1:1' | '16:9'
 
@@ -65,6 +66,9 @@ function Editor() {
   const [editorTab, setEditorTab] = useState('cuts')
   const [meta, setMeta] = useState<{ w: number; h: number; dur: number } | null>(null)
   const [aspect, setAspect] = useState<AspectOption>(saved?.aspect ?? '9:16')
+  const [destination, setDestination] = useState<SocialDestinationId>(() => saved?.socialDestination ? socialDestination(saved.socialDestination).id : saved?.aspect && saved.aspect !== '9:16' ? 'custom' : 'reels')
+  const [publicationText, setPublicationText] = useState(saved?.publicationText ?? currentScript?.title ?? '')
+  const [outputInfo, setOutputInfo] = useState<(ExportFileInfo & { destination: SocialDestinationId; checked: boolean }) | null>(null)
   const [burnCaptions, setBurnCaptions] = useState(saved?.burnCaptions ?? true)
   const [highlightWords, setHighlightWords] = useState(saved?.highlightWords ?? true)
   const [themeKey, setThemeKey] = useState<CaptionThemeKey>(saved?.themeKey ?? 'cinema')
@@ -118,6 +122,7 @@ function Editor() {
   const [outBlob, setOutBlob] = useState<Blob | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
+  const [pageReview, setPageReview] = useState(false)
   const [pageBusy, setPageBusy] = useState(false)
   const [pageMsg, setPageMsg] = useState<string | null>(null)
   const [reframe, setReframe] = useState(saved?.reframe ?? false)
@@ -232,7 +237,7 @@ function Editor() {
     return () => { cancelled = true; urls.forEach(url => URL.revokeObjectURL(url)) }
   }, [saved])
 
-  const edit = useMemo<VideoEdit | null>(() => meta && assetsReady ? ({
+  const renderEdit = useMemo<VideoEdit | null>(() => meta && assetsReady ? ({
     cuts, aspect, burnCaptions, highlightWords, themeKey, segments, alignedWords,
     logoBlob, logoPosition, logoWidth, musicBlob, musicTrackId, musicVolume,
     motion, chromaEnabled, chromaColor, chromaSimilarity, chromaSmoothness, chromaBg,
@@ -241,6 +246,7 @@ function Editor() {
     logoBlob, logoPosition, logoWidth, musicBlob, musicTrackId, musicVolume,
     motion, chromaEnabled, chromaColor, chromaSimilarity, chromaSmoothness, chromaBg,
     reframe, eyeContact, introEnabled, introText, introSeconds, outroEnabled, outroText, outroSeconds, brandFrom, brandTo])
+  const edit = useMemo(() => renderEdit ? { ...renderEdit, socialDestination: destination, publicationText } : null, [renderEdit, destination, publicationText])
   const projectSave = useVideoProjectSave(recording?.project, edit)
   useEffect(() => {
     const project = recording?.project
@@ -250,8 +256,8 @@ function Editor() {
     return () => { live = false }
   }, [recording, versionRevision])
   useEffect(() => {
-    setOutUrl(null); setOutBlob(null); setShareMsg(null)
-  }, [edit])
+    setOutUrl(null); setOutBlob(null); setOutputInfo(null); setPageReview(false); setShareMsg(null)
+  }, [renderEdit])
 
   const promptResults = useMemo<ClipPromptResult[]>(
     () => (promptText.trim().length > 2 ? parseClipPrompt(promptText) : []),
@@ -316,6 +322,7 @@ function Editor() {
   useEffect(() => {
     setOutUrl(null)
     setOutBlob(null)
+    setOutputInfo(null)
     setShareMsg(null)
   }, [cuts.present])
 
@@ -325,7 +332,7 @@ function Editor() {
         <p style={{ color: 'var(--muted)' }}>Nenhuma gravação para editar.</p>
         <button
           onClick={() => setView('library')}
-          className="rounded-lg border px-4 py-2 text-sm"
+          className="min-h-11 rounded-lg border px-4 py-2 text-sm"
           style={{ borderColor: 'var(--border)' }}
         >
           Voltar ao prompter
@@ -575,6 +582,7 @@ function Editor() {
       if (outUrl) URL.revokeObjectURL(outUrl)
       setOutUrl(url)
       setOutBlob(blob)
+      setOutputInfo({ width: targetW, height: targetH, duration: totalRangesDuration(ranges), bytes: blob.size, type: blob.type, destination, checked: false })
       setProgress(1)
       if (recording.project && edit) {
         try { await saveVideoVersion(recording.project.id, recording.project.scope, blob, edit); setVersionRevision(r => r + 1) }
@@ -594,6 +602,7 @@ function Editor() {
   const handleCreateVideoPage = async () => {
     if (!outBlob || pageBusy) return
     setPageBusy(true)
+    setPageReview(false)
     setPageMsg(null)
     try {
       const title =
@@ -602,7 +611,7 @@ function Editor() {
           : currentScript?.title || 'Meu vídeo no AlvoPrompter'
       const page = await createVideoPage({
         blob: outBlob,
-        fileName: `alvoprompter-${aspect === 'original' ? 'original' : aspect}.${outBlob.type.includes('mp4') ? 'mp4' : 'webm'}`,
+        fileName: socialFileName(outputInfo?.destination ?? 'custom', outBlob.type),
         title,
       })
       trackEvent('video_page_created')
@@ -619,16 +628,15 @@ function Editor() {
     setShareBusy(true)
     setShareMsg(null)
     try {
-      const ext = outBlob.type.includes('mp4') ? 'mp4' : 'webm'
       const outcome = await shareVideo({
         blob: outBlob,
-        fileName: `alvoprompter-${aspect === 'original' ? 'original' : aspect}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${ext}`,
+        fileName: socialFileName(outputInfo?.destination ?? 'custom', outBlob.type),
         title: currentScript?.title || 'Vídeo editado no AlvoPrompter',
-        text: currentScript?.title,
+        text: publicationText.trim() || undefined,
       })
       setShareMsg(outcome === 'shared'
-        ? 'Compartilhamento aberto — escolha Instagram, YouTube, TikTok ou outro app.'
-        : 'O vídeo foi baixado. Abra a rede social para publicar.')
+        ? 'Menu de compartilhamento aberto. Conclua a publicação na rede escolhida; o AlvoPrompter não confirma a postagem.'
+        : 'Arquivo baixado. Abra a rede escolhida e selecione este vídeo; use Copiar texto para levar sua legenda.')
       trackEvent('video_shared')
     } catch (err) {
       if (!isShareCancelled(err)) setShareMsg((err as Error).message)
@@ -781,6 +789,22 @@ function Editor() {
             {meta ? `Prévia dos cortes com áudio · ${selectedDuration.toFixed(2)} s de ${meta.dur.toFixed(2)} s` : 'Carregando vídeo...'}
             <br />Para conferir legendas, trilha e efeitos, gere a prévia final abaixo.
           </p>
+          <fieldset disabled={processing || shareBusy} className="mt-4 rounded-xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+            <legend className="px-1 text-sm font-semibold">Onde você vai publicar?</legend>
+            <label className="block text-xs" htmlFor="export-destination">Destino do vídeo</label>
+            <select id="export-destination" className="mt-1 min-h-11 w-full rounded-xl border px-3 text-sm" value={destination} onChange={e => {
+              const next = socialDestination(e.target.value)
+              setDestination(next.id)
+              if (next.aspect) setAspect(next.aspect)
+              if (!next.aspect || next.aspect === aspect) setOutputInfo(info => info ? { ...info, destination: next.id } : info)
+            }}>
+              {SOCIAL_DESTINATIONS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+            </select>
+            <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
+              {aspect === 'original' ? 'Preserva o formato da gravação.' : `${aspect} · ${ASPECT_OPTIONS.find(a => a.value === aspect)?.w} × ${ASPECT_OPTIONS.find(a => a.value === aspect)?.h}.`} MP4 quando disponível neste aparelho.
+              {aspect !== 'original' && ' O formato pode recortar as bordas. Confira o enquadramento na prévia final.'}
+            </p>
+          </fieldset>
           <div className="mt-4 flex flex-col gap-4" aria-live="polite">
           {error && (
             <p className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
@@ -794,13 +818,13 @@ function Editor() {
                 <span>Preparando seu vídeo… mantenha o app aberto.</span>
                 <button
                   onClick={() => abortRef.current?.abort()}
-                  className="rounded-md border px-2 py-1"
+                  className="min-h-11 rounded-md border px-3 py-2"
                   style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
                 >
                   Cancelar
                 </button>
               </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}>
+              <div role="progressbar" aria-label="Preparação do vídeo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)} className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}>
                 <div
                   className="h-full rounded-full transition-[width]"
                   style={{ width: `${Math.round(progress * 100)}%`, background: 'var(--brand-gradient)' }}
@@ -814,39 +838,53 @@ function Editor() {
               className="w-full rounded-lg py-3 text-sm font-semibold text-white disabled:opacity-40"
               style={{ background: 'var(--brand-gradient)' }}
             >
-              Gerar prévia final e exportar
+              {`Preparar vídeo${destination === 'custom' ? '' : ` para ${socialDestination(destination).label}`}`}
             </button>
           )}
 
           {outUrl && (
             <div className="rounded-xl border p-3" style={{ borderColor: 'var(--ok)', background: 'var(--panel)' }}>
               <p className="mb-2 text-xs font-medium" style={{ color: 'var(--ok)' }}>
-                Prévia final pronta · assista antes de compartilhar
+                Vídeo preparado{outputInfo ? ` para ${socialDestination(outputInfo.destination).label}` : ''} · assista antes de compartilhar
               </p>
-              <video aria-label="Prévia final do vídeo" src={outUrl} onPlay={prepareRecordedPlayback} controls playsInline className="mb-3 max-h-48 w-full rounded-lg" />
+              <video aria-label="Prévia final do vídeo" src={outUrl} onPlay={prepareRecordedPlayback} onLoadedMetadata={e => {
+                const video = e.currentTarget
+                setOutputInfo(info => info ? { ...info, width: video.videoWidth, height: video.videoHeight, duration: video.duration, checked: true } : info)
+              }} onError={() => setShareMsg('Não foi possível reproduzir o arquivo final. Gere o vídeo novamente antes de compartilhar.')} controls playsInline className="mb-3 max-h-48 w-full rounded-lg" />
+              {outputInfo && <div className="mb-3 text-xs leading-relaxed">
+                <p>{outputInfo.checked ? 'Arquivo conferido' : 'Conferindo arquivo…'} · {outputInfo.type.includes('mp4') ? 'MP4' : 'WebM'} · {outputInfo.width} × {outputInfo.height} · {outputInfo.duration.toFixed(1)} s · {(outputInfo.bytes / 1024 / 1024).toFixed(1)} MB</p>
+                {outputInfo.checked && exportWarnings(outputInfo.destination, outputInfo).map(warning => <p key={warning} className="mt-2" style={{ color: 'var(--danger)' }}>{warning}</p>)}
+                <p className="mt-2">{socialDestination(outputInfo.destination).tip} Se a rede não aparecer no menu, baixe o vídeo e importe por ela.</p>
+              </div>}
+              <label className="mb-1 block text-xs font-semibold" htmlFor="publication-text">Texto da publicação</label>
+              <textarea id="publication-text" value={publicationText} maxLength={2200} onChange={e => setPublicationText(e.target.value)} rows={3} className="w-full rounded-lg border p-2 text-sm" />
+              <button type="button" disabled={!publicationText.trim()} className="mb-3 min-h-11 rounded-lg border px-3 text-sm disabled:opacity-50" onClick={async () => {
+                try { if (!navigator.clipboard?.writeText) throw new Error(); await navigator.clipboard.writeText(publicationText); setShareMsg('Texto copiado. Cole no campo de legenda da rede escolhida.') }
+                catch { setShareMsg('Selecione e copie o texto acima. Este aparelho não permitiu a cópia automática.') }
+              }}>Copiar texto</button>
               {shareMsg && <p className="mb-2 text-xs" style={{ color: 'var(--muted)' }}>{shareMsg}</p>}
               {pageMsg && <p className="mb-2 break-all text-xs" style={{ color: pageMsg.startsWith('Página criada') ? 'var(--ok)' : 'var(--danger)' }}>{pageMsg}</p>}
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => void handleShare()}
                   disabled={!outBlob || shareBusy}
-                  className="flex-1 rounded-lg px-4 py-2 text-center text-sm font-semibold text-white disabled:opacity-50"
+                  className="min-h-11 flex-1 rounded-lg px-4 py-2 text-center text-sm font-semibold text-white disabled:opacity-50"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
                   {shareBusy ? 'Preparando…' : '↗ Compartilhar vídeo'}
                 </button>
                 <button
-                  onClick={() => void handleCreateVideoPage()}
+                  onClick={() => setPageReview(true)}
                   disabled={!outBlob || pageBusy}
-                  className="flex-1 rounded-lg border px-4 py-2 text-center text-sm font-medium disabled:opacity-50"
+                  className="min-h-11 flex-1 rounded-lg border px-4 py-2 text-center text-sm font-medium disabled:opacity-50"
                   style={{ borderColor: 'var(--accent-2)', color: 'var(--brand-strong)' }}
                 >
-                  {pageBusy ? 'Enviando…' : '📄 Criar página de vídeo'}
+                  {pageBusy ? 'Enviando…' : 'Criar link público'}
                 </button>
                 <a
                   href={outUrl}
-                  download={`alvoprompter-${aspect === 'original' ? 'original' : aspect}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${outBlob?.type.includes('mp4') ? 'mp4' : 'webm'}`}
-                  className="rounded-lg border px-4 py-2 text-center text-sm"
+                  download={socialFileName(outputInfo?.destination ?? 'custom', outBlob?.type ?? 'video/webm')}
+                  className="min-h-11 rounded-lg border px-4 py-2 text-center text-sm"
                   style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
                 >
                   Baixar vídeo editado
@@ -854,17 +892,21 @@ function Editor() {
                 <a
                   href={recording.url}
                   download={`alvoprompter-gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}`}
-                  className="rounded-lg border px-4 py-2 text-sm"
+                  className="min-h-11 rounded-lg border px-4 py-2 text-sm"
                   style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
                 >
                   Original
                 </a>
               </div>
+              {pageReview && <div role="group" aria-label="Confirmar link público" className="mt-3 rounded-lg border p-3 text-sm">
+                <p>O vídeo será enviado para a nuvem. Qualquer pessoa com o link poderá assistir. Baixar ou compartilhar pelo aparelho não cria um link público.</p>
+                <div className="mt-2 flex flex-wrap gap-2"><button className="min-h-11 rounded-lg border px-3 font-semibold" onClick={() => void handleCreateVideoPage()}>Enviar e criar link público</button><button className="min-h-11 rounded-lg border px-3" onClick={() => setPageReview(false)}>Cancelar link público</button></div>
+              </div>}
             </div>
           )}
 
           <a href={recording.url} download={`gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}`} className="min-h-11 rounded-xl border px-4 py-3 text-center text-sm">Baixar original</a>
-          {versions.length > 0 && <details><summary>Versões exportadas ({versions.length})</summary><div className="space-y-2">{versions.map((version, index) => <button key={version.id} className="min-h-11 w-full rounded-xl border px-3 text-left text-sm" onClick={() => { void getVideoVersion(version.id, version.scope).then(savedVersion => { if (!savedVersion) throw new Error(); setOutBlob(savedVersion.blob); setOutUrl(URL.createObjectURL(savedVersion.blob)) }).catch(() => setError('Não foi possível abrir essa versão. Tente novamente.')) }}>Assistir versão {versions.length - index} · {new Date(version.createdAt).toLocaleString('pt-BR')}</button>)}</div></details>}
+          {versions.length > 0 && <details><summary>Versões exportadas ({versions.length})</summary><div className="space-y-2">{versions.map((version, index) => <button key={version.id} className="min-h-11 w-full rounded-xl border px-3 text-left text-sm" onClick={() => { void getVideoVersion(version.id, version.scope).then(savedVersion => { if (!savedVersion) throw new Error(); const oldTarget = ASPECT_OPTIONS.find(a => a.value === savedVersion.edit.aspect)!; setOutputInfo({width: oldTarget.w ?? meta?.w ?? 0, height: oldTarget.h ?? meta?.h ?? 0, duration: totalRangesDuration(savedVersion.edit.cuts.present), bytes: savedVersion.blob.size, type: savedVersion.blob.type, destination: socialDestination(savedVersion.edit.socialDestination).id, checked: false}); setOutBlob(savedVersion.blob); setOutUrl(URL.createObjectURL(savedVersion.blob)) }).catch(() => setError('Não foi possível abrir essa versão. Tente novamente.')) }}>Assistir versão {versions.length - index} · {new Date(version.createdAt).toLocaleString('pt-BR')}</button>)}</div></details>}
           </div>
         </div>
 
@@ -879,7 +921,7 @@ function Editor() {
                 <button
                   key={opt.value}
                   aria-pressed={aspect === opt.value}
-                  onClick={() => setAspect(opt.value)}
+                  onClick={() => { setAspect(opt.value); setDestination('custom') }}
                   className="flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
                   style={{
                     background: aspect === opt.value ? 'var(--accent)' : 'transparent',
