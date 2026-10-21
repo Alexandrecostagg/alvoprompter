@@ -4,6 +4,7 @@ import { publicAppPolicy } from './appPolicy'
 import { deletionStatus, registerNamespace, registerResource, deletionHash, processAccountDeletion } from './accountDeletion'
 import { RequestError, readLimited, secureResponse, takeRateLimit, fetchImport, importAllowed, cleanupRateLimits, validatedMediaStream } from './security'
 import { billingAvailability } from './billing'
+import { googleBillingConfigured } from './googleBilling'
 import { appleBillingConfigured } from './appleBilling'
 import { cascadeChat, chatHealth, type ChatEnv } from './chat'
 import { generateSpeech, ttsHealth, type TtsEnv } from './tts'
@@ -426,6 +427,7 @@ const api = {
         billing: billingAvailability(env),
         adminNotifications: { emailConfigured: adminEmailConfigured(env), timersConfigured: Boolean(env.BILLING_QUEUE) },
         appleBilling: { configured: appleBillingConfigured(env) },
+        googleBilling: { configured: googleBillingConfigured(env) },
         workersAi: { configured: Boolean(env.AI) },
       })
     }

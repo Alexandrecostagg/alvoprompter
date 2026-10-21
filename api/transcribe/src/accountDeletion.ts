@@ -52,18 +52,19 @@ export async function deletionOverview(env: DeletionEnv, user: AuthUser) {
   const subscription = await db.prepare('SELECT provider,status FROM subscriptions WHERE user_id=?').bind(user.uid).first<{ provider: string; status: string }>()
   const deletion = await deletionStatus(db, user.uid)
   if (deletion?.status === 'pending' && env.BILLING_QUEUE) await env.BILLING_QUEUE.send({ kind: 'account-delete', deletionId: deletion.id }).catch(() => undefined)
-  return json({ configured: Boolean(env.ACCOUNT_DELETION_KEY && env.BILLING_QUEUE), workspaces: workspaces.results, localWorkspaceIds: [...new Set([...scopes.results, ...workspaces.results].map(w => w.id))], appleSubscription: subscription?.provider === 'apple' && ['active','past_due','pending'].includes(subscription.status), deletion })
+  return json({ configured: Boolean(env.ACCOUNT_DELETION_KEY && env.BILLING_QUEUE), workspaces: workspaces.results, localWorkspaceIds: [...new Set([...scopes.results, ...workspaces.results].map(w => w.id))], googleSubscription: subscription?.provider === 'google' && ['active','past_due','pending'].includes(subscription.status), appleSubscription: subscription?.provider === 'apple' && ['active','past_due','pending'].includes(subscription.status), deletion })
 }
 
 export async function startAccountDeletion(request: Request, env: DeletionEnv, user: AuthUser): Promise<Response> {
   if (!env.ACCOUNT_DELETION_KEY || !env.BILLING_QUEUE) return json({ error: 'A exclusão está temporariamente indisponível. Tente novamente mais tarde.' }, 503)
-  const body = await request.json().catch(() => null) as { confirmation?: unknown; appleSubscriptionAcknowledged?: unknown } | null
+  const body = await request.json().catch(() => null) as { confirmation?: unknown; appleSubscriptionAcknowledged?: unknown; googleSubscriptionAcknowledged?: unknown } | null
   if (body?.confirmation !== 'EXCLUIR') return json({ error: 'Confirme a exclusão digitando EXCLUIR.' }, 400)
   if (!user.authTime || Date.now() / 1000 - user.authTime > 300) return json({ error: 'Confirme sua identidade novamente antes de excluir a conta.', code: 'REAUTHENTICATION_REQUIRED' }, 401)
   const db = env.DB!, existing = await deletionStatus(db, user.uid)
   if (existing?.status === 'complete') return json({ id: existing.id, status: 'complete' })
   const subscription = await db.prepare('SELECT provider,status FROM subscriptions WHERE user_id=?').bind(user.uid).first<{ provider: string; status: string }>()
   if (subscription?.provider === 'apple' && ['active','past_due','pending'].includes(subscription.status) && body.appleSubscriptionAcknowledged !== true) return json({ error: 'Confirme que compreendeu a necessidade de cancelar a renovação pela Apple.' }, 400)
+  if (subscription?.provider === 'google' && ['active','past_due','pending'].includes(subscription.status) && body.googleSubscriptionAcknowledged !== true) return json({ error: 'Confirme que compreendeu a necessidade de cancelar a renovação pelo Google Play.' }, 400)
   const pass = request.headers.get('x-sync-pass')?.trim()
   if (pass && pass.length >= 12 && pass.length <= 256) await registerNamespace(db, user.uid, pass)
   const token = request.headers.get('Authorization')!.slice(7).trim()

@@ -12,6 +12,7 @@ import DeleteAccountPanel from './DeleteAccountPanel'
 import { friendlyAuthError } from '../../lib/authMessages'
 import { loadBillingAvailability, type BillingAvailability } from '../../lib/billing'
 import { buyApplePlan, isAppleApp, loadApplePrices, manageAppleSubscription, restoreApplePlans } from '../../lib/applePurchases'
+import { buyGooglePlan, loadGooglePrices, manageGoogleSubscription, restoreGooglePlans } from '../../lib/googlePurchases'
 import { Capacitor } from '@capacitor/core'
 
 type AuthMode = 'signin' | 'signup'
@@ -49,10 +50,13 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   const [billingChecking, setBillingChecking] = useState(true)
   const [billingFailed, setBillingFailed] = useState(false)
   const [billingRevision, setBillingRevision] = useState(0)
-  const [applePrices, setApplePrices] = useState<Partial<Record<'creator' | 'studio', string>>>({})
-  const [applePriceError, setApplePriceError] = useState(false)
+  const [storePrices, setStorePrices] = useState<Partial<Record<'creator' | 'studio', string>>>({})
+  const [storePriceError, setStorePriceError] = useState(false)
   const appleApp = isAppleApp()
   const androidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+  const nativeStore = appleApp || androidApp
+  const storeName = appleApp ? 'App Store' : 'Google Play'
+  const storeConfigured = appleApp ? billing?.appleConfigured : billing?.googleConfigured
   const scrollRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
@@ -81,14 +85,14 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   }, [open, billingRevision])
 
   useEffect(() => {
-    if (!open || !appleApp || !billing?.appleConfigured) return
+    if (!open || !nativeStore || !storeConfigured) return
     let active = true
-    setApplePrices({})
-    setApplePriceError(false)
-    loadApplePrices().then((prices) => { if (active) { setApplePrices(prices); setApplePriceError(Object.keys(prices).length === 0) } })
-      .catch(() => { if (active) setApplePriceError(true) })
+    setStorePrices({})
+    setStorePriceError(false);
+    (appleApp ? loadApplePrices() : loadGooglePrices()).then((prices) => { if (active) { setStorePrices(prices); setStorePriceError(Object.keys(prices).length === 0) } })
+      .catch(() => { if (active) setStorePriceError(true) })
     return () => { active = false }
-  }, [open, appleApp, billing?.appleConfigured, billingRevision])
+  }, [open, nativeStore, appleApp, storeConfigured, billingRevision])
 
   useEffect(() => { if (message) scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }, [message])
 
@@ -112,14 +116,14 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   }, [open, user])
 
   useEffect(() => {
-    if (!open || !user || !appleApp) return
+    if (!open || !user || !nativeStore) return
     let active = true
     let remove: (() => Promise<void>) | undefined
     void import('@capacitor/app').then(({ App }) => App.addListener('appStateChange', ({ isActive }) => {
       if (isActive && active) void loadAccount().then((result) => { if (active) setAccount(result) }).catch(() => undefined)
     })).then((listener) => { if (active) remove = () => listener.remove(); else void listener.remove() })
     return () => { active = false; if (remove) void remove() }
-  }, [open, user, appleApp])
+  }, [open, user, nativeStore])
 
   useEffect(() => {
     if (!open) return
@@ -139,7 +143,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   if (!open) return null
 
   const choosePlan = async (plan: PlanId) => {
-    if (plan === 'free' || busy || billingChecking || androidApp || (appleApp ? !billing?.appleConfigured || !applePrices[plan] : !billing?.configured)) return
+    if (plan === 'free' || busy || billingChecking || (nativeStore ? !storeConfigured || !storePrices[plan] : !billing?.configured)) return
     if (!user) {
       setMode('signup')
       setMessage({ kind: 'ok', text: 'Crie sua conta antes de abrir o checkout seguro.' })
@@ -159,6 +163,13 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
         setBusy(false)
         return
       }
+      if (androidApp) {
+        const active = await buyGooglePlan(plan)
+        await refreshAccount()
+        setMessage({ kind: 'ok', text: active ? 'Compra confirmada pelo Google Play. Seu plano foi atualizado.' : 'Pagamento pendente no Google Play. O acesso será liberado após a confirmação; use Restaurar compras para conferir.' })
+        setBusy(false)
+        return
+      }
       const { url } = await startCheckout(plan)
       trackMetaStandard('InitiateCheckout', {
         content_name: `Plano ${PLANS[plan].name}`,
@@ -168,7 +179,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
       })
       window.location.assign(url)
     } catch (error) {
-      if (!(appleApp && /user cancelled/i.test((error as Error).message))) setMessage({ kind: 'error', text: (error as Error).message })
+      if (!(nativeStore && /user cancell?ed|purchase cancelled|cancelada pelo usu/i.test((error as Error).message))) setMessage({ kind: 'error', text: (error as Error).message })
       setBusy(false)
     }
   }
@@ -178,6 +189,10 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   const cancelRenewal = async () => {
     if (account?.subscription.provider === 'apple') {
       try { await manageAppleSubscription() } catch (error) { setMessage({ kind: 'error', text: (error as Error).message }) }
+      return
+    }
+    if (account?.subscription.provider === 'google') {
+      try { if (androidApp) await manageGoogleSubscription(); else window.open('https://play.google.com/store/account/subscriptions', '_blank', 'noopener,noreferrer') } catch (error) { setMessage({ kind: 'error', text: (error as Error).message }) }
       return
     }
     if (!window.confirm('Cancelar a renovação mensal? O acesso pago continua até o fim do período atual e não haverá nova cobrança.')) return
@@ -232,7 +247,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
               <progress className="account-usage mt-2 block h-1.5 w-full overflow-hidden rounded-full" aria-label="Uso mensal de IA" max={Math.max(1, account.limits.aiActionsMonthly)} value={Math.min(account.usage.aiActions, account.limits.aiActionsMonthly)} />
               {account.subscription.currentPeriodEnd ? <p className="mt-2 text-xs" style={{ color: 'var(--ink-soft)' }}>Ciclo atual até {new Date(account.subscription.currentPeriodEnd).toLocaleDateString('pt-BR')}</p> : null}
             </div> : null}
-            <div className="mt-3 flex flex-wrap gap-2">{account?.subscription.status === 'active' ? <button onClick={() => void cancelRenewal()} disabled={busy} className="min-h-11 rounded-xl border px-3 text-xs font-bold disabled:opacity-50" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>{account.subscription.provider === 'apple' ? 'Gerenciar na App Store' : 'Cancelar renovação'}</button> : null}<button onClick={() => void signUserOut().catch((error) => setMessage({ kind: 'error', text: friendlyAuthError(error) }))} disabled={busy} className="min-h-11 rounded-xl px-3 text-xs font-semibold disabled:opacity-50" style={{ color: 'var(--ink-soft)' }}>Sair da conta</button></div>
+            <div className="mt-3 flex flex-wrap gap-2">{account?.subscription.status === 'active' ? <button onClick={() => void cancelRenewal()} disabled={busy} className="min-h-11 rounded-xl border px-3 text-xs font-bold disabled:opacity-50" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>{account.subscription.provider === 'apple' ? 'Gerenciar na App Store' : account.subscription.provider === 'google' ? 'Gerenciar no Google Play' : 'Cancelar renovação'}</button> : null}<button onClick={() => void signUserOut().catch((error) => setMessage({ kind: 'error', text: friendlyAuthError(error) }))} disabled={busy} className="min-h-11 rounded-xl px-3 text-xs font-semibold disabled:opacity-50" style={{ color: 'var(--ink-soft)' }}>Sair da conta</button></div>
           </section>
         )}
 
@@ -260,17 +275,17 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
         <section className="mt-6" aria-labelledby="account-plans-title">
           <h3 id="account-plans-title" className="text-lg font-bold">Escolha seu plano</h3>
           <p className="account-copy mt-1 text-sm leading-relaxed" style={{ color: 'var(--ink-soft)' }}>Compare os recursos e encontre o plano ideal para sua rotina.</p>
-          {account && account.subscription.plan !== 'free' && account.subscription.provider ? <p className="account-copy mt-2 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{account.subscription.provider === 'apple' ? 'Para trocar de plano ou cancelar, abra “Gerenciar na App Store” acima.' : 'Para trocar de plano ou de loja, encerre a renovação atual e aguarde o fim do período contratado.'}</p> : null}
+          {account && account.subscription.plan !== 'free' && account.subscription.provider ? <p className="account-copy mt-2 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{account.subscription.provider === 'apple' ? 'Para trocar de plano ou cancelar, abra “Gerenciar na App Store” acima.' : account.subscription.provider === 'google' ? 'Para cancelar, abra “Gerenciar no Google Play” acima. Para trocar de plano, aguarde o fim do período atual.' : 'Para trocar de plano ou de loja, encerre a renovação atual e aguarde o fim do período contratado.'}</p> : null}
           <div className="mt-3 rounded-2xl border p-3 text-sm leading-relaxed" style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink-soft)' }} role="status" aria-live="polite">
-            <p className="account-copy">{billingChecking ? 'Verificando a disponibilidade das assinaturas…' : billingFailed ? 'Não foi possível consultar as assinaturas. Verifique sua conexão e tente novamente.' : appleApp ? !billing?.appleConfigured || applePriceError ? 'Compras pela App Store ainda indisponíveis. Seu plano atual continua funcionando.' : 'Assinatura mensal pela App Store. O preço final é exibido pela Apple antes da confirmação.' : androidApp ? 'Compras pelo Google Play ainda em preparação. Seu plano atual continua funcionando.' : !billing?.configured ? 'As assinaturas estão temporariamente indisponíveis. Você pode continuar usando seu plano atual.' : billing.sandbox ? 'Pagamento em modo de teste. Nenhuma cobrança real será realizada.' : 'Pagamento seguro pelo Asaas. Assinatura mensal com renovação automática no cartão.'}</p>
-            {!billingChecking && (billingFailed || (appleApp ? !billing?.appleConfigured || applePriceError : !billing?.configured)) ? <button className="mt-2 min-h-11 rounded-xl border px-3 text-xs font-bold" style={{ borderColor: 'var(--border)', color: 'var(--brand-strong)' }} onClick={() => setBillingRevision((value) => value + 1)}>Verificar novamente</button> : null}
+            <p className="account-copy">{billingChecking ? 'Verificando a disponibilidade das assinaturas…' : billingFailed ? 'Não foi possível consultar as assinaturas. Verifique sua conexão e tente novamente.' : nativeStore ? !storeConfigured || storePriceError ? `Compras ${appleApp ? 'pela' : 'pelo'} ${storeName} ainda indisponíveis. Seu plano atual continua funcionando.` : `Assinatura mensal ${appleApp ? 'pela' : 'pelo'} ${storeName}. Confira o preço final antes da confirmação.` : !billing?.configured ? 'As assinaturas estão temporariamente indisponíveis. Você pode continuar usando seu plano atual.' : billing.sandbox ? 'Pagamento em modo de teste. Nenhuma cobrança real será realizada.' : 'Pagamento seguro pelo Asaas. Assinatura mensal com renovação automática no cartão.'}</p>
+            {!billingChecking && (billingFailed || (nativeStore ? !storeConfigured || storePriceError : !billing?.configured)) ? <button className="mt-2 min-h-11 rounded-xl border px-3 text-xs font-bold" style={{ borderColor: 'var(--border)', color: 'var(--brand-strong)' }} onClick={() => setBillingRevision((value) => value + 1)}>Verificar novamente</button> : null}
           </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <PlanCard planId="free" currentPlan={account?.subscription.plan ?? (user ? null : 'free')} busy={busy} available={false} checking={billingChecking} verified={!user || user.emailVerified} price={formatPlanPrice(0)} action="" onChoose={choosePlan} />
-          {PAID_PLAN_IDS.map((planId) => <PlanCard key={planId} planId={planId} currentPlan={account?.subscription.plan ?? (user ? null : 'free')} busy={busy} available={appleApp ? Boolean(billing?.appleConfigured && applePrices[planId]) : !androidApp && Boolean(billing?.configured)} checking={billingChecking} verified={!user || user.emailVerified} price={appleApp ? applePrices[planId] ?? '—' : formatPlanPrice(PLANS[planId].priceMonthly)} action={appleApp ? `Assinar ${PLANS[planId].name} na App Store` : billing?.sandbox ? `Testar ${PLANS[planId].name}` : `Assinar ${PLANS[planId].name}`} onChoose={choosePlan} />)}
+          {PAID_PLAN_IDS.map((planId) => <PlanCard key={planId} planId={planId} currentPlan={account?.subscription.plan ?? (user ? null : 'free')} busy={busy} available={nativeStore ? Boolean(storeConfigured && storePrices[planId]) : Boolean(billing?.configured)} checking={billingChecking} verified={!user || user.emailVerified} price={nativeStore ? storePrices[planId] ?? '—' : formatPlanPrice(PLANS[planId].priceMonthly)} action={nativeStore ? `Assinar ${PLANS[planId].name} ${appleApp ? 'na' : 'no'} ${storeName}` : billing?.sandbox ? `Testar ${PLANS[planId].name}` : `Assinar ${PLANS[planId].name}`} onChoose={choosePlan} />)}
         </div>
-        {appleApp && user?.emailVerified ? <button disabled={busy || !billing?.appleConfigured} onClick={() => { setBusy(true); void restoreApplePlans().then(async (restored) => { await refreshAccount(); setMessage({ kind: 'ok', text: restored ? 'Compras restauradas e plano atualizado.' : 'Nenhuma assinatura ativa encontrada nesta conta Apple.' }) }).catch((error) => setMessage({ kind: 'error', text: (error as Error).message })).finally(() => setBusy(false)) }} className="mt-4 min-h-11 rounded-xl border px-4 text-sm font-semibold disabled:opacity-50" style={{ borderColor: 'var(--border)' }}>Restaurar compras da App Store</button> : null}
+        {nativeStore && user?.emailVerified ? <button disabled={busy || !storeConfigured} onClick={() => { setBusy(true); void (appleApp ? restoreApplePlans() : restoreGooglePlans()).then(async (restored) => { await refreshAccount(); setMessage({ kind: 'ok', text: restored ? 'Compras restauradas e plano atualizado.' : `Nenhuma assinatura ativa encontrada para esta conta no ${storeName}.` }) }).catch((error) => setMessage({ kind: 'error', text: (error as Error).message })).finally(() => setBusy(false)) }} className="mt-4 min-h-11 rounded-xl border px-4 text-sm font-semibold disabled:opacity-50" style={{ borderColor: 'var(--border)' }}>Restaurar compras {appleApp ? 'da' : 'do'} {storeName}</button> : null}
         </section>
         {user && account ? <section className="mt-5 rounded-2xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--bg)'}}>
           <h3 className="font-bold">Sua equipe e seus roteiros</h3>
@@ -278,7 +293,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
           <button className="mt-3 min-h-11 w-full rounded-xl border px-3 text-sm font-bold sm:w-auto" onClick={() => { useAppStore.getState().setView('workspaces'); onClose() }}>Abrir equipe e sincronização</button>
         </section> : null}
 
-        <p className="account-copy mt-4 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{appleApp ? 'Os planos pagos são mensais e recorrentes. Cobrança, cancelamento e preço final são gerenciados pela App Store. O acesso só é liberado após confirmação da Apple.' : androidApp ? 'A cobrança pelo Google Play será disponibilizada após a homologação. Nenhum dado de cartão passa pelo AlvoPrompter.' : 'Valores de lançamento durante o beta. Os planos pagos são mensais e recorrentes. O acesso só é liberado após confirmação do Asaas. Nenhum dado de cartão passa pelo AlvoPrompter.'}</p>
+        <p className="account-copy mt-4 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{appleApp ? 'Os planos pagos são mensais e recorrentes. Cobrança, cancelamento e preço final são gerenciados pela App Store. O acesso só é liberado após confirmação da Apple.' : androidApp ? 'Os planos pagos são mensais e recorrentes. Cobrança e cancelamento são gerenciados pelo Google Play. O acesso só é liberado após confirmação do Google.' : 'Valores de lançamento durante o beta. Os planos pagos são mensais e recorrentes. O acesso só é liberado após confirmação do Asaas. Nenhum dado de cartão passa pelo AlvoPrompter.'}</p>
         {user ? <DeleteAccountPanel user={user} onComplete={onClose} /> : null}
         {appleApp ? <p className="account-copy mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--ink-soft)' }}>
           <a className="underline" href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" target="_blank" rel="noopener noreferrer">Termos de uso</a>

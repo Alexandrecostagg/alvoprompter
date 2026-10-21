@@ -21,7 +21,9 @@ id = "7f2df53777804be2aefce83dd26e3945"
 # Publicar: npx wrangler deploy
 # Origens autorizadas. Adicione o domínio público real antes do deploy.
 [vars]
-RELEASE = "1.6.5-security-export-20261021"
+RELEASE = "1.6.5-25-store-billing-20261021"
+# Enable only after merchant profile, products, API permissions and device tests.
+GOOGLE_PLAY_ENABLED = "false"
 # Texto: Gemini primeiro; Groq assume em falhas antes de entregar conteúdo.
 # GEMINI_API_KEY e GROQ_API_KEY devem ser cadastradas como secrets.
 GEMINI_MODEL = "gemini-3.5-flash-lite"

@@ -120,7 +120,7 @@ export async function reconcileAppleSubscription(db: D1Database, env: SaaSEnv, u
 }
 
 export async function refreshAppleAccount(db: D1Database, env: SaaSEnv, uid: string): Promise<void> {
-  const linked = await db.prepare('SELECT original_transaction_id, environment FROM apple_subscriptions WHERE user_id = ?')
+  const linked = await db.prepare("SELECT a.original_transaction_id, a.environment FROM apple_subscriptions a JOIN subscriptions s ON s.user_id=a.user_id AND s.provider='apple' WHERE a.user_id = ?")
     .bind(uid).first<{ original_transaction_id: string; environment: string }>()
   if (linked) await reconcileAppleSubscription(db, env, uid, linked.original_transaction_id, linked.environment)
 }

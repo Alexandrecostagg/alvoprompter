@@ -4,6 +4,7 @@ import { deletionHash, deletionOverview, deletionStatus, startAccountDeletion, r
 import { asaasApiKey, asaasHeaders, asaasFailureCode, billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
 import { APPLE_PRODUCTS, appleAccountToken, appleBillingConfigured, reconcileAppleSubscription, refreshAppleAccount } from './appleBilling'
+import { GOOGLE_PRODUCTS, GOOGLE_BASE_PLAN, googleAccountToken, googleBillingConfigured, reconcileGoogleSubscription, refreshGoogleAccount } from './googleBilling'
 import { decodeProtectedHeader, importX509, jwtVerify } from 'jose'
 
 export type SaaSPlan = 'free' | 'creator' | 'studio'
@@ -23,6 +24,9 @@ export interface SaaSEnv {
   ASAAS_API_BASE?: string
   ASAAS_WEBHOOK_TOKEN?: string
   APP_URL?: string
+  GOOGLE_PLAY_ENABLED?: string
+  GOOGLE_PLAY_SERVICE_ACCOUNT_JSON?: string
+  BILLING_ENCRYPTION_KEY?: string
   APPLE_IAP_ISSUER_ID?: string
   APPLE_IAP_KEY_ID?: string
   APPLE_IAP_PRIVATE_KEY?: string
@@ -41,7 +45,7 @@ interface SubscriptionRow {
   plan: SaaSPlan
   status: 'pending' | 'active' | 'past_due' | 'canceled'
   current_period_end: string | null
-  provider: 'asaas' | 'apple'
+  provider: 'asaas' | 'apple' | 'google'
 }
 
 const PLAN_CONFIG = {
@@ -148,6 +152,9 @@ async function effectivePlan(db: D1Database, uid: string): Promise<{ plan: SaaSP
 async function accountSummary(db: D1Database, env: SaaSEnv, user: AuthUser): Promise<Response> {
   if (appleBillingConfigured(env)) {
     try { await refreshAppleAccount(db, env, user.uid) } catch { /* Keep the last verified entitlement through its expiry during Apple outages. */ }
+  }
+  if (googleBillingConfigured(env)) {
+    try { await refreshGoogleAccount(db, env, user.uid) } catch { /* Retain only the last verified entitlement through expiry during provider outages. */ }
   }
   const { plan, subscription } = await effectivePlan(db, user.uid)
   const usage = await db.prepare('SELECT ai_actions FROM usage_monthly WHERE user_id = ? AND month = ? LIMIT 1')
@@ -265,6 +272,7 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
   const plan = body?.plan
   if (plan !== 'creator' && plan !== 'studio') return responseJson({ error: 'Plano inválido.' }, 400)
   if (appleBillingConfigured(env)) await refreshAppleAccount(db, env, user.uid)
+  if (googleBillingConfigured(env)) await refreshGoogleAccount(db, env, user.uid)
   const current = await effectivePlan(db, user.uid)
   if (current.plan !== 'free') return responseJson({ error: 'Você já possui um plano ativo. Cancele a renovação e aguarde o fim do período atual antes de criar uma nova assinatura.' }, 409)
   const pending = await db.prepare("SELECT id FROM checkout_sessions WHERE user_id = ? AND status = 'pending' AND created_at > ? LIMIT 1")
@@ -327,6 +335,7 @@ async function createCheckout(request: Request, env: SaaSEnv, db: D1Database, us
 async function cancelSubscription(request: Request, env: SaaSEnv, db: D1Database, user: AuthUser): Promise<Response> {
   const current = await effectivePlan(db, user.uid)
   if (current.subscription?.provider === 'apple') return responseJson({ error: 'Gerencie ou cancele a assinatura nas configurações da App Store.' }, 409)
+  if (current.subscription?.provider === 'google') return responseJson({ error: 'Gerencie ou cancele a assinatura no Google Play.' }, 409)
   const apiKey = asaasApiKey(env)
   if (!apiKey) return responseJson({ error: 'Cobrança ainda não configurada neste ambiente.' }, 503)
   const subscription = await db.prepare(`
@@ -564,12 +573,31 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     if (url.pathname.startsWith('/admin/')) return await adminRoute(request, env, user)
     if (url.pathname.startsWith('/account/workspaces') && !user.emailVerified) return responseJson({ error: 'Confirme seu e-mail na sua conta para usar funções na nuvem.', code: 'EMAIL_VERIFICATION_REQUIRED' }, 403)
     if (url.pathname === '/account/access-request' && request.method === 'POST') return await requestAccess(request, env, user)
+    if (url.pathname.startsWith('/billing/google/')) {
+      if (!user.emailVerified) return responseJson({ error: 'Confirme seu e-mail antes de assinar.' }, 403)
+      if (!googleBillingConfigured(env)) return responseJson({ error: 'Compras Google Play ainda não configuradas.' }, 503)
+      await refreshGoogleAccount(db, env, user.uid)
+      if (appleBillingConfigured(env)) await refreshAppleAccount(db, env, user.uid)
+      const current = await effectivePlan(db, user.uid)
+      if (current.subscription && current.subscription.provider !== 'google' && current.plan !== 'free') return responseJson({ error: 'Existe uma assinatura ativa em outro provedor. Aguarde o fim do período antes de comprar pelo Google Play.' }, 409)
+      if (url.pathname === '/billing/google/session' && request.method === 'GET') {
+        const pending = await db.prepare("SELECT id FROM checkout_sessions WHERE user_id=? AND status='pending' AND created_at>? LIMIT 1").bind(user.uid, new Date(Date.now()-3_600_000).toISOString()).first()
+        if (pending) return responseJson({ error: 'Existe um pagamento Asaas em andamento. Conclua ou aguarde seu vencimento.' }, 409)
+        return responseJson({ appAccountToken: await googleAccountToken(db, user.uid), products: GOOGLE_PRODUCTS, basePlan: GOOGLE_BASE_PLAN })
+      }
+      if (url.pathname === '/billing/google/verify' && request.method === 'POST') {
+        const body = await request.json().catch(() => null) as { purchaseToken?: unknown } | null
+        if (typeof body?.purchaseToken !== 'string' || !body.purchaseToken || body.purchaseToken.length > 4096) return responseJson({ error: 'Compra Google Play inválida.' }, 400)
+        return responseJson(await reconcileGoogleSubscription(db, env, user.uid, body.purchaseToken))
+      }
+      return responseJson({ error: 'Rota não encontrada.' }, 404)
+    }
     if (url.pathname === '/billing/apple/session' && request.method === 'GET') {
       if (!user.emailVerified) return responseJson({ error: 'Confirme seu e-mail antes de assinar.' }, 403)
       if (!appleBillingConfigured(env)) return responseJson({ error: 'Compras Apple ainda não configuradas.' }, 503)
       await refreshAppleAccount(db, env, user.uid)
       const current = await effectivePlan(db, user.uid)
-      if (current.subscription?.provider === 'asaas' && current.plan !== 'free') return responseJson({ error: 'Você já possui uma assinatura Asaas ativa. Cancele a renovação e aguarde o fim do período antes de comprar pela Apple.' }, 409)
+      if (current.subscription && current.subscription.provider !== 'apple' && current.plan !== 'free') return responseJson({ error: 'Você já possui uma assinatura ativa em outro provedor. Cancele a renovação e aguarde o fim do período antes de comprar pela Apple.' }, 409)
       const pending = await db.prepare("SELECT id FROM checkout_sessions WHERE user_id = ? AND status = 'pending' AND created_at > ? LIMIT 1")
         .bind(user.uid, new Date(Date.now() - 3_600_000).toISOString()).first()
       if (pending) return responseJson({ error: 'Você já iniciou um pagamento pelo Asaas. Conclua ou aguarde o checkout vencer antes de comprar pela Apple.' }, 409)
@@ -578,7 +606,7 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     if (url.pathname === '/billing/apple/verify' && request.method === 'POST') {
       if (!appleBillingConfigured(env)) return responseJson({ error: 'Compras Apple ainda não configuradas.' }, 503)
       const current = await effectivePlan(db, user.uid)
-      if (current.subscription?.provider === 'asaas' && current.plan !== 'free') return responseJson({ error: 'Existe uma assinatura Asaas ativa nesta conta. Contate o suporte para conciliar sua compra Apple.' }, 409)
+      if (current.subscription && current.subscription.provider !== 'apple' && current.plan !== 'free') return responseJson({ error: 'Existe uma assinatura ativa em outro provedor nesta conta. Contate o suporte para conciliar sua compra Apple.' }, 409)
       const body = await request.json().catch(() => null) as { transactionId?: unknown } | null
       if (typeof body?.transactionId !== 'string') return responseJson({ error: 'Transação Apple inválida.' }, 400)
       const result = await reconcileAppleSubscription(db, env, user.uid, body.transactionId)
