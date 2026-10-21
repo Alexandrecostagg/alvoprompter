@@ -53,6 +53,22 @@ Manter a marca atual e compor seis imagens com capturas reais e atuais de cada p
 
 A imagem de pessoa pode vir do próprio conteúdo demonstrado ou do hero original já usado no app. Não reutilizar pessoas, composição ou telas do BIGVU. Não prometer correção de olhar, clonagem de voz ou publicação automática sem implementação e validação. A comparação com a home web atual foi capturada nesta sessão; ela não substitui capturas e validação dos binários iOS/Android em aparelho/simulador.
 
+## Declaração de privacidade — 21/10/2026
+
+- O titular tentou adicionar a versão à revisão e encontrou o bloqueio da declaração de privacidade. Na seção Privacidade do app havia dez categorias configuradas, ainda não publicadas.
+- Conferidos código de conta/perfil/sincronização, uso/cobrança e uploads; manifestos de privacidade efetivamente incluídos no archive 24; documentação oficial Apple/Firebase/Google Sign-In. O Meta Pixel retorna antes de inicializar em plataforma nativa.
+- Acrescentadas quatro categorias declaradas pelos SDKs do archive: localização aproximada (Google Sign-In pode inferi-la do IP para prevenção de fraude), outras informações de uso, outros tipos de dados e outros dados de diagnóstico. As três primeiras vinculadas à identidade conforme manifesto Google; diagnóstico não vinculado conforme manifesto Firebase Auth. Finalidades de análise também incluídas em ID de usuário e ID de dispositivo. Nenhuma categoria usada para rastreamento publicitário.
+- Mantidas as dez categorias anteriores para conta, perfil opcional, conteúdo enviado à nuvem, assinatura, uso e segurança. Dados de pagamento da App Store, contatos e localização GPS não foram declarados como coletados pelo app.
+- Política pública atualizada com os tratamentos dos SDKs e publicada em `https://alvoprompt-privacy.alexandrecostagg.workers.dev`, Worker versão `8bbbeee5-75ea-4874-9a79-fc49a92a006a`. Resposta pública conferida por HTTPS, incluindo data e novo parágrafo. Não houve alteração funcional nem necessidade de novo binário.
+- As 14 categorias estão configuradas e salvas. Confirmação final de Publicar aberta para o titular: o diálogo exige concordância com precisão, conformidade e atualização das respostas. Publicação final ainda pendente de confirmação humana nesta anotação; nenhuma submissão do aplicativo executada. Evidência `artifacts/privacy-20261021/confirmacao-apple.png`.
+
+Fontes técnicas:
+
+- https://developer.apple.com/app-store/app-privacy-details/
+- https://firebase.google.com/docs/ios/app-store-data-collection
+- https://developers.google.com/identity/sign-in/ios/app-privacy
+- Manifestos `GoogleSignIn_GoogleSignIn.bundle/PrivacyInfo.xcprivacy` e `Firebase_FirebaseAuth.bundle/PrivacyInfo.xcprivacy` do archive 1.6.5 (24).
+
 ## Referências
 
 https://developer.apple.com/tutorials/develop-in-swift/test-your-beta-app

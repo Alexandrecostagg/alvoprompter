@@ -41,7 +41,7 @@ const HTML = `<!DOCTYPE html>
 <body>
 <main>
   <h1>Política de Privacidade — AlvoPrompter</h1>
-  <p class="muted">Última atualização: 20 de outubro de 2026</p>
+  <p class="muted">Última atualização: 21 de outubro de 2026</p>
 
   <p>Esta Política de Privacidade descreve como o aplicativo <strong>AlvoPrompter</strong> ("nós", "nosso" ou "aplicativo"), desenvolvido por Alexandre Costa, trata informações quando você utiliza o aplicativo na web, Android ou iOS.</p>
 
@@ -66,6 +66,7 @@ const HTML = `<!DOCTYPE html>
     <li><strong>Conta:</strong> nome, e-mail, identificador de usuário e estado de verificação são tratados pelo Firebase Authentication e vinculados ao cadastro do AlvoPrompter.</li>
     <li><strong>Perfil opcional:</strong> nome completo, telefone e empresa ou organização informados por você ficam no Cloudflare D1, vinculados à sua conta. Telefone e organização são opcionais, podem ser removidos na tela de perfil e não são usados para autenticação por SMS.</li>
     <li><strong>Login social:</strong> quando disponível e escolhido por você, Google ou Apple fornecem ao Firebase os dados necessários à autenticação, como identificador, nome e e-mail autorizado. A Apple pode fornecer um endereço de e-mail privado. Não recebemos a senha da sua conta Google ou Apple.</li>
+    <li><strong>SDKs de autenticação no iOS:</strong> o Google Sign-In pode usar o endereço IP para estimar a localização aproximada e prevenir fraude, sem solicitar localização GPS. Seu manifesto também declara identificadores de conta e dispositivo, dados técnicos e de uso para funcionamento e análise do serviço. O Firebase Authentication declara diagnósticos técnicos não vinculados à identidade para análise do SDK. Esses tratamentos não são usados por nós para publicidade direcionada nem para rastreamento entre apps. A disponibilidade desses dados para o provedor não significa que o AlvoPrompter receba todos eles.</li>
     <li><strong>Equipe:</strong> nome do workspace, e-mails convidados e papéis de acesso são armazenados no Cloudflare D1 para aplicar as permissões no servidor.</li>
     <li><strong>Assinatura e uso:</strong> plano, estado da cobrança, contador mensal de ações de IA e identificadores técnicos do checkout/assinatura ficam no Cloudflare D1. Na web, o Asaas recebe os dados necessários para identificar o pagador e processar o checkout. No iOS, a Apple processa as compras e fornece identificadores e o estado da assinatura; vinculamos esses dados à conta para liberar e restaurar o plano.</li>
     <li><strong>Medição de campanhas na landing page:</strong> somente depois do seu consentimento, o Meta Pixel registra visitas e eventos do funil, como início do cadastro, seleção de plano, cadastro concluído e início do checkout. Não enviamos nome, e-mail, roteiro, gravação ou dados de pagamento nesses eventos. A Meta pode tratar identificadores técnicos, como endereço IP, navegador e cookies, conforme suas próprias políticas.</li>
