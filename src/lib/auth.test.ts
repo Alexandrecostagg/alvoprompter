@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { friendlyAuthError, isAuthCancellation, signupError } from './authMessages'
 const fake = vi.hoisted(() => {
-  const user = { uid: 'same-user', email:'test@example.test', providerData: [] as {providerId:string}[], displayName: 'Test', getIdToken: vi.fn(async () => 'token') }
-  return { native: false, platform: 'web', plugin: false, user, auth: { currentUser: user }, popup: vi.fn(async () => ({ user })), credential: vi.fn(async () => ({ user })), google: vi.fn(), apple: vi.fn(), nativeOut: vi.fn(), webOut: vi.fn(), profile: vi.fn(), signIn: vi.fn(async () => ({ user })), scopes: vi.fn(), params: vi.fn(), additional: vi.fn(() => null as { isNewUser: boolean } | null), oauthCredential: vi.fn((value) => value), observe: vi.fn(), register: vi.fn(async () => ({ user })), reset: vi.fn(async () => undefined), reauth:vi.fn(async()=>undefined), reauthPopup:vi.fn(async()=>({user})), revoke:vi.fn(async()=>undefined), nativeRevoke:vi.fn(async()=>undefined), resultCredential:vi.fn(()=>({accessToken:'apple-access'} as {accessToken?:string})) }
+  const user = { uid: 'same-user', email:'test@example.test', providerData: [] as {providerId:string}[], displayName: 'Test', emailVerified: false, getIdTokenResult: vi.fn(async () => ({ token: 'cached-token', claims: { email_verified: false } })), getIdToken: vi.fn(async () => 'token') }
+  return { native: false, platform: 'web', plugin: false, user, auth: { currentUser: user, authStateReady: vi.fn(async () => undefined) }, popup: vi.fn(async () => ({ user })), credential: vi.fn(async () => ({ user })), google: vi.fn(), apple: vi.fn(), nativeOut: vi.fn(), webOut: vi.fn(), profile: vi.fn(), signIn: vi.fn(async () => ({ user })), scopes: vi.fn(), params: vi.fn(), additional: vi.fn(() => null as { isNewUser: boolean } | null), oauthCredential: vi.fn((value) => value), observe: vi.fn(), register: vi.fn(async () => ({ user })), reset: vi.fn(async () => undefined), reauth:vi.fn(async()=>undefined), reauthPopup:vi.fn(async()=>({user})), revoke:vi.fn(async()=>undefined), nativeRevoke:vi.fn(async()=>undefined), resultCredential:vi.fn(()=>({accessToken:'apple-access'} as {accessToken?:string})) }
 })
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => fake.native, getPlatform: () => fake.platform, isPluginAvailable: () => fake.plugin } }))
 vi.mock('firebase/app', () => ({ initializeApp: () => ({}) }))
@@ -16,9 +16,9 @@ vi.mock('firebase/auth', () => ({
   createUserWithEmailAndPassword: fake.register, onAuthStateChanged: fake.observe, sendEmailVerification: vi.fn(async () => undefined), sendPasswordResetEmail: fake.reset, updateProfile: fake.profile,
 }))
 vi.mock('@capacitor-firebase/authentication', () => ({ FirebaseAuthentication: { signInWithGoogle: fake.google, signInWithApple: fake.apple, signOut: fake.nativeOut, revokeAccessToken:fake.nativeRevoke } }))
-const { signInSocial, socialAvailability, signUserOut, signIn, signUp, observeUser, resetPassword, reauthenticateForDeletion } = await import('./auth')
+const { signInSocial, socialAvailability, signUserOut, signIn, signUp, observeUser, resetPassword, reauthenticateForDeletion, getIdToken, getOptionalIdToken } = await import('./auth')
 beforeEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); fake.additional.mockReturnValue(null); fake.native = false; fake.platform = 'web'; fake.plugin = false; fake.google.mockResolvedValue({ credential: { idToken: 'google-token' } }); fake.apple.mockResolvedValue({ credential: { idToken: 'apple-token', nonce: 'nonce' } }); fake.nativeOut.mockResolvedValue(undefined) })
-beforeEach(()=>{ fake.user.providerData=[]; fake.resultCredential.mockReturnValue({accessToken:'apple-access'}) })
+beforeEach(()=>{ fake.user.emailVerified=false; fake.user.getIdTokenResult.mockResolvedValue({token:'cached-token',claims:{email_verified:false}}); fake.user.providerData=[]; fake.resultCredential.mockReturnValue({accessToken:'apple-access'}) })
 describe('account deletion identity confirmation',()=>{
   it('reauthenticates the existing password user before refreshing the signed token',async()=>{
     fake.user.providerData=[{providerId:'password'}]
@@ -147,5 +147,34 @@ describe('password recovery', () => {
     await expect(resetPassword('ana@example.test')).rejects.toMatchObject({ code: 'auth/too-many-requests' })
     expect(friendlyAuthError({ code: 'auth/internal-error' }, 'recovery')).toContain('recuperação de senha')
     expect(friendlyAuthError({ code: 'auth/network-request-failed' }, 'recovery')).toContain('conexão')
+  })
+})
+
+
+describe('email verification and cached API session', () => {
+  it('refreshes a stale signed claim after the profile becomes verified', async () => {
+    fake.user.emailVerified = true
+    await expect(getIdToken()).resolves.toBe('token')
+    expect(fake.user.getIdToken).toHaveBeenCalledWith(true)
+  })
+  it('also refreshes optional API authentication used by AI', async () => {
+    fake.user.emailVerified = true
+    await expect(getOptionalIdToken()).resolves.toBe('token')
+    expect(fake.user.getIdToken).toHaveBeenCalledWith(true)
+  })
+  it('reuses an already verified token without a network refresh', async () => {
+    fake.user.emailVerified = true
+    fake.user.getIdTokenResult.mockResolvedValueOnce({token:'verified-token',claims:{email_verified:true}})
+    await expect(getIdToken()).resolves.toBe('verified-token')
+    expect(fake.user.getIdToken).not.toHaveBeenCalled()
+  })
+  it('does not promote an unverified account', async () => {
+    await expect(getOptionalIdToken()).resolves.toBe('cached-token')
+    expect(fake.user.getIdToken).not.toHaveBeenCalled()
+  })
+  it('propagates refresh failures instead of returning the stale token', async () => {
+    fake.user.emailVerified = true
+    fake.user.getIdToken.mockRejectedValueOnce(new Error('offline'))
+    await expect(getOptionalIdToken()).rejects.toThrow('offline')
   })
 })

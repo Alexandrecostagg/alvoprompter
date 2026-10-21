@@ -94,17 +94,25 @@ export function resetPassword(email: string): Promise<void> {
   return sendPasswordResetEmail(requireAuth(), email.trim())
 }
 
+async function verifiedSessionToken(user: User): Promise<string> {
+  const result = await user.getIdTokenResult()
+  // Verification in another tab can update the profile before the cached JWT.
+  // Refresh only that mismatch; the server still checks the signed claim.
+  if (user.emailVerified && result.claims.email_verified !== true) return user.getIdToken(true)
+  return result.token
+}
+
 export async function getIdToken(): Promise<string> {
   const instance = requireAuth()
   await instance.authStateReady()
   const user = instance.currentUser
   if (!user) throw new Error('Entre na sua conta para continuar.')
-  return user.getIdToken()
+  return verifiedSessionToken(user)
 }
 
 export async function getOptionalIdToken(): Promise<string | null> {
   await auth?.authStateReady()
-  return auth?.currentUser ? auth.currentUser.getIdToken() : null
+  return auth?.currentUser ? verifiedSessionToken(auth.currentUser) : null
 }
 
 export function currentUser(): User | null { return auth?.currentUser ?? null }
