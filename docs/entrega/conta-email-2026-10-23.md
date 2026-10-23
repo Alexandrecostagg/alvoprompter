@@ -43,3 +43,17 @@ Correção preparada:
 A aplicação da migração foi bloqueada pela revisão automática por falta de autorização específica para alterar produção. Nova pergunta enviada ao titular abrangendo migração 0014 e publicação da API. Não houve migração nem deploy da API nesta etapa. Não contornar a rejeição. A configuração temporária de migração contém somente 0014: não aplicar a 0013 Google no escopo Apple.
 
 Após autorização: aplicar 0014 com a configuração isolada, confirmar o registro da migração, publicar a API e verificar health/RELEASE. O titular poderá fechar e reabrir Conta e assinatura no TestFlight 26 para repetir a consulta. A confirmação autenticada de funcionamento ainda depende dessa nova tentativa; testes locais não comprovam compra na App Store.
+
+## Aplicado em produção após autorização específica
+
+O titular autorizou explicitamente a migração 0014 e a publicação da API. Aplicação concluída em 23/10/2026:
+
+- Apenas 0014 aplicada pela configuração isolada; quatro comandos em 1,10 ms. A migração consta em d1_migrations e a coluna auth_email existe. A 0013 Google não foi aplicada.
+- PRAGMA foreign_key_check sem resultados. O registro antigo autorizado mantém o perfil e continua sem assinatura. Nenhuma transferência de titularidade, senha, plano ou cobrança foi realizada.
+- Worker publicado: versão 83486c6a-e331-4b39-8fb4-d23fd2197948, release 1.6.5-26-account-identity-20261023.
+- /health HTTP 200 confirma release, Apple configurada, Asaas em produção e Google desativado. Esses indicadores não comprovam compra efetiva.
+- /account sem login retorna HTTP 401 e mensagem genérica. Preflight com origem capacitor://localhost retorna HTTP 200 e permite somente a origem solicitada autorizada.
+- A primeira checagem via Python recebeu HTTP 403; a checagem posterior com curl retornou HTTP 200 e confirmou a versão publicada. Não atribuir esse 403 ao cadastro do usuário.
+- Evidências privadas em artifacts/account-fix-20261023/: d1-after-migration.json, health-after-deploy.json, health-headers.txt, account-unauthenticated.json e native-preflight-headers.txt.
+
+Solicitada nova tentativa no próprio TestFlight 1.6.5 (26), fechando/reabrindo Conta e assinatura e atualizando a confirmação de e-mail se necessário. A correção do servidor atende esse build instalado. As melhorias locais da interface e da administração ainda precisam integrar um novo build iOS; nenhum novo pacote foi gerado nesta etapa. Compra/restauração e captura válida da assinatura seguem pendentes de teste no aparelho. Não enviar à revisão enquanto o fluxo de assinatura apresentar falha.
