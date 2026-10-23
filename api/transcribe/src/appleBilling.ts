@@ -13,14 +13,20 @@ export class AppleBillingError extends Error {
 
 type MatchDiagnostic = { decoded: boolean; tokenPresent: boolean; tokenMatches: boolean; bundleMatches: boolean; environmentMatches: boolean; productMatches: boolean }
 
-async function diagnoseMatch(env: SaaSEnv, uid: string, kind: string, candidates: MatchDiagnostic[]): Promise<void> {
+async function diagnoseMatch(env: SaaSEnv, uid: string, kind: string, candidates: MatchDiagnostic[], conflict?: { environment: string; originalTransactionId: string }): Promise<void> {
   const until = Number(env.APPLE_DIAGNOSTIC_UNTIL ?? 0), now = Date.now()
   if (!env.ALVOPROMPT_SYNC || !env.APPLE_DIAGNOSTIC_USER_HASH || until <= now || until > now + 3_600_000) return
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(uid))
   const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
   if (hash !== env.APPLE_DIAGNOSTIC_USER_HASH) return
-  // Temporary, account-scoped booleans only: no UID, receipt, transaction ID or token.
-  await env.ALVOPROMPT_SYNC.put(`diagnostic:apple:${hash}`, JSON.stringify({ at: new Date(now).toISOString(), kind, candidates }), { expirationTtl: 900 }).catch(() => undefined)
+  // A separately enabled Sandbox conflict lookup identifies only the transaction
+  // already validated for this selected account; never enumerate other purchases.
+  const sandboxConflictTransactionId = env.APPLE_DIAGNOSTIC_SANDBOX_BINDING === 'true'
+    && kind === 'stored_owner_conflict' && conflict?.environment === 'Sandbox'
+    ? conflict.originalTransactionId : undefined
+  await env.ALVOPROMPT_SYNC.put(`diagnostic:apple:${hash}`, JSON.stringify({ at: new Date(now).toISOString(), kind, candidates,
+    ...(sandboxConflictTransactionId ? { sandboxConflictTransactionId } : {}),
+  }), { expirationTtl: 900 }).catch(() => undefined)
 }
 
 interface AppleTransaction {
@@ -146,7 +152,7 @@ export async function reconcileAppleSubscription(db: D1Database, env: SaaSEnv, u
   const owner = await db.prepare('SELECT user_id FROM apple_subscriptions WHERE original_transaction_id = ?')
     .bind(transaction.originalTransactionId).first<{ user_id: string }>()
   if (owner && owner.user_id !== uid) {
-    await diagnoseMatch(env, uid, 'stored_owner_conflict', diagnostics)
+    await diagnoseMatch(env, uid, 'stored_owner_conflict', diagnostics, { environment: verifiedEnvironment, originalTransactionId: transaction.originalTransactionId })
     throw new AppleBillingError('Esta assinatura Apple já está vinculada a outra conta AlvoPrompter. Entre na conta usada na contratação ou fale com o suporte.', 'APPLE_STORED_OWNER_CONFLICT', 403)
   }
   const plan: SaaSPlan = transaction.productId === APPLE_PRODUCTS.studio ? 'studio' : 'creator'

@@ -23,6 +23,45 @@ function setup() {
 }
 
 describe('Apple subscription verification', () => {
+  it.each([
+    ['Sandbox', true, true, true],
+    ['Sandbox', false, true, false],
+    ['Sandbox', true, false, false],
+    ['Production', true, true, false],
+  ])('restricts conflict lookup to an opted-in matching Sandbox account (%s, %s, %s)', async (environment, enabled, selected, capturesId) => {
+    const { env, request, sqlite } = setup()
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('apple-user'))
+    const hash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('')
+    const put = vi.fn(async () => undefined)
+    env.ALVOPROMPT_SYNC = { put } as unknown as KVNamespace
+    env.APPLE_DIAGNOSTIC_USER_HASH = selected ? hash : 'unrelated-account'
+    env.APPLE_DIAGNOSTIC_UNTIL = String(Date.now() + 600_000)
+    env.APPLE_DIAGNOSTIC_SANDBOX_BINDING = String(enabled)
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ test: 'certificate' })))
+    await request('/billing/apple/session')
+    sqlite.exec(`INSERT INTO users (id,email,name,created_at,updated_at) VALUES ('prior-owner','prior@example.test','Prior','2026-01-01','2026-01-01');
+      INSERT INTO apple_subscriptions (original_transaction_id,user_id,product_id,environment,updated_at)
+      VALUES ('123456','prior-owner','com.alvoprompt.app.creator.monthly','${environment}','2026-01-01')`)
+    const token = sqlite.prepare('SELECT app_account_token FROM apple_accounts WHERE user_id=?').get('apple-user')?.app_account_token
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).includes('googleapis.com/robot')
+      ? Response.json({ test: 'certificate' }) : environment === 'Sandbox' && String(url).includes('api.storekit.apple.com')
+        ? new Response(null, { status: 404 }) : Response.json({ data: [{ lastTransactions: [{ status: 1, signedTransactionInfo: JSON.stringify({
+          appAccountToken: token, bundleId: 'com.alvoprompt.app', environment, productId: APPLE_PRODUCTS.creator,
+          originalTransactionId: '123456', expiresDate: Date.now() + 60_000,
+        }) }] }] })))
+    const response = await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(response?.status).toBe(403)
+    const publicBody = await response?.json()
+    expect(publicBody).toMatchObject({ code: 'APPLE_STORED_OWNER_CONFLICT' })
+    const saved = String(put.mock.calls[0]?.[1] ?? '{}')
+    expect(JSON.parse(saved).sandboxConflictTransactionId).toBe(capturesId ? '123456' : undefined)
+    expect(put).toHaveBeenCalledTimes(selected ? 1 : 0)
+    for (const privateValue of ['123456', 'prior-owner', 'prior@example.test', String(token)]) expect(JSON.stringify(publicBody)).not.toContain(privateValue)
+    for (const privateValue of ['prior-owner', 'prior@example.test', String(token)]) expect(saved).not.toContain(privateValue)
+    expect(sqlite.prepare('SELECT user_id FROM apple_subscriptions').get()?.user_id).toBe('prior-owner')
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM subscriptions').get()?.n).toBe(0)
+  })
+
   it('records only expiring comparison flags for the explicitly selected account', async () => {
     const { env, request, sqlite } = setup()
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('apple-user'))

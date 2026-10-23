@@ -95,3 +95,13 @@ Worker publicado: e9936ab9-d11e-4db8-b6cb-9f9a7c9fd97e, release 1.6.5-26-apple-m
 383 testes em 42 arquivos aprovados, incluindo não capturar outra conta, expiração do diagnóstico, omissão de dados privados e causas distintas sem liberação indevida. Tipagem e scanner aprovados; lint com aviso preexistente.
 
 Solicitada uma nova tentativa de Restaurar compras após o deploy, sem nova contratação, para obter o diagnóstico exato. Não declarar causa específica nem compra/ativação homologada antes dessa evidência.
+
+## Causa confirmada às 23h33 UTC
+
+A tentativa solicitada registrou stored_owner_conflict. Decodificação, presença e correspondência do token da conta, bundle, ambiente e produto retornaram true. A nova captura de 20h33 confirma a mensagem específica de vínculo anterior e o plano Grátis. Portanto, a falha está na titularidade já persistida para a assinatura original no banco; não é falha de credencial da Apple nem divergência do token atual. Isso ainda não identifica a conta anterior nem autoriza transferir o acesso.
+
+O titular autorizou consultar os vínculos de teste. A revisão automática recusou uma consulta limitada a 20 vínculos Sandbox porque poderia abranger pessoas sem relação com essa compra. A consulta não foi executada. Não repetir essa enumeração nem usar logs gerais.
+
+Preparado um diagnóstico adicional, desativado por padrão, com APPLE_DIAGNOSTIC_SANDBOX_BINDING. Exige o mesmo hash de usuário e prazo curto, e só identifica a transação original que já passou nas verificações Apple dessa conta e encontrou conflito no ambiente Sandbox. Não identifica transações Production, não enumera compras e não inclui e-mail, UID, recibo ou token. Retenção de 900 segundos; dados nunca retornam ao cliente. Permite consultar posteriormente uma única linha pela transação exata autorizada. Não transfere vínculo nem ativa plano.
+
+Publicado Worker bd46b149-35e3-477d-8ece-09492046473e, release 1.6.5-26-apple-link-20261023; health confirmado. Configuração privada válida por 30 minutos. 387 testes em 42 arquivos aprovados, tipagem e scanner aprovados; lint com o aviso preexistente. Solicitada restauração dessa compra existente para obter seu identificador exato, sem nova contratação. A conta anterior ainda não foi identificada; nenhuma alteração de titularidade ou assinatura foi feita.

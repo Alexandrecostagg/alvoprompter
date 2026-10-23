@@ -33,6 +33,7 @@ export interface SaaSEnv {
   ALVOPROMPT_SYNC?: KVNamespace
   APPLE_DIAGNOSTIC_USER_HASH?: string
   APPLE_DIAGNOSTIC_UNTIL?: string
+  APPLE_DIAGNOSTIC_SANDBOX_BINDING?: string
 }
 
 export interface AuthUser {
