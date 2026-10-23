@@ -10,6 +10,7 @@ import ProfileForm from './ProfileForm'
 import AdminAccessPanel from './AdminAccessPanel'
 import DeleteAccountPanel from './DeleteAccountPanel'
 import { friendlyAuthError } from '../../lib/authMessages'
+import { confirmAccountEmail } from '../../lib/accountVerification'
 import { loadBillingAvailability, type BillingAvailability } from '../../lib/billing'
 import { buyApplePlan, isAppleApp, loadApplePrices, manageAppleSubscription, restoreApplePlans } from '../../lib/applePurchases'
 import { buyGooglePlan, loadGooglePrices, manageGoogleSubscription, restoreGooglePlans } from '../../lib/googlePurchases'
@@ -45,6 +46,9 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
   const [authReady, setAuthReady] = useState(false)
   const [mode, setMode] = useState<AuthMode>('signin')
   const [account, setAccount] = useState<AccountSummary | null>(null)
+  const [accountRevision, setAccountRevision] = useState(0)
+  const [accountFailed, setAccountFailed] = useState(false)
+  const [emailVerified, setEmailVerified] = useState(false)
   const [busy, setBusy] = useState(false)
   const [billing, setBilling] = useState<BillingAvailability | null>(null)
   const [billingChecking, setBillingChecking] = useState(true)
@@ -98,6 +102,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
 
   useEffect(() => observeUser((next) => {
     setUser(next)
+    setEmailVerified(next?.emailVerified ?? false)
     setAuthReady(true)
     if (!next) { setAccount(null); setShowAdmin(false) }
   }), [])
@@ -107,20 +112,24 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
     let active = true
     setBusy(true)
     setAccount(null)
+    setAccountFailed(false)
     setMessage(null)
     loadAccount()
       .then((result) => { if (active) setAccount(result) })
-      .catch((error) => { if (active) setMessage({ kind: 'error', text: (error as Error).message }) })
+      .catch((error) => { if (active) { setAccountFailed(true); setMessage({ kind: 'error', text: (error as Error).message }) } })
       .finally(() => { if (active) setBusy(false) })
     return () => { active = false }
-  }, [open, user])
+  }, [open, user, accountRevision])
 
   useEffect(() => {
     if (!open || !user || !nativeStore) return
     let active = true
     let remove: (() => Promise<void>) | undefined
     void import('@capacitor/app').then(({ App }) => App.addListener('appStateChange', ({ isActive }) => {
-      if (isActive && active) void loadAccount().then((result) => { if (active) setAccount(result) }).catch(() => undefined)
+      if (isActive && active) void refreshVerifiedUser().then((verified) => {
+        if (active) setEmailVerified(verified)
+        return loadAccount()
+      }).then((result) => { if (active) { setAccount(result); setAccountFailed(false) } }).catch(() => { if (active) setAccountFailed(true) })
     })).then((listener) => { if (active) remove = () => listener.remove(); else void listener.remove() })
     return () => { active = false; if (remove) void remove() }
   }, [open, user, nativeStore])
@@ -149,7 +158,11 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
       setMessage({ kind: 'ok', text: 'Crie sua conta antes de abrir o checkout seguro.' })
       return
     }
-    if (!user.emailVerified) {
+    if (!account || accountFailed) {
+      setMessage({ kind: 'error', text: 'Recarregue seu plano antes de iniciar uma assinatura. Nenhuma compra foi iniciada.' })
+      return
+    }
+    if (!emailVerified) {
       setMessage({ kind: 'error', text: 'Confirme seu e-mail antes de assinar um plano.' })
       return
     }
@@ -184,7 +197,30 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
     }
   }
 
-  const refreshAccount = async () => setAccount(await loadAccount())
+  const refreshAccount = async () => { setAccount(await loadAccount()); setAccountFailed(false) }
+
+  const confirmEmail = async () => {
+    setBusy(true)
+    setMessage(null)
+    try {
+      const result = await confirmAccountEmail()
+      const verified = result.status !== 'unverified'
+      setEmailVerified(verified)
+      if (!verified) {
+        setMessage({ kind: 'error', text: 'Abra o e-mail do AlvoPrompter, conclua a confirmação pelo link e tente novamente.' })
+        return
+      }
+      if (result.status === 'verified') {
+        setAccount(result.account)
+        setAccountFailed(false)
+        setMessage({ kind: 'ok', text: 'E-mail confirmado. Sua conta está pronta.' })
+      } else {
+        setAccountFailed(true)
+        setMessage({ kind: 'error', text: 'Seu e-mail foi confirmado. Não conseguimos carregar seu plano; toque em “Recarregar plano” para tentar novamente. Nenhuma compra foi iniciada.' })
+      }
+    } catch (error) { setMessage({ kind: 'error', text: friendlyAuthError(error) }) }
+    finally { setBusy(false) }
+  }
 
   const cancelRenewal = async () => {
     if (account?.subscription.provider === 'apple') {
@@ -248,6 +284,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
               {account.subscription.currentPeriodEnd ? <p className="mt-2 text-xs" style={{ color: 'var(--ink-soft)' }}>Ciclo atual até {new Date(account.subscription.currentPeriodEnd).toLocaleDateString('pt-BR')}</p> : null}
             </div> : null}
             <div className="mt-3 flex flex-wrap gap-2">{account?.subscription.status === 'active' ? <button onClick={() => void cancelRenewal()} disabled={busy} className="min-h-11 rounded-xl border px-3 text-xs font-bold disabled:opacity-50" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>{account.subscription.provider === 'apple' ? 'Gerenciar na App Store' : account.subscription.provider === 'google' ? 'Gerenciar no Google Play' : 'Cancelar renovação'}</button> : null}<button onClick={() => void signUserOut().catch((error) => setMessage({ kind: 'error', text: friendlyAuthError(error) }))} disabled={busy} className="min-h-11 rounded-xl px-3 text-xs font-semibold disabled:opacity-50" style={{ color: 'var(--ink-soft)' }}>Sair da conta</button></div>
+            {accountFailed ? <div className="mt-3 rounded-xl border p-3" role="status" style={{ borderColor: 'var(--border)' }}><p className="text-sm leading-relaxed">Não foi possível consultar seu plano. Recarregue antes de assinar. Seus arquivos neste aparelho continuam disponíveis.</p><button disabled={busy} className="mt-2 min-h-11 rounded-xl border px-3 text-sm font-bold disabled:opacity-50" onClick={() => setAccountRevision(value => value + 1)}>Recarregar plano</button></div> : null}
           </section>
         )}
 
@@ -258,18 +295,18 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
           {account.access?.request?.status === 'pending' ? <p role="status" className="text-sm font-semibold">Solicitação de {PLANS[account.access.request.plan].name} aguardando análise.</p> : null}
           {account.access?.request?.status === 'declined' ? <p className="text-sm">Sua solicitação foi encerrada. Se necessário, fale com a administração.</p> : null}
           {account.access?.request?.status === 'checkout_required' && account.subscription.plan === 'free' ? <p className="text-sm font-semibold">A administração indicou o plano {PLANS[account.access.request.plan].name}. Para continuar com os recursos pagos, confirme a assinatura nas opções abaixo. Nenhuma cobrança foi iniciada.</p> : null}
-          {account.access?.grant?.status !== 'active' && account.access?.request?.status !== 'pending' ? <div className="flex flex-wrap items-end gap-2"><label className="min-w-0 flex-1 text-sm font-semibold">Plano para solicitar<select className="mt-1 min-h-11 w-full rounded-xl border px-3 text-sm" value={accessPlan} onChange={e => setAccessPlan(e.target.value as typeof accessPlan)}><option value="creator">Criador</option><option value="studio">Studio</option></select></label><button disabled={busy || !user.emailVerified} className="min-h-11 rounded-xl border px-4 text-sm font-bold disabled:opacity-50" onClick={() => { setBusy(true); void requestTemporaryAccess(accessPlan).then(async () => { await refreshAccount(); setMessage({ kind: 'ok', text: 'Solicitação enviada. Aguarde a liberação da administração.' }) }).catch(e => setMessage({ kind: 'error', text: e.message })).finally(() => setBusy(false)) }}>Solicitar acesso temporário</button></div> : null}
+          {account.access?.grant?.status !== 'active' && account.access?.request?.status !== 'pending' ? <div className="flex flex-wrap items-end gap-2"><label className="min-w-0 flex-1 text-sm font-semibold">Plano para solicitar<select className="mt-1 min-h-11 w-full rounded-xl border px-3 text-sm" value={accessPlan} onChange={e => setAccessPlan(e.target.value as typeof accessPlan)}><option value="creator">Criador</option><option value="studio">Studio</option></select></label><button disabled={busy || !emailVerified} className="min-h-11 rounded-xl border px-4 text-sm font-bold disabled:opacity-50" onClick={() => { setBusy(true); void requestTemporaryAccess(accessPlan).then(async () => { await refreshAccount(); setMessage({ kind: 'ok', text: 'Solicitação enviada. Aguarde a liberação da administração.' }) }).catch(e => setMessage({ kind: 'error', text: e.message })).finally(() => setBusy(false)) }}>Solicitar acesso temporário</button></div> : null}
           {account.isAdmin ? <button className="min-h-11 rounded-xl border px-4 text-sm font-bold" onClick={() => setShowAdmin(value => !value)} aria-expanded={showAdmin}>{showAdmin ? 'Fechar administração' : 'Abrir administração'}</button> : null}
         </section> : null}
         {user && account?.isAdmin && showAdmin ? <AdminAccessPanel /> : null}
 
         {user && account ? <ProfileForm key={user.uid} profile={account.profile} defaultName={user.displayName ?? account.user.name} onSaved={refreshAccount} /> : null}
 
-        {user && !user.emailVerified ? <div className="mt-5 rounded-2xl border p-4">
+        {user && !emailVerified ? <div className="mt-5 rounded-2xl border p-4">
           <p className="account-copy text-sm leading-relaxed">Confirme seu e-mail para usar IA, nuvem, convites de equipe e assinaturas. Você pode continuar escrevendo e gravando neste aparelho.</p>
           <div className="mt-3 flex flex-wrap gap-3">
-            <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => void resendVerification().then(() => setMessage({kind:'ok',text:'Enviamos um novo link de confirmação.'})).catch((error) => setMessage({kind:'error',text:friendlyAuthError(error)}))}>Reenviar confirmação</button>
-            <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => void refreshVerifiedUser().then(async (verified) => { await refreshAccount(); setMessage({kind:verified?'ok':'error',text:verified?'E-mail confirmado.':'Abra o link enviado ao seu e-mail e tente novamente.'}) }).catch((error) => setMessage({kind:'error',text:friendlyAuthError(error)}))}>Já confirmei meu e-mail</button>
+            <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => { setBusy(true); void resendVerification().then(() => setMessage({kind:'ok',text:'Enviamos um e-mail de confirmação do AlvoPrompter. Confira a caixa de entrada e o spam.'})).catch((error) => setMessage({kind:'error',text:friendlyAuthError(error)})).finally(() => setBusy(false)) }}>Reenviar confirmação</button>
+            <button className="min-h-11 rounded-xl border px-3 text-sm" disabled={busy} onClick={() => void confirmEmail()}>Já confirmei meu e-mail</button>
           </div>
         </div> : null}
         <section className="mt-6" aria-labelledby="account-plans-title">
@@ -282,10 +319,10 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
           </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <PlanCard planId="free" currentPlan={account?.subscription.plan ?? (user ? null : 'free')} busy={busy} available={false} checking={billingChecking} verified={!user || user.emailVerified} price={formatPlanPrice(0)} action="" onChoose={choosePlan} />
-          {PAID_PLAN_IDS.map((planId) => <PlanCard key={planId} planId={planId} currentPlan={account?.subscription.plan ?? (user ? null : 'free')} busy={busy} available={nativeStore ? Boolean(storeConfigured && storePrices[planId]) : Boolean(billing?.configured)} checking={billingChecking} verified={!user || user.emailVerified} price={nativeStore ? storePrices[planId] ?? '—' : formatPlanPrice(PLANS[planId].priceMonthly)} action={nativeStore ? `Assinar ${PLANS[planId].name} ${appleApp ? 'na' : 'no'} ${storeName}` : billing?.sandbox ? `Testar ${PLANS[planId].name}` : `Assinar ${PLANS[planId].name}`} onChoose={choosePlan} />)}
+          <PlanCard planId="free" currentPlan={account?.subscription.plan ?? (user ? null : 'free')} busy={busy} available={false} checking={billingChecking} verified={!user || emailVerified} price={formatPlanPrice(0)} action="" onChoose={choosePlan} />
+          {PAID_PLAN_IDS.map((planId) => <PlanCard key={planId} planId={planId} currentPlan={account?.subscription.plan ?? (user ? null : 'free')} busy={busy} available={(!user || Boolean(account) && !accountFailed) && (nativeStore ? Boolean(storeConfigured && storePrices[planId]) : Boolean(billing?.configured))} checking={billingChecking} verified={!user || emailVerified} price={nativeStore ? storePrices[planId] ?? '—' : formatPlanPrice(PLANS[planId].priceMonthly)} action={nativeStore ? `Assinar ${PLANS[planId].name} ${appleApp ? 'na' : 'no'} ${storeName}` : billing?.sandbox ? `Testar ${PLANS[planId].name}` : `Assinar ${PLANS[planId].name}`} onChoose={choosePlan} />)}
         </div>
-        {nativeStore && user?.emailVerified ? <button disabled={busy || !storeConfigured} onClick={() => { setBusy(true); void (appleApp ? restoreApplePlans() : restoreGooglePlans()).then(async (restored) => { await refreshAccount(); setMessage({ kind: 'ok', text: restored ? 'Compras restauradas e plano atualizado.' : `Nenhuma assinatura ativa encontrada para esta conta no ${storeName}.` }) }).catch((error) => setMessage({ kind: 'error', text: (error as Error).message })).finally(() => setBusy(false)) }} className="mt-4 min-h-11 rounded-xl border px-4 text-sm font-semibold disabled:opacity-50" style={{ borderColor: 'var(--border)' }}>Restaurar compras {appleApp ? 'da' : 'do'} {storeName}</button> : null}
+        {nativeStore && user && emailVerified ? <button disabled={busy || !storeConfigured} onClick={() => { setBusy(true); void (appleApp ? restoreApplePlans() : restoreGooglePlans()).then(async (restored) => { await refreshAccount(); setMessage({ kind: 'ok', text: restored ? 'Compras restauradas e plano atualizado.' : `Nenhuma assinatura ativa encontrada para esta conta no ${storeName}.` }) }).catch((error) => setMessage({ kind: 'error', text: (error as Error).message })).finally(() => setBusy(false)) }} className="mt-4 min-h-11 rounded-xl border px-4 text-sm font-semibold disabled:opacity-50" style={{ borderColor: 'var(--border)' }}>Restaurar compras {appleApp ? 'da' : 'do'} {storeName}</button> : null}
         </section>
         {user && account ? <section className="mt-5 rounded-2xl border p-4 sm:p-5" style={{borderColor:'var(--border)',background:'var(--bg)'}}>
           <h3 className="font-bold">Sua equipe e seus roteiros</h3>
