@@ -30,6 +30,9 @@ export interface SaaSEnv {
   APPLE_IAP_ISSUER_ID?: string
   APPLE_IAP_KEY_ID?: string
   APPLE_IAP_PRIVATE_KEY?: string
+  ALVOPROMPT_SYNC?: KVNamespace
+  APPLE_DIAGNOSTIC_USER_HASH?: string
+  APPLE_DIAGNOSTIC_UNTIL?: string
 }
 
 export interface AuthUser {
@@ -644,7 +647,7 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     if (url.pathname === '/billing/subscription' && request.method === 'DELETE') return await cancelSubscription(request, env, db, user)
     return responseJson({ error: 'Rota não encontrada.' }, 404)
   } catch (error) {
-    if (error instanceof AppleBillingError) return responseJson({ error: error.message, code: error.code }, 503)
+    if (error instanceof AppleBillingError) return responseJson({ error: error.message, code: error.code }, error.status)
     const message = (error as Error).message
     const authError = /^(Entre na sua conta|Sessão|Login não configurado|Token)/i.test(message)
     const forbiddenPurchase = /não pertence à sua conta|vinculada a outra conta/i.test(message)

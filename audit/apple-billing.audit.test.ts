@@ -23,6 +23,53 @@ function setup() {
 }
 
 describe('Apple subscription verification', () => {
+  it('records only expiring comparison flags for the explicitly selected account', async () => {
+    const { env, request, sqlite } = setup()
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('apple-user'))
+    const hash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('')
+    const put = vi.fn(async () => undefined)
+    env.ALVOPROMPT_SYNC = { put } as unknown as KVNamespace
+    env.APPLE_DIAGNOSTIC_USER_HASH = hash
+    env.APPLE_DIAGNOSTIC_UNTIL = String(Date.now() + 600_000)
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).includes('googleapis.com/robot')
+      ? Response.json({ test: 'certificate' }) : Response.json({ data: [{ lastTransactions: [{ status: 1, signedTransactionInfo: JSON.stringify({
+        bundleId: 'com.alvoprompt.app', environment: 'Production', productId: APPLE_PRODUCTS.creator,
+        appAccountToken: 'another-private-account-token', originalTransactionId: '123456', expiresDate: Date.now() + 60_000,
+      }) }] }] })))
+    const response = await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(response?.status).toBe(403)
+    expect(await response?.json()).toMatchObject({ code: 'APPLE_ACCOUNT_TOKEN_MISMATCH' })
+    expect(put).toHaveBeenCalledExactlyOnceWith(`diagnostic:apple:${hash}`, expect.any(String), { expirationTtl: 900 })
+    const saved = String(put.mock.calls[0]?.[1])
+    expect(JSON.parse(saved)).toMatchObject({ kind: 'account_token_mismatch', candidates: [{ tokenPresent: true, tokenMatches: false, bundleMatches: true, productMatches: true, environmentMatches: true }] })
+    for (const privateValue of ['apple-user', '123456', 'another-private-account-token', 'signedTransactionInfo']) expect(saved).not.toContain(privateValue)
+    expect(sqlite.prepare('SELECT count(*) AS n FROM subscriptions').get()?.n).toBe(0)
+
+    put.mockClear(); env.APPLE_DIAGNOSTIC_USER_HASH = 'a-different-account-hash'
+    await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(put).not.toHaveBeenCalled()
+    env.APPLE_DIAGNOSTIC_USER_HASH = hash; env.APPLE_DIAGNOSTIC_UNTIL = String(Date.now() - 1)
+    await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it.each(['bundle', 'environment', 'product', 'missing-data'])('does not confuse unconfirmed purchase data with an account conflict (%s)', async (failure) => {
+    const { request, sqlite } = setup()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('googleapis.com/robot')) return Response.json({ test: 'certificate' })
+      const token = sqlite.prepare('SELECT app_account_token FROM apple_accounts').get()?.app_account_token
+      return Response.json({ data: failure === 'missing-data' ? [] : [{ lastTransactions: [{ status: 1, signedTransactionInfo: JSON.stringify({
+        appAccountToken: token, bundleId: failure === 'bundle' ? 'other.app' : 'com.alvoprompt.app',
+        environment: failure === 'environment' ? 'Sandbox' : 'Production',
+        productId: failure === 'product' ? 'other-product' : APPLE_PRODUCTS.creator,
+      }) }] }] })
+    }))
+    const response = await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(response?.status).toBe(503)
+    expect(await response?.json()).toMatchObject({ code: 'APPLE_PURCHASE_DATA_UNCONFIRMED' })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM subscriptions').get()?.n).toBe(0)
+  })
+
   it.each([
     [401, 'APPLE_CREDENTIAL_REJECTED'],
     [404, 'APPLE_TRANSACTION_NOT_READY'],

@@ -81,3 +81,17 @@ Correções desta etapa:
 - 378 testes em 42 arquivos aprovados, 22 direcionados à compra Apple. Tipagem aprovada; lint com aviso preexistente; scanner de 459 arquivos sem correspondências privadas examinadas.
 - API publicada, sem nova migração ou ativação manual: release 1.6.5-26-apple-validation-20261023, Worker 51eaeb3e-7a9a-419e-b486-6fd1bb9c082c. /health HTTP 200 confirma a versão; evidência privada health-apple-validation.json.
 - Aguarda mensagem exata de Restaurar compras no aparelho para distinguir validação recusada de transação ausente ou vínculo com outra conta. Não publicar o app na loja antes de comprovar o direito ativo e a restauração.
+
+## Erro de vínculo após restaurar — diagnóstico restrito
+
+O titular enviou captura de 20h25 com Esta compra não pertence à sua conta, conta atual ainda grátis. O erro anterior combinava falhas de bundle, produto, ambiente, decodificação e token da conta. A imagem não prova, sozinha, que existe outro titular.
+
+A API agora distingue APPLE_PURCHASE_DATA_UNCONFIRMED, APPLE_ACCOUNT_TOKEN_MISMATCH, APPLE_ACCOUNT_TOKEN_MISSING e APPLE_STORED_OWNER_CONFLICT, mantendo todas as verificações de titularidade, bundle, produto e ambiente. Não usar Set App Account Token nem transferir uma assinatura para resolver o teste sem prova e autorização específicas.
+
+Diagnóstico temporário preparado/publicado apenas para o hash do UID autorizado, com prazo de 30 minutos e retenção KV de 900 segundos. Guarda somente data, categoria e flags booleanas decoded/tokenPresent/tokenMatches/bundleMatches/environmentMatches/productMatches. Não guarda UID, recibo, JWS, ID da transação, e-mail ou tokens. O filtro é feito na origem; não há tail de logs gerais. A leitura deve ser somente da chave diagnostic:apple:HASH correspondente à conta autorizada, nunca listar ou ler outras chaves.
+
+Worker publicado: e9936ab9-d11e-4db8-b6cb-9f9a7c9fd97e, release 1.6.5-26-apple-match-20261023. Health conferido em health-apple-match.json. A configuração privada temporária está em worker-scoped-diagnostic.toml; flags de seleção não são versionadas. O código normal fica com diagnóstico desativado por padrão e recusa prazo maior que uma hora. Após obter o resultado, publicar com a configuração normal para retirar as flags temporárias.
+
+383 testes em 42 arquivos aprovados, incluindo não capturar outra conta, expiração do diagnóstico, omissão de dados privados e causas distintas sem liberação indevida. Tipagem e scanner aprovados; lint com aviso preexistente.
+
+Solicitada uma nova tentativa de Restaurar compras após o deploy, sem nova contratação, para obter o diagnóstico exato. Não declarar causa específica nem compra/ativação homologada antes dessa evidência.

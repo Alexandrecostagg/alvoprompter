@@ -8,7 +8,19 @@ export const APPLE_PRODUCTS = {
 const BUNDLE_ID = 'com.alvoprompt.app'
 
 export class AppleBillingError extends Error {
-  constructor(message: string, readonly code: string) { super(message) }
+  constructor(message: string, readonly code: string, readonly status = 503) { super(message) }
+}
+
+type MatchDiagnostic = { decoded: boolean; tokenPresent: boolean; tokenMatches: boolean; bundleMatches: boolean; environmentMatches: boolean; productMatches: boolean }
+
+async function diagnoseMatch(env: SaaSEnv, uid: string, kind: string, candidates: MatchDiagnostic[]): Promise<void> {
+  const until = Number(env.APPLE_DIAGNOSTIC_UNTIL ?? 0), now = Date.now()
+  if (!env.ALVOPROMPT_SYNC || !env.APPLE_DIAGNOSTIC_USER_HASH || until <= now || until > now + 3_600_000) return
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(uid))
+  const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+  if (hash !== env.APPLE_DIAGNOSTIC_USER_HASH) return
+  // Temporary, account-scoped booleans only: no UID, receipt, transaction ID or token.
+  await env.ALVOPROMPT_SYNC.put(`diagnostic:apple:${hash}`, JSON.stringify({ at: new Date(now).toISOString(), kind, candidates }), { expirationTtl: 900 }).catch(() => undefined)
 }
 
 interface AppleTransaction {
@@ -96,14 +108,31 @@ export async function appleAccountToken(db: D1Database, uid: string): Promise<st
 export async function reconcileAppleSubscription(db: D1Database, env: SaaSEnv, uid: string, transactionId: string, environment?: string): Promise<{ plan: SaaSPlan; status: string; currentPeriodEnd: string | null }> {
   const token = await appleAccountToken(db, uid)
   const { status: appleStatus, environment: verifiedEnvironment } = await fetchStatus(env, transactionId, environment)
-  const matches = (appleStatus.data ?? []).flatMap((group) => group.lastTransactions ?? [])
+  const decoded = (appleStatus.data ?? []).flatMap((group) => group.lastTransactions ?? [])
     .map((item) => ({ item, transaction: item.signedTransactionInfo ? transactionFromApple(item.signedTransactionInfo) : null,
       renewal: item.signedRenewalInfo ? transactionFromApple(item.signedRenewalInfo) as AppleRenewal | null : null }))
-    .filter(({ transaction }) => transaction?.appAccountToken?.toLowerCase() === token.toLowerCase()
-      && transaction.bundleId === BUNDLE_ID
+  const diagnostics = decoded.map(({ transaction }) => ({
+    decoded: Boolean(transaction), tokenPresent: Boolean(transaction?.appAccountToken),
+    tokenMatches: transaction?.appAccountToken?.toLowerCase() === token.toLowerCase(),
+    bundleMatches: transaction?.bundleId === BUNDLE_ID, environmentMatches: transaction?.environment === verifiedEnvironment,
+    productMatches: Object.values(APPLE_PRODUCTS).includes(transaction?.productId as typeof APPLE_PRODUCTS[keyof typeof APPLE_PRODUCTS]),
+  }))
+  const appTransactions = decoded.filter(({ transaction }) => transaction?.bundleId === BUNDLE_ID
       && transaction.environment === verifiedEnvironment
       && Object.values(APPLE_PRODUCTS).includes(transaction.productId as typeof APPLE_PRODUCTS[keyof typeof APPLE_PRODUCTS]))
-  if (!matches.length) throw new Error('Esta compra Apple não pertence à sua conta AlvoPrompter.')
+  if (!appTransactions.length) {
+    await diagnoseMatch(env, uid, 'purchase_data_unconfirmed', diagnostics)
+    throw new AppleBillingError('Os dados desta compra ainda não puderam ser confirmados com a Apple. Não compre novamente; tente Restaurar compras em instantes.', 'APPLE_PURCHASE_DATA_UNCONFIRMED')
+  }
+  const matches = appTransactions.filter(({ transaction }) => transaction?.appAccountToken?.toLowerCase() === token.toLowerCase())
+  if (!matches.length) {
+    const linked = appTransactions.some(({ transaction }) => Boolean(transaction?.appAccountToken))
+    await diagnoseMatch(env, uid, linked ? 'account_token_mismatch' : 'account_token_missing', diagnostics)
+    throw new AppleBillingError(linked
+      ? 'O vínculo desta compra com sua conta AlvoPrompter não foi confirmado. Não compre novamente; entre na conta usada na contratação ou fale com o suporte.'
+      : 'A Apple retornou esta compra sem o vínculo da conta AlvoPrompter. Não compre novamente; fale com o suporte para verificar a compra.',
+    linked ? 'APPLE_ACCOUNT_TOKEN_MISMATCH' : 'APPLE_ACCOUNT_TOKEN_MISSING', 403)
+  }
   const entitlementEnd = (match: typeof matches[number]) => match.item.status === 4
     ? Number(match.renewal?.gracePeriodExpiresDate ?? 0) : Number(match.transaction?.expiresDate ?? 0)
   matches.sort((a, b) => {
@@ -116,7 +145,10 @@ export async function reconcileAppleSubscription(db: D1Database, env: SaaSEnv, u
   if (!transaction.originalTransactionId || !/^[0-9]{1,32}$/.test(transaction.originalTransactionId)) throw new Error('Transação Apple incompleta.')
   const owner = await db.prepare('SELECT user_id FROM apple_subscriptions WHERE original_transaction_id = ?')
     .bind(transaction.originalTransactionId).first<{ user_id: string }>()
-  if (owner && owner.user_id !== uid) throw new Error('Esta assinatura Apple já está vinculada a outra conta.')
+  if (owner && owner.user_id !== uid) {
+    await diagnoseMatch(env, uid, 'stored_owner_conflict', diagnostics)
+    throw new AppleBillingError('Esta assinatura Apple já está vinculada a outra conta AlvoPrompter. Entre na conta usada na contratação ou fale com o suporte.', 'APPLE_STORED_OWNER_CONFLICT', 403)
+  }
   const plan: SaaSPlan = transaction.productId === APPLE_PRODUCTS.studio ? 'studio' : 'creator'
   const expires = entitlementEnd(selected)
   const valid = !transaction.revocationDate && (selected.item.status === 1 || selected.item.status === 4) && expires > Date.now()
