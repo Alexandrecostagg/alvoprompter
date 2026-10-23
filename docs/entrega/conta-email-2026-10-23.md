@@ -121,3 +121,9 @@ O titular autorizou explicitamente remover o vínculo de teste cancelado. Regist
 O CLI terminou com código zero, mas sua saída não foi interpretável como JSON pelo wrapper. A operação não foi repetida: feita consulta exata de estado, que confirmou stale_link_count=0, prior_user_count=1 e a assinatura Apple anterior ainda Criador/canceled, com o mesmo encerramento de 06/10/2026. Evidência privada stale-link-status.json. Assim, a remoção do vínculo foi confirmada por leitura posterior e a assinatura cancelada permaneceu intacta.
 
 Solicitada restauração da compra existente na conta atual pelo TestFlight. Não foi criado direito pago manualmente. A ativação e a restauração ainda dependem da validação Apple e da confirmação do teste no aparelho; não declarar assinatura homologada nem enviar a versão à revisão pública antes disso.
+
+## Restauração Criador confirmada
+
+O titular confirmou Plano Criador e enviou captura de 20h44 com Compras restauradas e plano atualizado, limite de 100 usos de IA e gestão pela App Store. Consulta restrita posterior confirmou provider=apple, plan=creator, status=active e environment=Sandbox, com período até 24/10/2026 às 21h36min44s UTC. A transação esperada tem exatamente um vínculo, na conta atual autorizada, e nenhum vínculo antigo. Evidência privada apple-restoration-confirmation.json.
+
+O fluxo de restauração do Criador no TestFlight está confirmado no aparelho e no servidor. Não houve concessão manual do plano nem nova compra pelo agente. Essa evidência não homologa Studio, renovação real, reembolso ou cobrança em produção. O build instalado permanece 1.6.5 (26); melhorias recentes do cliente ainda precisam ser incorporadas ao próximo build antes do envio final.
