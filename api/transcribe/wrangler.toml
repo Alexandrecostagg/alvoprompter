@@ -21,7 +21,7 @@ id = "7f2df53777804be2aefce83dd26e3945"
 # Publicar: npx wrangler deploy
 # Origens autorizadas. Adicione o domínio público real antes do deploy.
 [vars]
-RELEASE = "1.6.5-26-account-identity-20261023"
+RELEASE = "1.6.5-26-apple-validation-20261023"
 # Enable only after merchant profile, products, API permissions and device tests.
 GOOGLE_PLAY_ENABLED = "false"
 # Texto: Gemini primeiro; Groq assume em falhas antes de entregar conteúdo.

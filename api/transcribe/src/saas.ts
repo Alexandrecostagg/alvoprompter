@@ -3,7 +3,7 @@ import { readProfile, saveProfile } from './profile'
 import { deletionHash, deletionOverview, deletionStatus, startAccountDeletion, recoverAccountDeletions } from './accountDeletion'
 import { asaasApiKey, asaasHeaders, asaasFailureCode, billingAvailability, checkoutUrl } from './billing'
 import { workspaceContent } from './content'
-import { APPLE_PRODUCTS, appleAccountToken, appleBillingConfigured, reconcileAppleSubscription, refreshAppleAccount } from './appleBilling'
+import { APPLE_PRODUCTS, AppleBillingError, appleAccountToken, appleBillingConfigured, reconcileAppleSubscription, refreshAppleAccount } from './appleBilling'
 import { GOOGLE_PRODUCTS, GOOGLE_BASE_PLAN, googleAccountToken, googleBillingConfigured, reconcileGoogleSubscription, refreshGoogleAccount } from './googleBilling'
 import { decodeProtectedHeader, importX509, jwtVerify } from 'jose'
 
@@ -644,6 +644,7 @@ export async function handleSaaSRequest(request: Request, env: SaaSEnv): Promise
     if (url.pathname === '/billing/subscription' && request.method === 'DELETE') return await cancelSubscription(request, env, db, user)
     return responseJson({ error: 'Rota não encontrada.' }, 404)
   } catch (error) {
+    if (error instanceof AppleBillingError) return responseJson({ error: error.message, code: error.code }, 503)
     const message = (error as Error).message
     const authError = /^(Entre na sua conta|Sessão|Login não configurado|Token)/i.test(message)
     const forbiddenPurchase = /não pertence à sua conta|vinculada a outra conta/i.test(message)

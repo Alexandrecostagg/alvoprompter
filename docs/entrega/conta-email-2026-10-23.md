@@ -57,3 +57,27 @@ O titular autorizou explicitamente a migração 0014 e a publicação da API. Ap
 - Evidências privadas em artifacts/account-fix-20261023/: d1-after-migration.json, health-after-deploy.json, health-headers.txt, account-unauthenticated.json e native-preflight-headers.txt.
 
 Solicitada nova tentativa no próprio TestFlight 1.6.5 (26), fechando/reabrindo Conta e assinatura e atualizando a confirmação de e-mail se necessário. A correção do servidor atende esse build instalado. As melhorias locais da interface e da administração ainda precisam integrar um novo build iOS; nenhum novo pacote foi gerado nesta etapa. Compra/restauração e captura válida da assinatura seguem pendentes de teste no aparelho. Não enviar à revisão enquanto o fluxo de assinatura apresentar falha.
+
+## Retorno do teste no TestFlight
+
+O titular enviou três capturas às 18h36–18h37 de 23/10: a folha nativa da Apple apresenta AlvoPrompter Criador por R$29,90/mês e declara compra de teste sem cobrança; outra imagem mostra Processo completo / compra realizada com sucesso. O painel do app ainda está em Aguarde nas imagens. Isso comprova sucesso na interface da loja, mas não entrega do direito de acesso pelo servidor.
+
+Consulta de diagnóstico autorizada após as capturas confirmou o cadastro do UID atual no banco (correção de identidade em operação). Não havia linha de assinatura nem vínculo apple_subscriptions para essa conta no momento da conferência. Foi perguntado ao titular se, após tocar OK no alerta nativo, o painel mostra Criador, erro ou permanece aguardando. Não ativar plano manualmente para encobrir falha; aguardar esse resultado para distinguir alerta ainda aberto de falha de conclusão/validação.
+
+O preço em dólares nos cartões vem de Product.displayPrice do StoreKit, conforme o código nativo do plugin instalado. A folha de compra está em reais. A documentação técnica oficial dos fornecedores RevenueCat/Purchasely registra essa divergência nos metadados do ambiente TestFlight/sandbox. Não substituir por preço BRL fixo nem afirmar que houve preço real em dólares. Fonte: https://production-docs.revenuecat.com/docs/test-and-launch/sandbox/apple-app-store . A documentação Apple recomenda displayPrice e atualização dos produtos quando muda a storefront: https://developer.apple.com/documentation/storekit/storefront/updates .
+
+Nenhuma nova compra, concessão de acesso, alteração de preços, geração de build ou submissão pública feita nesta conferência. Restauração ainda não comprovada.
+
+## Compra aprovada na Apple, plano ainda gratuito
+
+O titular confirmou que, após OK, o painel continuou no plano Grátis. Diagnóstico restrito à conta autorizada: existe sessão Apple criada às 21:35:48 UTC, mas ainda não há vínculo de transação em apple_subscriptions nem assinatura no momento da leitura. Não afirmar que a cobrança foi homologada.
+
+A tentativa de observar logs gerais de produção foi bloqueada pela revisão automática porque receberia eventos de outros usuários antes de filtrar. Não iniciar esse tail nem contornar a restrição. Em vez disso, foi solicitada uma única restauração na mesma conta, sem nova contratação, e preparados diagnósticos públicos seguros.
+
+Correções desta etapa:
+
+- API distingue, com códigos públicos controlados, erro de credencial, transação ainda não disponível, indisponibilidade e timeout da Apple. Não retorna corpo privado, chave, token, UID ou detalhes do provedor. As mensagens orientam a não comprar novamente. Rejeições de titularidade continuam bloqueadas.
+- Cliente preparado para conferir plan/status devolvidos pelo servidor antes de afirmar compra ativa; restauração de direito expirado não informa sucesso. Essa mudança de cliente ainda precisa entrar em novo build iOS, não está no 26 instalado.
+- 378 testes em 42 arquivos aprovados, 22 direcionados à compra Apple. Tipagem aprovada; lint com aviso preexistente; scanner de 459 arquivos sem correspondências privadas examinadas.
+- API publicada, sem nova migração ou ativação manual: release 1.6.5-26-apple-validation-20261023, Worker 51eaeb3e-7a9a-419e-b486-6fd1bb9c082c. /health HTTP 200 confirma a versão; evidência privada health-apple-validation.json.
+- Aguarda mensagem exata de Restaurar compras no aparelho para distinguir validação recusada de transação ausente ou vínculo com outra conta. Não publicar o app na loja antes de comprovar o direito ativo e a restauração.

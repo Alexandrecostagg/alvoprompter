@@ -23,6 +23,34 @@ function setup() {
 }
 
 describe('Apple subscription verification', () => {
+  it.each([
+    [401, 'APPLE_CREDENTIAL_REJECTED'],
+    [404, 'APPLE_TRANSACTION_NOT_READY'],
+    [429, 'APPLE_VERIFICATION_UNAVAILABLE'],
+  ])('reports actionable validation failures without disclosing provider details (%s)', async (status, code) => {
+    const { sqlite, request } = setup()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).includes('googleapis.com/robot')
+      ? Response.json({ test: 'certificate' }) : new Response('private provider diagnostic', { status: status as number })))
+    const response = await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(response?.status).toBe(503)
+    const body = await response?.json() as { error: string; code: string }
+    expect(body.code).toBe(code)
+    expect(body.error).toMatch(/não compre novamente/i)
+    expect(JSON.stringify(body)).not.toContain('private provider diagnostic')
+    expect(sqlite.prepare('SELECT count(*) AS n FROM subscriptions').get()?.n).toBe(0)
+  })
+
+  it('reports an Apple timeout without activating or acknowledging a purchase', async () => {
+    const { sqlite, request } = setup()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('googleapis.com/robot')) return Response.json({ test: 'certificate' })
+      throw new Error('private network details')
+    }))
+    const response = await request('/billing/apple/verify', { transactionId: '123456' })
+    expect(await response?.json()).toMatchObject({ code: 'APPLE_VERIFICATION_TIMEOUT' })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM subscriptions').get()?.n).toBe(0)
+  })
+
   it('verifies a first TestFlight purchase when the unreleased production app returns 401', async () => {
     const { sqlite, request } = setup()
     const fetchMock = vi.fn(async (url: string) => {

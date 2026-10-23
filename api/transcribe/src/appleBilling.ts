@@ -7,6 +7,10 @@ export const APPLE_PRODUCTS = {
 } as const
 const BUNDLE_ID = 'com.alvoprompt.app'
 
+export class AppleBillingError extends Error {
+  constructor(message: string, readonly code: string) { super(message) }
+}
+
 interface AppleTransaction {
   appAccountToken?: string
   bundleId?: string
@@ -46,19 +50,33 @@ function transactionFromApple(jws: string): AppleTransaction | null {
 async function fetchStatus(env: SaaSEnv, transactionId: string, environment?: string): Promise<{ status: AppleStatus; environment: 'Production' | 'Sandbox' }> {
   if (!appleBillingConfigured(env)) throw new Error('Compras Apple ainda não configuradas no servidor.')
   if (!/^[0-9]{1,32}$/.test(transactionId)) throw new Error('Transação Apple inválida.')
-  const jwt = await authorization(env)
+  let jwt: string
+  try { jwt = await authorization(env) }
+  catch { throw new AppleBillingError('A validação de compras da Apple está indisponível. Sua compra não precisa ser repetida; tente Restaurar compras mais tarde.', 'APPLE_CREDENTIAL_UNAVAILABLE') }
   const environments = environment === 'Sandbox' ? ['Sandbox'] as const : environment === 'Production' ? ['Production'] as const : ['Production', 'Sandbox'] as const
   for (const target of environments) {
     const host = target === 'Sandbox' ? 'api.storekit-sandbox.apple.com' : 'api.storekit.apple.com'
-    const response = await fetch(`https://${host}/inApps/v1/subscriptions/${transactionId}`, {
-      headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/json' },
-      signal: AbortSignal.timeout(10_000),
-    })
+    let response: Response
+    try {
+      response = await fetch(`https://${host}/inApps/v1/subscriptions/${transactionId}`, {
+        headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      })
+    } catch { throw new AppleBillingError('A Apple não respondeu à validação da compra. Não compre novamente; tente Restaurar compras em instantes.', 'APPLE_VERIFICATION_TIMEOUT') }
     // An app not yet released can return 401 in Production while the same key
     // authenticates in Sandbox. First purchases must still reach TestFlight.
     // Once linked, the stored environment is used exclusively.
     if (environments.length > 1 && target === 'Production' && [401, 404].includes(response.status)) continue
-    if (!response.ok) throw new Error('Não foi possível confirmar a assinatura com a Apple. Tente novamente.')
+    if (!response.ok) {
+      const code = response.status === 401 || response.status === 403 ? 'APPLE_CREDENTIAL_REJECTED'
+        : response.status === 404 ? 'APPLE_TRANSACTION_NOT_READY' : 'APPLE_VERIFICATION_UNAVAILABLE'
+      const message = code === 'APPLE_CREDENTIAL_REJECTED'
+        ? 'Não foi possível confirmar a assinatura: a conexão de validação do AlvoPrompter com a Apple precisa ser verificada pela equipe. Não compre novamente.'
+        : code === 'APPLE_TRANSACTION_NOT_READY'
+          ? 'A Apple ainda não disponibilizou esta compra para validação. Aguarde um pouco e tente Restaurar compras; não compre novamente.'
+          : 'Não foi possível confirmar a assinatura com a Apple. Não compre novamente; tente Restaurar compras em instantes.'
+      throw new AppleBillingError(message, code)
+    }
     return { status: await response.json() as AppleStatus, environment: target }
   }
   throw new Error('Assinatura não encontrada na Apple.')

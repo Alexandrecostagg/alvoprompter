@@ -15,11 +15,28 @@ const accountToken = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.accountFetch.mockImplementation(async (path: string) => path.endsWith('/session')
-    ? { appAccountToken: accountToken, products: APPLE_PRODUCT_IDS } : {})
+    ? { appAccountToken: accountToken, products: APPLE_PRODUCT_IDS } : { plan: 'creator', status: 'active' })
   mocks.native.isBillingSupported.mockResolvedValue({ isBillingSupported: true })
 })
 
 describe('Apple native purchase flows', () => {
+  it('does not claim successful activation when the server reports an expired or inactive purchase', async () => {
+    mocks.native.purchaseProduct.mockResolvedValue({ transactionId: '123456' })
+    mocks.accountFetch.mockImplementation(async (path: string) => path.endsWith('/session')
+      ? { appAccountToken: accountToken, products: APPLE_PRODUCT_IDS } : { plan: 'free', status: 'canceled' })
+    await expect(buyApplePlan('creator')).rejects.toThrow('Use Restaurar compras')
+    expect(mocks.native.acknowledgePurchase).not.toHaveBeenCalled()
+  })
+
+  it('does not claim restoration if the entitlement expires before the server verifies it', async () => {
+    mocks.native.getPurchases.mockResolvedValue({ purchases: [
+      { productIdentifier: APPLE_PRODUCT_IDS.creator, transactionId: '123456', appAccountToken: accountToken },
+    ] })
+    mocks.accountFetch.mockImplementation(async (path: string) => path.endsWith('/session')
+      ? { appAccountToken: accountToken, products: APPLE_PRODUCT_IDS } : { plan: 'free', status: 'canceled' })
+    expect(await restoreApplePlans()).toBe(false)
+  })
+
   it('displays the exact localized prices returned by the App Store', async () => {
     mocks.native.getProducts.mockResolvedValue({ products: [
       { identifier: APPLE_PRODUCT_IDS.creator, priceString: 'R$ 29,90' },

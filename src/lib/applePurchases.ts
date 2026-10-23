@@ -31,8 +31,9 @@ async function purchaseSession(): Promise<{ appAccountToken: string; products: t
   return accountFetch('/billing/apple/session')
 }
 
-async function verify(transactionId: string): Promise<void> {
-  await accountFetch('/billing/apple/verify', { method: 'POST', body: JSON.stringify({ transactionId }) })
+async function verify(transactionId: string): Promise<boolean> {
+  const result = await accountFetch<{ plan: PlanId; status: string }>('/billing/apple/verify', { method: 'POST', body: JSON.stringify({ transactionId }) })
+  return (result.plan === 'creator' || result.plan === 'studio') && result.status === 'active'
 }
 
 export async function buyApplePlan(plan: Exclude<PlanId, 'free'>): Promise<void> {
@@ -43,7 +44,7 @@ export async function buyApplePlan(plan: Exclude<PlanId, 'free'>): Promise<void>
     productIdentifier: session.products[plan], productType: PURCHASE_TYPE.SUBS,
     appAccountToken: session.appAccountToken, autoAcknowledgePurchases: false,
   })
-  await verify(transaction.transactionId)
+  if (!await verify(transaction.transactionId)) throw new Error('A Apple registrou a compra, mas ainda não confirmou uma assinatura ativa. Use Restaurar compras; não contrate novamente.')
   await NativePurchases.acknowledgePurchase({ purchaseToken: transaction.transactionId })
 }
 
@@ -78,12 +79,12 @@ export async function restoreApplePlans(): Promise<boolean> {
     // StoreKit exposes UUID strings in uppercase; the account token from our API is lowercase.
     // Filter here and let the server independently verify the signed purchase ownership.
     if (record.appAccountToken?.toLowerCase() !== session.appAccountToken.toLowerCase()) continue
-    await verify(record.transactionId)
+    const active = await verify(record.transactionId)
     try { await NativePurchases.acknowledgePurchase({ purchaseToken: record.transactionId }) }
     catch (error) {
       if (!/already finished|not found/i.test((error as Error).message)) throw error
     }
-    restored = true
+    restored ||= active
   }
   return restored
 }
