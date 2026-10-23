@@ -77,7 +77,7 @@ describe('security boundaries with real signed JWTs', () => {
   })
   it('denies an outsider who knows the workspace ID and claims owner in the payload', async () => {
     const { req, sqlite } = await setup()
-    sqlite.exec("INSERT INTO users VALUES ('owner','owner@example.test','Owner','now','now'); INSERT INTO workspaces VALUES ('aabb','Private','owner','now','now')")
+    sqlite.exec("INSERT INTO users (id,email,name,created_at,updated_at) VALUES ('owner','owner@example.test','Owner','now','now'); INSERT INTO workspaces VALUES ('aabb','Private','owner','now','now')")
     const response = await req('/account/workspaces/aabb/content/scripts', 'PUT', JSON.stringify({ uid: 'owner', role: 'owner', key: 'stolen', revision: 0, payload: { title: 'Hacked', content: 'x' } }))
     expect(response.status).toBe(403)
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM workspace_content').get()?.n).toBe(0)

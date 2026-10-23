@@ -55,7 +55,7 @@ export async function reviewGrant(env: SaaSEnv, userId: string, revision: string
   const grant = await readGrant(env.DB!, userId)
   if (!grant || grant.revision !== revision || grant.status !== 'active') return
   const now = Date.now(), expires = Date.parse(grant.expires_at)
-  const user = await env.DB!.prepare('SELECT email,name FROM users WHERE id = ?').bind(userId).first<{ email: string; name: string }>()
+  const user = await env.DB!.prepare('SELECT COALESCE(auth_email,email) AS email,name FROM users WHERE id = ?').bind(userId).first<{ email: string; name: string }>()
   if (!user) return
   if (now >= expires - 3 * DAY) {
     const expired = now >= expires
@@ -110,15 +110,15 @@ export async function adminRoute(request: Request, env: SaaSEnv, actor: AuthUser
   if (path === '/admin/overview' && request.method === 'GET') {
     await recoverNotices(env)
     const query = text(url.searchParams.get('q'), 100), cursor = text(url.searchParams.get('cursor'), 128)
-    const rows = await db.prepare(`SELECT u.id,u.name,u.email,r.plan AS requestedPlan,r.status AS requestStatus,
+    const rows = await db.prepare(`SELECT u.id,u.name,COALESCE(u.auth_email,u.email) AS email,u.updated_at AS lastSeenAt,r.plan AS requestedPlan,r.status AS requestStatus,
       g.plan AS grantPlan,g.status AS grantStatus,g.expires_at AS expiresAt,g.revision,g.timer_status AS timerStatus,
       s.plan AS paidPlan,s.provider,s.status AS paidStatus,s.current_period_end AS paidUntil
       FROM users u LEFT JOIN access_requests r ON r.user_id=u.id LEFT JOIN access_grants g ON g.user_id=u.id
-      LEFT JOIN subscriptions s ON s.user_id=u.id WHERE (?='' OR instr(lower(u.email || ' ' || u.name),lower(?))>0) AND u.id>?
+      LEFT JOIN subscriptions s ON s.user_id=u.id WHERE (?='' OR instr(lower(COALESCE(u.auth_email,u.email) || ' ' || u.name),lower(?))>0) AND u.id>?
       ORDER BY u.id LIMIT 51`).bind(query, query, cursor).all()
     const notifications = await db.prepare('SELECT id,user_id AS userId,kind,title,body,created_at AS createdAt,read_at AS readAt,email_status AS emailStatus FROM admin_notifications ORDER BY created_at DESC LIMIT 50').all()
     const unread = await db.prepare('SELECT count(*) AS total FROM admin_notifications WHERE read_at IS NULL').first<{ total: number }>()
-    const audit = await db.prepare('SELECT a.action,a.reason,a.created_at AS createdAt,u.email FROM admin_audit a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 20').all()
+    const audit = await db.prepare('SELECT a.action,a.reason,a.created_at AS createdAt,COALESCE(u.auth_email,u.email) AS email FROM admin_audit a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 20').all()
     return json({ users: rows.results.slice(0, 50), nextCursor: rows.results.length > 50 ? (rows.results[49] as { id: string }).id : null, notifications: notifications.results,
       unread: unread?.total ?? 0, audit: audit.results, emailConfigured: adminEmailConfigured(env), timersConfigured: Boolean(env.BILLING_QUEUE) })
   }

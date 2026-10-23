@@ -11,7 +11,7 @@ function setup() {
   vi.setSystemTime(new Date('2026-10-20T15:00:00Z'))
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ test: 'certificate' }))))
   const data = testDatabase()
-  data.sqlite.exec("INSERT INTO users VALUES('person','person@example.test','Person','2026-10-01','2026-10-01'); INSERT INTO users VALUES('admin','admin@example.test','Admin','2026-10-01','2026-10-01'); INSERT INTO users VALUES('teamadmin','team@example.test','Team admin','2026-10-01','2026-10-01')")
+  data.sqlite.exec("INSERT INTO users (id,email,name,created_at,updated_at) VALUES('person','person@example.test','Person','2026-10-01','2026-10-01'); INSERT INTO users (id,email,name,created_at,updated_at) VALUES('admin','admin@example.test','Admin','2026-10-01','2026-10-01'); INSERT INTO users (id,email,name,created_at,updated_at) VALUES('teamadmin','team@example.test','Team admin','2026-10-01','2026-10-01')")
   const send = vi.fn(async () => undefined)
   const env: SaaSEnv = { DB: data.db, FIREBASE_PROJECT_ID: 'alvoprompt', ADMIN_USER_IDS: 'admin', BILLING_QUEUE: { send } as unknown as NonNullable<SaaSEnv['BILLING_QUEUE']> }
   const call = (path: string, actor = 'admin', body?: object) => handleSaaSRequest(new Request('https://app.test'+path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${actor}` }, body: body ? JSON.stringify(body) : undefined }), env)

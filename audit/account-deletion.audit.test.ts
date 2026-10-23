@@ -8,6 +8,7 @@ function setup() {
   const data = testDatabase()
   const time = new Date().toISOString()
   for (const uid of ['alice', 'bob']) data.sqlite.prepare('INSERT INTO users(id,email,name,created_at,updated_at) VALUES(?,?,?,?,?)').run(uid, `${uid}@example.test`, uid, time, time)
+  data.sqlite.exec("UPDATE users SET auth_email=email,email='firebase:alice' WHERE id='alice'")
   const send = vi.fn(async () => undefined), remove = vi.fn(async () => undefined), cache = new Map<string,string>()
   const env: DeletionEnv = { DB: data.db, FIREBASE_PROJECT_ID: 'alvoprompt', ACCOUNT_DELETION_KEY: btoa('a'.repeat(32)), BILLING_QUEUE: { send } as unknown as Queue, ALVOPROMPT_SYNC: { delete: remove, get: async(key:string)=>cache.get(key)??null, put:async(key:string,value:string)=>{cache.set(key,value)} } as unknown as KVNamespace }
   const user = { uid: 'alice', email: 'alice@example.test', name: 'Alice', emailVerified: true, authTime: Math.floor(Date.now()/1000), tokenExpiresAt: Math.floor(Date.now()/1000)+3600 } as AuthUser

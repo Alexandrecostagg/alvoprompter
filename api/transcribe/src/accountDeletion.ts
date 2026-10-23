@@ -114,7 +114,7 @@ export async function processAccountDeletion(env: DeletionEnv, id: string): Prom
     await db.prepare('UPDATE account_deletions SET identity_deleted=1,credential_cipher=NULL WHERE id=?').bind(id).run()
   }
   await deleteResources(env, job.uid_hash)
-  const user = await db.prepare('SELECT email FROM users WHERE id=?').bind(uid).first<{ email: string }>()
+  const user = await db.prepare('SELECT COALESCE(auth_email,email) AS email FROM users WHERE id=?').bind(uid).first<{ email: string }>()
   // All owned workspaces are removed; other teams keep their content, with author NULL.
   await db.batch([
     db.prepare('DELETE FROM admin_notifications WHERE user_id=?').bind(uid),

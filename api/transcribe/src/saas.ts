@@ -124,11 +124,13 @@ async function authenticate(request: Request, env: SaaSEnv): Promise<AuthUser> {
 
 async function syncUser(db: D1Database, user: AuthUser): Promise<void> {
   const now = new Date().toISOString()
+  // email is a legacy UNIQUE key; contact and ownership must not depend on it.
+  // Preserve existing rows and never merge identities merely by email address.
   const result = await db.prepare(`
-    INSERT INTO users (id, email, name, created_at, updated_at)
-    SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM account_deletions WHERE uid_hash=?)
-    ON CONFLICT(id) DO UPDATE SET email = excluded.email, name = excluded.name, updated_at = excluded.updated_at
-  `).bind(user.uid, user.email, user.name, now, now, await deletionHash(user.uid)).run()
+    INSERT INTO users (id, email, auth_email, name, created_at, updated_at)
+    SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM account_deletions WHERE uid_hash=?)
+    ON CONFLICT(id) DO UPDATE SET auth_email = excluded.auth_email, name = excluded.name, updated_at = excluded.updated_at
+  `).bind(user.uid, `firebase:${user.uid}`, user.email, user.name, now, now, await deletionHash(user.uid)).run()
   if (!result.meta.changes) throw new Error('Sessão encerrada. Conta em exclusão.')
   if (user.emailVerified) await db.prepare(`
     UPDATE workspace_members SET user_id = ?, accepted_at = ?, invited_name = COALESCE(invited_name, ?)

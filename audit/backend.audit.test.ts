@@ -11,7 +11,7 @@ vi.mock('jose', () => ({
 afterEach(() => vi.unstubAllGlobals())
 function setup() {
   const data = testDatabase()
-  data.sqlite.exec(`INSERT INTO users VALUES ('owner','owner@example.test','Owner','2026-09-23','2026-09-23');
+  data.sqlite.exec(`INSERT INTO users (id,email,name,created_at,updated_at) VALUES ('owner','owner@example.test','Owner','2026-09-23','2026-09-23');
     INSERT INTO checkout_sessions (id,user_id,plan,asaas_checkout_id,checkout_url,status,created_at,updated_at) VALUES ('local','owner','studio','checkout','https://test.invalid','pending','2026-09-23','2026-09-23');
     INSERT INTO workspaces VALUES ('aabb','Team','owner','2026-09-23','2026-09-23');
     INSERT INTO workspace_members VALUES ('m','aabb','owner','owner@example.test','Owner','owner','2026-09-23','2026-09-23');`)

@@ -11,7 +11,7 @@ vi.mock('jose', () => ({ importPKCS8: async () => ({}), SignJWT: class {
 afterEach(() => vi.unstubAllGlobals())
 async function setup() {
   const data = testDatabase()
-  data.sqlite.exec("INSERT INTO users VALUES ('buyer','buyer@example.test','Buyer','2026','2026')")
+  data.sqlite.exec("INSERT INTO users (id,email,name,created_at,updated_at) VALUES ('buyer','buyer@example.test','Buyer','2026','2026')")
   const env: SaaSEnv = { DB: data.db, GOOGLE_PLAY_ENABLED: 'true', GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: JSON.stringify({ client_email: 'test@example.test', private_key: 'test' }), BILLING_ENCRYPTION_KEY: btoa('a'.repeat(32)) }
   const accountToken = await googleAccountToken(data.db, 'buyer')
   const payload = { subscriptionState: 'SUBSCRIPTION_STATE_ACTIVE', acknowledgementState: 'ACKNOWLEDGEMENT_STATE_PENDING', externalAccountIdentifiers: { obfuscatedExternalAccountId: accountToken },
@@ -24,7 +24,7 @@ describe('Google Play server verification', () => {
   it('preserves existing subscription fields and constraints when extending the provider migration', () => {
     const sqlite = new DatabaseSync(':memory:')
     for (const name of readdirSync('api/transcribe/migrations').sort().filter(name => name < '0013')) sqlite.exec(readFileSync(`api/transcribe/migrations/${name}`, 'utf8'))
-    sqlite.exec("INSERT INTO users VALUES ('existing','existing@example.test','Existing','2026','2026'); INSERT INTO subscriptions (id,user_id,plan,status,asaas_subscription_id,asaas_customer_id,current_period_end,created_at,updated_at,cancellation_reason,provider,asaas_last_paid_payment_id) VALUES ('sub','existing','studio','canceled','sub_1','cus_1','2099-01-01','2026','2026','requested','asaas','pay_1')")
+    sqlite.exec("INSERT INTO users (id,email,name,created_at,updated_at) VALUES ('existing','existing@example.test','Existing','2026','2026'); INSERT INTO subscriptions (id,user_id,plan,status,asaas_subscription_id,asaas_customer_id,current_period_end,created_at,updated_at,cancellation_reason,provider,asaas_last_paid_payment_id) VALUES ('sub','existing','studio','canceled','sub_1','cus_1','2099-01-01','2026','2026','requested','asaas','pay_1')")
     const before = sqlite.prepare('SELECT * FROM subscriptions').get()
     sqlite.exec(readFileSync('api/transcribe/migrations/0013_google_billing.sql', 'utf8'))
     expect(sqlite.prepare('SELECT * FROM subscriptions').get()).toEqual(before)
