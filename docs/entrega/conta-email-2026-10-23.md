@@ -113,3 +113,11 @@ A tentativa de 23h39 UTC identificou a transação Sandbox específica; consulta
 Preparado SQL condicional para remover exclusivamente esse vínculo apple_subscriptions: exige ID original e UID exatos, ambiente Sandbox e assinatura Apple ainda cancelada com período já encerrado no instante da execução. Não remove users, apple_accounts ou subscriptions; não altera planos, arquivos nem cobranças. Sem a linha antiga, a restauração da conta atual continua sujeita a todas as verificações Apple e à validade do direito de acesso. Script privado release-stale-sandbox-link.sql não executado. Solicitada autorização específica para essa alteração; a autorização anterior era de consulta.
 
 O SQL preparado passou em cinco cenários locais: remove o vínculo de teste cancelado e vencido; preserva assinatura ativa, período futuro, ambiente Production e outra transação. A linha subscriptions foi preservada em todos os casos. Captura temporária desativada após o diagnóstico pelo deploy normal c9eec7d5-ed97-43b5-bfd8-7439312707aa, sem as três flags de seleção.
+
+## Remoção autorizada e aplicada
+
+O titular autorizou explicitamente remover o vínculo de teste cancelado. Registrado novo ponto de recuperação D1 no artefato privado d1-before-stale-link-release.json; executado o SQL condicional preparado, sem modificar plano, cobrança ou cadastro.
+
+O CLI terminou com código zero, mas sua saída não foi interpretável como JSON pelo wrapper. A operação não foi repetida: feita consulta exata de estado, que confirmou stale_link_count=0, prior_user_count=1 e a assinatura Apple anterior ainda Criador/canceled, com o mesmo encerramento de 06/10/2026. Evidência privada stale-link-status.json. Assim, a remoção do vínculo foi confirmada por leitura posterior e a assinatura cancelada permaneceu intacta.
+
+Solicitada restauração da compra existente na conta atual pelo TestFlight. Não foi criado direito pago manualmente. A ativação e a restauração ainda dependem da validação Apple e da confirmação do teste no aparelho; não declarar assinatura homologada nem enviar a versão à revisão pública antes disso.
