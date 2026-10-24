@@ -22,7 +22,7 @@ Essa validação do build 26 não comprova o funcionamento de todas as mudanças
 - Assinatura aprovada por codesign --verify --deep --strict com acesso normal ao chaveiro. A primeira execução no sandbox havia retornado CSSMERR_TP_NOT_TRUSTED; a repetição fora do sandbox confirmou valid on disk / satisfies its Designated Requirement, sem alterar confiança ou certificados.
 - Os 53 arquivos do build web foram comparados por SHA-256 aos recursos embarcados no archive: nenhuma ausência ou divergência. Evidência privada bundle-verification.json.
 - Upload oficial pelo xcodebuild concluído às 20h51 de 23/10 (Belém): Upload succeeded / EXPORT SUCCEEDED. A Apple informou que o pacote está em processamento. Log privado artifacts/release-1.6.5-27/upload.log.
-- Processamento final, associação ao grupo TestFlight e troca do build no rascunho público ainda não conferidos: a sessão do App Store Connect está no login e foi solicitada nova entrada ao titular. Upload concluído não significa distribuição ao grupo nem submissão pública.
+- Em 24/10, após renovar a sessão, App Store Connect confirmou o processamento do 27. Instruções de teste salvas e compilação associada ao grupo interno Equipe AlvoPrompter, com um tester. A aba Compilações do grupo confirma 1.6.5 (27) Em testes; evidência privada artifacts/apple-publicacao-20261024/testflight-27-em-testes.png. Nenhuma submissão pública feita nessa ação.
 - Google continua desativado; nenhum AAB 27 gerado ou enviado nesta etapa.
 
 ## Testes no novo build antes do envio público
@@ -33,3 +33,11 @@ Essa validação do build 26 não comprova o funcionamento de todas as mudanças
 4. Em conta de teste sem e-mail confirmado, concluir a verificação no navegador e retornar ao app. Recarregar deve reconhecer a confirmação.
 
 Continuam pendentes as capturas de revisão das assinaturas, sua inclusão conjunta na primeira submissão e a conferência final da galeria da loja. Não afirmar que o envio público foi concluído enquanto esses itens e o teste do novo build permanecerem abertos.
+
+## Teste do titular em 24/10
+
+O titular confirmou que, após atualizar para o 27, restaurar as compras e fechar/reabrir o app, o Criador permaneceu reconhecido. Esse teste do novo cliente está concluído. Não foi solicitada nova contratação.
+
+Build 26 retirado do rascunho anterior e seleção do 27 salva na ficha pública, que retornou a Preparar para envio. Não alteradas as credenciais de revisão. A próxima adição ao rascunho deve incluir as assinaturas e o grupo, após concluir seus metadados.
+
+Após atualizar e conferir as galerias de cinco imagens iPhone e duas iPad, o app com o build 27 foi adicionado novamente a um rascunho, ainda sem envio público. O rascunho contém somente o app; ainda é necessário acrescentar os produtos e o grupo. Captura do paywall recebida por WhatsApp foi rejeitada pelas dimensões 591×1280. Solicitadas capturas originais dos cartões dos planos para completar a revisão das assinaturas. Detalhes e evidências em apple-publicacao-2026-10-23.md.

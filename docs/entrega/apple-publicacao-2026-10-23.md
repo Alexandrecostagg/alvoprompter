@@ -32,3 +32,16 @@ Antes do envio final, incorporar as correções recentes do cliente ao próximo 
 ## Build corrigido enviado
 
 Gerado archive 1.6.5 (27), com assinatura validada e os 53 arquivos de interface conferidos contra o build web. Xcode confirmou Upload succeeded / EXPORT SUCCEEDED às 20h51 de 23/10 (Belém). A Apple informou pacote em processamento; não houve associação ao grupo ou substituição do build no rascunho enquanto a sessão do navegador permanece expirada. O titular foi avisado para entrar na aba App Store Connect. Não houve envio público. Instruções do teste e evidências em release-1.6.5-27.md.
+
+## Conferência autenticada em 24/10
+
+- Build 27 processado. Instruções de teste salvas e associação concluída ao grupo interno Equipe AlvoPrompter, com um tester. A tabela de Compilações do grupo confirma Em testes. Evidência privada testflight-27-em-testes.png em artifacts/apple-publicacao-20261024/.
+- O titular atualizou o TestFlight, restaurou a compra e confirmou que Criador permaneceu após fechar/reabrir o app. Não foi solicitada nova compra.
+- O item com build 26 foi retirado do rascunho anterior, e a seleção do 27 foi aplicada e salva na ficha da versão. Não foram alteradas nem copiadas as credenciais de revisão.
+- Galeria iPhone atualizada com cinco JPEGs reais de marketing da interface, em 1206×2622: início, IA, editor, prompter e ajustes, nesta ordem. Miniaturas visíveis sem alertas vermelhos. As três associações antigas no formato Face ID grande foram retiradas; os arquivos permanecem na Biblioteca de Ativos. A área opcional confirma que herda as cinco imagens atuais. Evidência privada galeria-iphone-atualizada.png.
+- Duas imagens de iPad 2732×2048 enviadas e associação antiga retirada, preservando sua cópia na biblioteca. Após reabrir a página, ambas as miniaturas foram conferidas renderizadas sem alertas: início e editor. A primeira observação mostrava indicador transitório de nuvem; não foi tomada apenas a contagem como confirmação. Evidência privada galeria-ipad-atualizada.png.
+- Tentativa de anexar a captura real do paywall recebida pelo titular: rejeitada imediatamente com As dimensões de uma ou mais capturas de tela estão incorretas. O arquivo de WhatsApp mede 591×1280. Não foi redimensionado nem recriado como evidência nativa. Produto Criador permanece sem a captura obrigatória; Studio também precisa de captura. Evidência privada assinatura-captura-dimensoes.png. Precisam ser obtidas as capturas originais do iPhone, sem a redução do envio como foto no WhatsApp.
+
+Nenhum envio público realizado. A primeira submissão deverá reunir app, grupo e ambos os produtos, depois de completar as capturas obrigatórias e verificar o processamento das imagens.
+
+A versão foi novamente adicionada ao rascunho após salvar o 27 e as novas galerias. A ficha está Pronto para revisão e o painel do rascunho confirma apenas iOS App 1.6.5 (27), um item; Enviar para revisão não acionado. Evidência privada rascunho-build-27.png. Assinaturas e grupo ainda não compõem esse rascunho. A aba foi deixada na assinatura Criador para prosseguir quando forem entregues as capturas originais dos cartões Criador e Studio. Não enviar o rascunho contendo só o app.
