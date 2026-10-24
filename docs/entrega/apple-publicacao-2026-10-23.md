@@ -2,6 +2,8 @@
 
 O titular autorizou concluir e enviar somente a versão Apple por enquanto. Google Play permanece aguardando suporte; nenhuma configuração Google/Asaas foi alterada nesta etapa.
 
+**Situação atual — 24/10/2026 às 11h38 (Belém): enviado à Apple e Aguardando revisão.** A submissão reúne a versão 1.6.5 (27), Criador Mensal, Studio Mensal e o grupo AlvoPrompter Planos. Os registros abaixo são cronológicos; as pendências iniciais de capturas e inclusão dos produtos foram concluídas na atualização final.
+
 ## Conferido
 
 - API pública: Asaas configurado em produção; Apple configurada; Google desativado. Flag de configuração não comprova compra efetiva.
@@ -45,3 +47,15 @@ Gerado archive 1.6.5 (27), com assinatura validada e os 53 arquivos de interface
 Nenhum envio público realizado. A primeira submissão deverá reunir app, grupo e ambos os produtos, depois de completar as capturas obrigatórias e verificar o processamento das imagens.
 
 A versão foi novamente adicionada ao rascunho após salvar o 27 e as novas galerias. A ficha está Pronto para revisão e o painel do rascunho confirma apenas iOS App 1.6.5 (27), um item; Enviar para revisão não acionado. Evidência privada rascunho-build-27.png. Assinaturas e grupo ainda não compõem esse rascunho. A aba foi deixada na assinatura Criador para prosseguir quando forem entregues as capturas originais dos cartões Criador e Studio. Não enviar o rascunho contendo só o app.
+
+## Envio concluído em 24/10 às 11h38 (Belém)
+
+- O titular autorizou redimensionar convencionalmente as capturas recebidas, sem IA. Os dois cartões foram preservados integralmente, sem redesenhar textos ou interface, em PNG RGB 1284×2778, com ajuste proporcional e margem mínima. Manifesto privado com origem, método e hashes em artifacts/apple-publicacao-20261024/review-captures/manifest.json. A imagem da conta com dados pessoais não foi anexada.
+- Apple aceitou as capturas Criador e Studio. Notas de revisão explicam que são de uma conta TestFlight com Criador ativo: Plano atual no Criador e contratação Studio desabilitada nessa conta. Não foi simulada uma tela de compra nem declarada homologação de compra Studio.
+- Criador e Studio passaram a Pronto para revisão e foram adicionados ao mesmo rascunho do app 1.6.5 (27). O grupo AlvoPrompter Planos foi incluído em seguida, resolvendo a exigência de envio conjunto. Conferidos quatro itens e botão de envio habilitado, sem erro de validação.
+- Enviar para revisão acionado dentro da autorização vigente do titular. Apple confirmou 4 itens enviados. A página de revisão confirma os quatro itens individualmente em Aguardando revisão: app 1.6.5 (27), Criador Mensal, Studio Mensal e grupo AlvoPrompter Planos.
+- ID do envio: 6b21d128-1fd6-4008-8593-ce2972ae1dc3. Data exibida pela Apple: 24 de outubro de 2026 às 11h38. Acompanhamento: https://appstoreconnect.apple.com/apps/6815460612/distribution/reviewsubmissions/details/6b21d128-1fd6-4008-8593-ce2972ae1dc3.
+- Evidências privadas: rascunho-quatro-itens.png, quatro-itens-enviados.png e aguardando-revisao-quatro-itens.png, em artifacts/apple-publicacao-20261024/.
+- Liberação pública manual preservada. Envio para revisão não significa aprovação ou publicação. Nenhum preço, contrato, banco, plano de usuário ou configuração Google/Asaas foi alterado nesta conclusão.
+
+Nenhuma mudança de código nesta etapa: validação por dimensões/formato, inspeção visual das imagens e confirmação oficial da interface Apple. Os testes do build 27 já registrados permanecem válidos; não foi gerado outro pacote.

@@ -1,5 +1,7 @@
 # AlvoPrompter 1.6.5 (27) — conta e confirmação da assinatura
 
+**Estado atual: Aguardando revisão na Apple desde 24/10/2026 às 11h38 (Belém), junto às duas assinaturas e ao grupo.** Liberação pública manual. As etapas abaixo registram a preparação e os testes anteriores ao envio.
+
 ## Comportamento
 
 - Ao retornar ao app, atualiza o perfil Firebase e o token antes de consultar o plano, reconhecendo a confirmação de e-mail feita no navegador.
@@ -41,3 +43,9 @@ O titular confirmou que, após atualizar para o 27, restaurar as compras e fecha
 Build 26 retirado do rascunho anterior e seleção do 27 salva na ficha pública, que retornou a Preparar para envio. Não alteradas as credenciais de revisão. A próxima adição ao rascunho deve incluir as assinaturas e o grupo, após concluir seus metadados.
 
 Após atualizar e conferir as galerias de cinco imagens iPhone e duas iPad, o app com o build 27 foi adicionado novamente a um rascunho, ainda sem envio público. O rascunho contém somente o app; ainda é necessário acrescentar os produtos e o grupo. Captura do paywall recebida por WhatsApp foi rejeitada pelas dimensões 591×1280. Solicitadas capturas originais dos cartões dos planos para completar a revisão das assinaturas. Detalhes e evidências em apple-publicacao-2026-10-23.md.
+
+## Submissão concluída em 24/10
+
+Após autorização do titular para redimensionamento convencional sem IA, ambas as capturas foram convertidas em PNG 1284×2778, preservando o conteúdo, e aceitas pela Apple. As notas explicam o estado da conta de teste já assinante. Criador, Studio e grupo foram adicionados ao mesmo rascunho do build 27.
+
+Apple confirmou 4 itens enviados e Aguardando revisão para cada um deles às 11h38 de 24/10. ID da submissão: 6b21d128-1fd6-4008-8593-ce2972ae1dc3. A liberação após aprovação continua manual. Comprovantes privados em artifacts/apple-publicacao-20261024/quatro-itens-enviados.png e aguardando-revisao-quatro-itens.png; registro completo em apple-publicacao-2026-10-23.md. Não houve mudança de código ou novo build nesta conclusão.
