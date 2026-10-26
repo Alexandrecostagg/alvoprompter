@@ -91,3 +91,13 @@ O titular aprovou expressamente ambos os textos e autorizou somente a consulta d
 - Consulta na tela Projetos do AI Studio, filtrada por Alvoprompter (gen-lang-client-0115721671), confirmou Nível gratuito e Configurar faturamento. Nenhuma chave foi aberta, copiada ou alterada. Nenhuma cobrança foi ativada. Evidência privada gemini-nivel-gratuito.png.
 - O regime pago ainda depende de decisão e configuração financeira pelo titular. A configuração gratuita não atende ao envio de dados pessoais nos termos do Gemini. O novo build e o reenvio público permanecem pendentes.
 - Documentos aprovados já estão públicos; as alterações de interface e de autorização de IA ainda precisam ser distribuídas em novo build. A publicação da política não atualiza o binário 27 instalado.
+
+
+## Build 28, web e espaço em disco — 26/10/2026
+
+- Limpamos somente o cache regenerável Gradle 9.3.1 após confirmar ausência de processo Gradle ativo. Dependências baixadas, credenciais, arquivos pessoais, projetos e archives Apple preservados. O espaço disponível passou a 6,3 GiB; cerca de 6,2 GiB após o upload.
+- A primeira consulta de status pelo wrapper tentou baixar uma distribuição ausente e falhou por espaço. O download incompleto criado nessa tentativa foi removido antes da limpeza. A consulta posterior usou o executável já instalado, sem novo download.
+- Código e configuração registrados e enviados em d476b9e. Build web de produção publicado no Pages alvoprompter: https://ccd19fdf.alvoprompter.pages.dev. Domínio https://app.alvoprompter.com.br conferido no Chrome, exibindo links para Termos, Privacidade/LGPD e EULA antes de login. Evidência privada links-legais-publicados.png.
+- Confirmado no TestFlight que o maior contador existente era 27; preparado 1.6.5 (28). Build nativo e sincronização Capacitor iOS concluídos. Archive Xcode aprovado com um job, assinatura codesign validada e 54 arquivos conferidos por SHA-256 sem divergências. Bundle com.alvoprompt.app e versão/contador confirmados no Info.plist.
+- Xcode confirmou Upload succeeded / EXPORT SUCCEEDED em 26/10 às 09h43 (Belém). Pacote recebido pela Apple e em processamento. Evidências em artifacts/release-1.6.5-28/{archive.log,upload.log,bundle-verification.json}. Não é confirmação de disponibilidade ao grupo nem aprovação pública; conferir processamento e associação ao grupo antes de pedir atualização ao titular.
+- Esclarecido ao titular: a Apple não exige IA paga. A pendência específica é adequar o processamento de dados à modalidade do fornecedor; pagar Gemini, substituir a integração ou retirar IA online são caminhos distintos. Nenhuma cobrança ativada. O reenvio à revisão pública não foi realizado.
