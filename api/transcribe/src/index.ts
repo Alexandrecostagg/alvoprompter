@@ -889,6 +889,9 @@ export default {
         catch { return finish(json({ error: 'Entre novamente na sua conta para continuar.' }, 401)) }
         if (!await takeRateLimit(env.DB!, `user:${uid}`, 120)) return finish(json({ error: 'Muitas solicitações. Aguarde um minuto.' }, 429))
         const pass = request.headers.get('x-sync-pass')?.trim()
+        // Every accepted namespace must be discoverable by account deletion.
+        // Reject oversized phrases before a KV/R2 write can escape that index.
+        if (pass && pass.length > 256) throw new RequestError('A frase-chave deve ter no máximo 256 caracteres.', 400)
         if (pass && pass.length >= 12 && pass.length <= 256) await registerNamespace(env.DB!, uid, pass)
       }
       if (request.body && !path.startsWith('/media/')) {

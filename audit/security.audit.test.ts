@@ -82,6 +82,22 @@ describe('security boundaries with real signed JWTs', () => {
     expect(response.status).toBe(403)
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM workspace_content').get()?.n).toBe(0)
   })
+  it.each(['/sync', '/schedules', '/workspaces', '/media/fixture.mp4', '/videopages'])('rejects namespaces that cannot be indexed for deletion: %s', async path => {
+    const { req, store, media, sqlite } = await setup()
+    const field = path === '/sync' ? 'scripts' : path === '/schedules' ? 'posts' : 'workspaces'
+    const response = await req(path, path === '/videopages' ? 'POST' : 'PUT', JSON.stringify({ [field]: [] }), undefined, { 'x-sync-pass': 'x'.repeat(257) })
+    expect(response.status).toBe(400)
+    expect(store.size).toBe(0)
+    expect(media.size).toBe(0)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM account_resources').get()!.n).toBe(0)
+  })
+  it('indexes an accepted boundary-length namespace for account deletion', async () => {
+    const { req, store, sqlite } = await setup()
+    expect((await req('/sync', 'PUT', JSON.stringify({ scripts: [] }), undefined, { 'x-sync-pass': 'x'.repeat(256) })).status).toBe(200)
+    const keys = sqlite.prepare('SELECT resource_key FROM account_resources').all().map(row => row.resource_key)
+    expect(store.size).toBe(1)
+    expect([...store.keys()].every(key => keys.includes(key))).toBe(true)
+  })
   it('does not disclose SQL failures', async () => {
     const { req, env } = await setup()
     env.DB!.prepare = () => { throw new Error('SQL error users secret-table password=private') }
