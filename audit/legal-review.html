@@ -1,0 +1,9 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revisão de privacidade — AlvoPrompter</title><link rel="stylesheet" href="/src/index.css"><body style="padding:24px"><main style="max-width:520px;margin:auto"><h1 style="font-size:24px;font-weight:bold">Autorização de envio à IA</h1><p style="margin:16px 0">Conferência local: nenhum conteúdo desta página é enviado aos provedores.</p><div id="actions" style="display:grid;gap:12px"></div><p id="result" role="status" style="margin-top:16px"></p></main><script type="module">
+import { requestAiConsent } from '/src/lib/aiConsent.ts';
+const labels = {chat:'Testar texto',transcribe:'Testar áudio',tts:'Testar narração',translate:'Testar tradução',avatar:'Testar avatar'};
+for (const [operation,label] of Object.entries(labels)) {
+ const button=document.createElement('button');button.textContent=label;button.style.cssText='padding:14px;border:1px solid #aaa;border-radius:12px';
+ button.onclick=async()=>{button.disabled=true;try{await requestAiConsent(operation);document.querySelector('#result').textContent='Autorização concedida apenas à ação de teste. Nenhuma chamada de IA foi feita.'}catch{document.querySelector('#result').textContent='Envio cancelado. Nenhum conteúdo foi enviado.'}finally{button.disabled=false}};
+ document.querySelector('#actions').append(button);
+}
+</script></body></html>

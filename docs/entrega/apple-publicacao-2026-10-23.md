@@ -2,7 +2,7 @@
 
 O titular autorizou concluir e enviar somente a versão Apple por enquanto. Google Play permanece aguardando suporte; nenhuma configuração Google/Asaas foi alterada nesta etapa.
 
-**Situação atual — 24/10/2026 às 11h38 (Belém): enviado à Apple e Aguardando revisão.** A submissão reúne a versão 1.6.5 (27), Criador Mensal, Studio Mensal e o grupo AlvoPrompter Planos. Os registros abaixo são cronológicos; as pendências iniciais de capturas e inclusão dos produtos foram concluídas na atualização final.
+**Situação atual — 26/10/2026: rejeitado por falta do link EULA na descrição; link corrigido e salvo. Rascunho Pronto para revisão, ainda não reenviado, durante a revisão de privacidade solicitada pelo titular.** A submissão reúne a versão 1.6.5 (27), Criador Mensal, Studio Mensal e o grupo AlvoPrompter Planos. Os registros abaixo são cronológicos; as pendências iniciais de capturas e inclusão dos produtos foram concluídas na atualização final.
 
 ## Conferido
 
@@ -59,3 +59,35 @@ A versão foi novamente adicionada ao rascunho após salvar o 27 e as novas gale
 - Liberação pública manual preservada. Envio para revisão não significa aprovação ou publicação. Nenhum preço, contrato, banco, plano de usuário ou configuração Google/Asaas foi alterado nesta conclusão.
 
 Nenhuma mudança de código nesta etapa: validação por dimensões/formato, inspeção visual das imagens e confirmação oficial da interface Apple. Os testes do build 27 já registrados permanecem válidos; não foi gerado outro pacote.
+
+
+## Revisão de termos, privacidade e ícone — 26/10/2026
+
+- A mensagem automatizada da Apple especifica falta de link funcional para Termos de Uso/EULA na descrição (3.1.2). A análise completa do aplicativo ainda não ocorreu. Adicionado e salvo o link da licença padrão Apple na única localização existente (Português do Brasil); recarregamento confirmou persistência.
+- Atualizar revisão colocou o app novamente como Pronto para revisão. O conjunto preserva app, Criador, Studio e grupo. Reenviar para revisão não foi acionado.
+- A prévia do produto confirma o ícone A correto, o nome AlvoPrompter e as capturas. O campo vazio é o cabeçalho promocional opcional, não o ícone principal. Evidência privada: artifacts/apple-publicacao-20261026/previa-icone-apple.png. Não substituímos o ícone já correto nem adicionamos um cabeçalho sem necessidade.
+- Preparada revisão do Worker de privacidade, com rota própria /terms e navegação entre documentos, mantendo a EULA padrão Apple. Incluídos Resend, Pexels/importações, distinção entre operadores e controladores independentes, bases por finalidade, direitos do art. 18/19, limites da exclusão, dados pseudonimizados e processamento internacional. Corrigida a descrição de tradução (assistente Gemini/Groq, tradução dedicada Cloudflare) e a promessa excessiva de retenção somente para processamento/segurança na IA.
+- Novos links visíveis no cadastro, login e conta em todas as plataformas. Não tratamos a leitura da política como consentimento genérico.
+- Proteção local antes de cada envio de texto, áudio, narração, tradução e descrição de avatar: diálogo identifica os destinatários e a finalidade; negar, fechar ou cancelar impede essa requisição. Autorização limitada à ação, sem concessão persistente nem publicidade associada. O 27 publicado no TestFlight ainda não contém estas mudanças; será necessário novo build para distribuí-las.
+- Validação: 400 testes / 44 arquivos passaram, typecheck passou, verificação de segredos passou. Lint mantém apenas aviso preexistente no harness do prompter. Teste visual local confirmou recusa, autorização e foco inicial na recusa; nenhum conteúdo foi enviado a provedores nesse harness.
+- Os textos e o código permanecem locais, aguardando a decisão do titular sobre os documentos. Prévia de documentos em artifacts/apple-publicacao-20261026/{termos,privacidade}.html. Não houve deploy desses textos, migração de dados, compra ou alteração de planos nesta etapa.
+
+### Verificações que os textos não resolvem sozinhos
+
+1. Confirmar o regime do projeto Gemini antes de liberar envio de dados pessoais: os termos do fornecedor proíbem esse envio ao serviço gratuito e permitem uso de entradas/saídas para melhorar modelos. Abertura do AI Studio foi bloqueada pela revisão automática por envolver uma página de chaves; solicitada autorização restrita ao status de faturamento, sem credenciais nem ativação de cobrança.
+2. Conferir os instrumentos de tratamento e transferência internacional aplicáveis aos fornecedores (LGPD art. 33 e regulamento ANPD), incluindo suboperadores e países. O texto público não equivale a comprovação de contratos assinados.
+3. Validar bases legais por operação, avaliação de legítimo interesse e tabela operacional de retenção. O identificador derivado de exclusão e o histórico da fila não têm rotina geral de expiração identificada; não chamar esses dados de anônimos nem prometer eliminação integral imediata.
+4. Confirmar adequação da restrição 18+ do serviço/fornecedor à distribuição e à experiência de cadastro. A política já declarava maiores de 18; não foi coletada data de nascimento nem implementada verificação de idade nesta etapa.
+5. Testar no próximo TestFlight a permissão de IA, retorno do navegador externo e links legais antes de reenviar. O disco estava com cerca de 643 MiB livres; não iniciar archive pesado nesse estado.
+
+Fontes primárias consultadas: LGPD (Planalto, Lei 13.709/2018); Apple App Review Guidelines, 3.1.2 e 5.1.2(i); EULA padrão Apple; Gemini API Additional Terms of Service, versão efetiva em 23/03/2026. Não constitui certificação jurídica de conformidade integral.
+
+
+## Publicação autorizada dos documentos — 26/10/2026
+
+O titular aprovou expressamente ambos os textos e autorizou somente a consulta do status de faturamento do projeto Gemini, sem chaves, cartão, dados bancários ou ativação de cobrança.
+
+- Worker alvoprompt-privacy publicado, versão 54b8af30-9856-4978-995f-7b0ced262ec5. Termos em https://alvoprompt-privacy.alexandrecostagg.workers.dev/terms; política em https://alvoprompt-privacy.alexandrecostagg.workers.dev/. Ambas as páginas conferidas no Chrome após deploy, com data de 26/10/2026, links e textos esperados.
+- Consulta na tela Projetos do AI Studio, filtrada por Alvoprompter (gen-lang-client-0115721671), confirmou Nível gratuito e Configurar faturamento. Nenhuma chave foi aberta, copiada ou alterada. Nenhuma cobrança foi ativada. Evidência privada gemini-nivel-gratuito.png.
+- O regime pago ainda depende de decisão e configuração financeira pelo titular. A configuração gratuita não atende ao envio de dados pessoais nos termos do Gemini. O novo build e o reenvio público permanecem pendentes.
+- Documentos aprovados já estão públicos; as alterações de interface e de autorização de IA ainda precisam ser distribuídas em novo build. A publicação da política não atualiza o binário 27 instalado.

@@ -1,3 +1,4 @@
+import LegalLinks from './LegalLinks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { firebaseConfigured, observeUser, resendVerification, refreshVerifiedUser, signUserOut, type User } from '../../lib/auth'
 import { formatPlanPrice, PAID_PLAN_IDS, PLANS, type PlanId } from '../../lib/plans'
@@ -332,10 +333,7 @@ export default function AccountPanel({ open, initialPlan, onClose }: { open: boo
 
         <p className="account-copy mt-4 text-xs leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{appleApp ? 'Os planos pagos são mensais e recorrentes. Cobrança, cancelamento e preço final são gerenciados pela App Store. O acesso só é liberado após confirmação da Apple.' : androidApp ? 'Os planos pagos são mensais e recorrentes. Cobrança e cancelamento são gerenciados pelo Google Play. O acesso só é liberado após confirmação do Google.' : 'Valores de lançamento durante o beta. Os planos pagos são mensais e recorrentes. O acesso só é liberado após confirmação do Asaas. Nenhum dado de cartão passa pelo AlvoPrompter.'}</p>
         {user ? <DeleteAccountPanel user={user} onComplete={onClose} /> : null}
-        {appleApp ? <p className="account-copy mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--ink-soft)' }}>
-          <a className="underline" href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" target="_blank" rel="noopener noreferrer">Termos de uso</a>
-          <a className="underline" href="https://alvoprompt-privacy.alexandrecostagg.workers.dev" target="_blank" rel="noopener noreferrer">Política de privacidade</a>
-        </p> : null}
+        <LegalLinks />
         </div>
       </div>
     </div>

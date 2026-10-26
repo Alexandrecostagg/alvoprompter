@@ -1,6 +1,6 @@
 # AlvoPrompter 1.6.5 (27) — conta e confirmação da assinatura
 
-**Estado atual: Aguardando revisão na Apple desde 24/10/2026 às 11h38 (Belém), junto às duas assinaturas e ao grupo.** Liberação pública manual. As etapas abaixo registram a preparação e os testes anteriores ao envio.
+**Estado atual: rejeitado em 26/10/2026 por falta de link EULA na descrição. O link foi corrigido e o rascunho voltou a Pronto para revisão, ainda sem reenvio.** Liberação pública manual. As etapas abaixo registram a preparação e os testes anteriores ao envio.
 
 ## Comportamento
 
