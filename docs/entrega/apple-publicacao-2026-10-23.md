@@ -101,3 +101,12 @@ O titular aprovou expressamente ambos os textos e autorizou somente a consulta d
 - Confirmado no TestFlight que o maior contador existente era 27; preparado 1.6.5 (28). Build nativo e sincronização Capacitor iOS concluídos. Archive Xcode aprovado com um job, assinatura codesign validada e 54 arquivos conferidos por SHA-256 sem divergências. Bundle com.alvoprompt.app e versão/contador confirmados no Info.plist.
 - Xcode confirmou Upload succeeded / EXPORT SUCCEEDED em 26/10 às 09h43 (Belém). Pacote recebido pela Apple e em processamento. Evidências em artifacts/release-1.6.5-28/{archive.log,upload.log,bundle-verification.json}. Não é confirmação de disponibilidade ao grupo nem aprovação pública; conferir processamento e associação ao grupo antes de pedir atualização ao titular.
 - Esclarecido ao titular: a Apple não exige IA paga. A pendência específica é adequar o processamento de dados à modalidade do fornecedor; pagar Gemini, substituir a integração ou retirar IA online são caminhos distintos. Nenhuma cobrança ativada. O reenvio à revisão pública não foi realizado.
+
+
+### TestFlight 28 liberado
+
+A Apple concluiu o processamento do build 28 (ID 978dd2aa-5c02-4136-b378-ae54ec11c11c). Orientações de teste salvas e associação confirmada ao grupo interno Equipe AlvoPrompter, com um tester. Verificar abertura dos três links legais, recusa de envio à IA, autorização com conteúdo genérico sem dados pessoais e preservação do plano após restauração/reabertura. Nenhuma compra adicional necessária. O app público permanece no rascunho, sem reenvio.
+
+As execuções CI dos commits d476b9e e b3f6dfb concluíram com sucesso: https://github.com/Alexandrecostagg/alvoprompter/actions/runs/40324318557 e https://github.com/Alexandrecostagg/alvoprompter/actions/runs/40325030754. Incluem lint, tipagem, testes, build, scanner de segredos e npm audit no limite high.
+
+A aba Compilações do grupo confirmou 1.6.5 (28) Em testes. A lista geral usa o estado de revisão externa Pronta para envio, que não impede o teste interno. Evidência privada: artifacts/apple-publicacao-20261026/testflight-28-em-testes.png.
