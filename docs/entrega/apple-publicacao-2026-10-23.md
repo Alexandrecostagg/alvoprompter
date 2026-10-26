@@ -110,3 +110,13 @@ A Apple concluiu o processamento do build 28 (ID 978dd2aa-5c02-4136-b378-ae54ec1
 As execuções CI dos commits d476b9e e b3f6dfb concluíram com sucesso: https://github.com/Alexandrecostagg/alvoprompter/actions/runs/40324318557 e https://github.com/Alexandrecostagg/alvoprompter/actions/runs/40325030754. Incluem lint, tipagem, testes, build, scanner de segredos e npm audit no limite high.
 
 A aba Compilações do grupo confirmou 1.6.5 (28) Em testes. A lista geral usa o estado de revisão externa Pronta para envio, que não impede o teste interno. Evidência privada: artifacts/apple-publicacao-20261026/testflight-28-em-testes.png.
+
+## Reenvio com build 28 concluído — 26/10/2026, 11h42 (Belém)
+
+- O titular decidiu manter Gemini como principal, Groq em cascata e a voz atual, sem ativar faturamento de IA. A consulta autorizada ao painel Groq confirmou Free / Current Plan; nenhuma alteração de plano foi feita. As restrições de conteúdo do Gemini gratuito continuam aplicáveis; o envio à Apple não certifica conformidade integral com LGPD ou termos de terceiros.
+- Após bloqueio da revisão automática, o titular autorizou expressamente cancelar somente a submissão rejeitada e refazer o envio com os mesmos quatro itens. Cancelamento confirmado na Apple; nenhum produto, aplicativo ou dado de usuário foi excluído.
+- Substituído o build 27 pelo 1.6.5 (28), já processado e disponível no TestFlight. Seleção salva. Link EULA padrão Apple confirmado na descrição em Português do Brasil; lançamento manual preservado. Nenhum pacote duplicado foi gerado e nenhuma credencial de revisão foi alterada.
+- Reunidos no novo rascunho app 1.6.5 (28), grupo AlvoPrompter Planos, AlvoPrompter Criador Mensal e AlvoPrompter Studio Mensal. Os produtos mantêm preços, configurações, notas e capturas existentes.
+- Apple confirmou “4 itens enviados”. A página final mostrou os quatro individualmente como “Aguardando revisão”, em 26/10/2026 às 11h42. Isso não significa aprovação nem publicação pública.
+- Novo ID: 22ccc1c6-a888-48b1-9b0e-c153a42f3d86. Acompanhamento: https://appstoreconnect.apple.com/apps/6815460612/distribution/reviewsubmissions/details/22ccc1c6-a888-48b1-9b0e-c153a42f3d86.
+- Evidência privada: artifacts/apple-publicacao-20261026/build-28-quatro-itens-aguardando-revisao.png. Verificações do archive e os 400 testes registrados para o build 28 continuam válidos; esta etapa alterou somente a seleção e submissão na Apple e este registro de entrega.
