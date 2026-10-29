@@ -24,7 +24,9 @@ Evidências locais ignoradas pelo Git: `artifacts/apple-login-20261029/`. Archiv
 
 Upload oficial concluído em 29/10/2026 às 10h01 (Belém), com `Upload succeeded` e `EXPORT SUCCEEDED`. A interface do TestFlight confirmou 1.6.5 (29) em Processando.
 
-Processamento concluído na mesma manhã. Instruções de teste salvas e build 29 associado ao grupo interno existente Equipe AlvoPrompter, com um tester. Evidência: `artifacts/apple-login-20261029/testflight-29-grupo.png`. Teste real do titular solicitado, ainda pendente.
+Processamento concluído na mesma manhã. Instruções de teste salvas e build 29 associado ao grupo interno existente Equipe AlvoPrompter, com um tester. Evidência: `artifacts/apple-login-20261029/testflight-29-grupo.png`.
+
+O titular confirmou em 29/10 que entrou com Apple no build 29 e permaneceu conectado após fechar e reabrir o aplicativo. Não foi confirmado separadamente se a Apple ofereceu a opção Ocultar meu e-mail nem o modelo usado nesse teste. O CI do commit `35c8e0c` concluiu com sucesso, incluindo auditoria de dependências.
 
 ## Dependência sinalizada pela integração contínua
 
@@ -32,9 +34,12 @@ O CI do commit `02b6689` passou pelas verificações de código e falhou na audi
 
 Reteste: 437 testes isolados aprovados, novo build Capacitor aprovado e todos os 54 arquivos resultantes idênticos por SHA-256 aos do build 29 enviado. A atualização não exige substituir esse pacote. Auditoria passou com zero alertas altos/críticos; permanecem quatro alertas baixos na cadeia de ferramentas PWA/deepmerge, sem versão corrigida indicada pelo fornecedor. Não se aplicou o downgrade incompatível sugerido por `audit fix --force`.
 
-## Pendências antes do reenvio público
+## Reenvio concluído em 29/10/2026
 
-1. No build 29, testar Continuar com Apple na entrada inicial e em Conta e assinatura, incluindo Ocultar meu e-mail quando a Apple oferecer a escolha; fechar e reabrir para conferir a sessão.
-2. Selecionar o build 29 e reenviar o app com Criador, Studio e grupo de assinaturas após a validação nativa. A rejeição não foi respondida nem reenviada nesta preparação.
+Após a confirmação do teste nativo pelo titular, o build 28 foi substituído pelo 29 na ficha da versão 1.6.5. As credenciais existentes da conta comum de revisão foram preservadas. As notas da equipe de revisão receberam a explicação da causa, a correção da disponibilidade de Apple no iOS, a localização das opções de entrada e o resultado do teste real de entrada/persistência da sessão.
 
-O sucesso do archive e dos testes simulados não comprova, sozinho, a entrada real na Apple ou a aprovação da loja.
+O botão Atualizar revisão atualizou o conjunto existente, preservando os quatro itens. A Apple confirmou o reenvio às 10h19 (Belém), com Aguardando revisão para app 1.6.5 (29), AlvoPrompter Planos, Criador Mensal e Studio Mensal. O ID permaneceu `22ccc1c6-a888-48b1-9b0e-c153a42f3d86`. Comprovante local: `artifacts/apple-login-20261029/reenvio-quatro-itens.png`.
+
+A opção de lançamento manual após aprovação foi mantida. Não foi criada nova assinatura nem acionada compra. As artes opcionais de cabeçalho/busca continuam reservadas para depois da aprovação, conforme a escolha anterior do titular. Não foi enviada mensagem separada no histórico da revisão; a explicação consta das notas do app reenviado.
+
+O reenvio está concluído; a aprovação e o lançamento público continuam pendentes da análise da Apple.
