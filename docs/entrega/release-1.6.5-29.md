@@ -24,10 +24,17 @@ Evidências locais ignoradas pelo Git: `artifacts/apple-login-20261029/`. Archiv
 
 Upload oficial concluído em 29/10/2026 às 10h01 (Belém), com `Upload succeeded` e `EXPORT SUCCEEDED`. A interface do TestFlight confirmou 1.6.5 (29) em Processando.
 
+Processamento concluído na mesma manhã. Instruções de teste salvas e build 29 associado ao grupo interno existente Equipe AlvoPrompter, com um tester. Evidência: `artifacts/apple-login-20261029/testflight-29-grupo.png`. Teste real do titular solicitado, ainda pendente.
+
+## Dependência sinalizada pela integração contínua
+
+O CI do commit `02b6689` passou pelas verificações de código e falhou na auditoria de dependências: o alerta [GHSA-gg6h-894w-4m9c](https://github.com/advisories/GHSA-gg6h-894w-4m9c), publicado na base em 28/10, passou a alcançar re2js 2.8.6, transitivo do Firestore. O lockfile foi atualizado somente para re2js 2.9.1, versão fora da faixa afetada. Não há importação de Firestore/re2js no código do app.
+
+Reteste: 437 testes isolados aprovados, novo build Capacitor aprovado e todos os 54 arquivos resultantes idênticos por SHA-256 aos do build 29 enviado. A atualização não exige substituir esse pacote. Auditoria passou com zero alertas altos/críticos; permanecem quatro alertas baixos na cadeia de ferramentas PWA/deepmerge, sem versão corrigida indicada pelo fornecedor. Não se aplicou o downgrade incompatível sugerido por `audit fix --force`.
+
 ## Pendências antes do reenvio público
 
-1. Concluir o processamento e disponibilizar 29 no TestFlight.
-2. No build 29, testar Continuar com Apple na entrada inicial e em Conta e assinatura, incluindo Ocultar meu e-mail; fechar e reabrir para conferir a sessão.
-3. Selecionar o build 29 e reenviar o app com Criador, Studio e grupo de assinaturas após a validação nativa. A rejeição não foi respondida nem reenviada nesta preparação.
+1. No build 29, testar Continuar com Apple na entrada inicial e em Conta e assinatura, incluindo Ocultar meu e-mail quando a Apple oferecer a escolha; fechar e reabrir para conferir a sessão.
+2. Selecionar o build 29 e reenviar o app com Criador, Studio e grupo de assinaturas após a validação nativa. A rejeição não foi respondida nem reenviada nesta preparação.
 
 O sucesso do archive e dos testes simulados não comprova, sozinho, a entrada real na Apple ou a aprovação da loja.
