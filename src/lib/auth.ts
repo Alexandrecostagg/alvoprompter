@@ -176,9 +176,13 @@ export async function reauthenticateForDeletion(password = ''): Promise<void> {
 
 export function socialAvailability(): Record<SocialProvider, boolean> {
   const nativeReady = !Capacitor.isNativePlatform() || Capacitor.isPluginAvailable('FirebaseAuthentication')
+  // iOS ships the configured Apple capability and must keep its equivalent
+  // sign-in option available even when a build omits the web opt-in flag.
+  const appleEnabled = (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios')
+    || import.meta.env.VITE_AUTH_APPLE_ENABLED === 'true'
   return {
     google: firebaseConfigured && nativeReady && import.meta.env.VITE_AUTH_GOOGLE_ENABLED !== 'false',
-    apple: firebaseConfigured && nativeReady && import.meta.env.VITE_AUTH_APPLE_ENABLED === 'true',
+    apple: firebaseConfigured && nativeReady && appleEnabled,
   }
 }
 

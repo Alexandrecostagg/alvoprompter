@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { friendlyAuthError, isAuthCancellation, signupError } from './authMessages'
 const fake = vi.hoisted(() => {
   const user = { uid: 'same-user', email:'test@example.test', providerData: [] as {providerId:string}[], displayName: 'Test', emailVerified: false, getIdTokenResult: vi.fn(async () => ({ token: 'cached-token', claims: { email_verified: false } })), getIdToken: vi.fn(async () => 'token') }
@@ -16,6 +18,7 @@ vi.mock('firebase/auth', () => ({
   createUserWithEmailAndPassword: fake.register, onAuthStateChanged: fake.observe, sendEmailVerification: vi.fn(async () => undefined), sendPasswordResetEmail: fake.reset, updateProfile: fake.profile,
 }))
 vi.mock('@capacitor-firebase/authentication', () => ({ FirebaseAuthentication: { signInWithGoogle: fake.google, signInWithApple: fake.apple, signOut: fake.nativeOut, revokeAccessToken:fake.nativeRevoke } }))
+const { default: AuthForm } = await import('../components/account/AuthForm')
 const { signInSocial, socialAvailability, signUserOut, signIn, signUp, observeUser, resetPassword, reauthenticateForDeletion, getIdToken, getOptionalIdToken } = await import('./auth')
 beforeEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); fake.additional.mockReturnValue(null); fake.native = false; fake.platform = 'web'; fake.plugin = false; fake.google.mockResolvedValue({ credential: { idToken: 'google-token' } }); fake.apple.mockResolvedValue({ credential: { idToken: 'apple-token', nonce: 'nonce' } }); fake.nativeOut.mockResolvedValue(undefined) })
 beforeEach(()=>{ fake.user.emailVerified=false; fake.user.getIdTokenResult.mockResolvedValue({token:'cached-token',claims:{email_verified:false}}); fake.user.providerData=[]; fake.resultCredential.mockReturnValue({accessToken:'apple-access'}) })
@@ -71,6 +74,30 @@ describe('social authentication transport and session', () => {
     expect(socialAvailability().google).toBe(false)
     await expect(signInSocial('google')).rejects.toThrow('ainda não está ativado')
     expect(fake.popup).not.toHaveBeenCalled()
+  })
+  it.each([undefined, 'false'])('keeps Apple available on iOS alongside Google when the web opt-in flag is %s', async flag => {
+    vi.stubEnv('VITE_AUTH_APPLE_ENABLED', flag)
+    fake.native = true; fake.platform = 'ios'; fake.plugin = true
+    expect(socialAvailability()).toMatchObject({ google: true, apple: true })
+    await signInSocial('apple')
+    expect(fake.apple).toHaveBeenCalledWith({ skipNativeAuth: true, scopes: ['email', 'name'] })
+    expect(fake.oauthCredential).toHaveBeenCalledWith({ idToken: 'apple-token', rawNonce: 'nonce' })
+    expect(fake.popup).not.toHaveBeenCalled()
+  })
+  it.each(['signin', 'signup'] as const)('renders equivalent Apple and Google buttons in the shared iOS %s form without build opt-in', mode => {
+    vi.stubEnv('VITE_AUTH_APPLE_ENABLED', undefined)
+    fake.native = true; fake.platform = 'ios'; fake.plugin = true
+    const markup = renderToStaticMarkup(createElement(AuthForm, { mode, onModeChange: () => undefined }))
+    expect(markup).toContain('Continuar com Apple')
+    expect(markup).toContain('Continuar com Google')
+    expect(markup.match(/class="team-button auth-social"/g)).toHaveLength(2)
+  })
+  it('does not enable Apple by default on Android or when the native authentication plugin is absent', () => {
+    vi.stubEnv('VITE_AUTH_APPLE_ENABLED', undefined)
+    fake.native = true; fake.platform = 'android'; fake.plugin = true
+    expect(socialAvailability()).toEqual({ google: true, apple: false })
+    fake.platform = 'ios'; fake.plugin = false
+    expect(socialAvailability()).toEqual({ google: false, apple: false })
   })
   it('uses native Google credentials without a WebView popup', async () => {
     fake.native = true; fake.plugin = true
