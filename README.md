@@ -161,3 +161,10 @@ Com `npm run dev`, abra `/audit/media-harness.html`. A bancada usa os módulos r
 ### Verificação de segurança
 
 Execute `npm run security:secrets` após o build e `npm audit`. Não configure segredos com prefixo `VITE_`; Pexels usa `PEXELS_API_KEY` no Worker. `public/_headers` configura as proteções do Pages; a API aplica seus próprios headers. O importador do servidor aceita apenas HTTPS e serviços aprovados, inclusive em redirecionamentos. A auditoria local não confirma regras/IAM remotos nem publica correções automaticamente.
+
+
+## Mitigação de dependência de build
+
+O `@rollup/plugin-node-resolve` usado pelo Workbox traz `deepmerge 4.3.1`, sem versão corrigida para GHSA-gcqx-w48m-w2h4. O postinstall aplica um backport local que impede atribuição de `__proto__` nos objetos retornados. Os hashes do pacote oficial e da saída corrigida são conferidos antes de qualquer escrita; uma alteração inesperada exige revisão. O patch cobre as entradas CJS/UMD e o fonte publicado. Instalações de desenvolvimento precisam executar os scripts do npm.
+
+`npm run security:build-dependency` verifica as duas vias de prototype poisoning, objetos aninhados e o comportamento esperado de arrays e símbolos. O CI executa esse teste antes do build. A versão da dependência e seu aviso permanecem visíveis no npm/Dependabot; a mitigação não se apresenta como lançamento oficial do fornecedor. Reavaliar e remover o backport quando o fornecedor publicar uma correção ou retirar a dependência.

@@ -1,0 +1,18 @@
+{
+  "version": "4.3.1",
+  "advisory": "GHSA-gcqx-w48m-w2h4",
+  "files": {
+    "dist/cjs.js": {
+      "original": "2e5160f84a1141bd927264afe4d15766f1e6cf07daef182b37ff53fea121de7d",
+      "patched": "fa5dee30b7ccae498e4f1422da76a68d63c1d31ce08c075b54acf8d786ff68d5"
+    },
+    "dist/umd.js": {
+      "original": "f33e6596482d1fb5c7c427f8ef92f2aa849eea9223acd974176b2fb27ddbf73a",
+      "patched": "18749c5965870c052c198adcf42cb3c5d9cfe8f382bcd6d321a8cc0daa85a9e1"
+    },
+    "index.js": {
+      "original": "12440c84957c1990ea2d5e33dc0091722dc1dc1585c6d20e0c780e568ffa9d30",
+      "patched": "2a6fc773c578a9199c1e833398f4d14cce58d4c6aeabb1fe1f22d92fc1254344"
+    }
+  }
+}
