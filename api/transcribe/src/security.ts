@@ -1,3 +1,4 @@
+import { CSP_REPORT_ONLY } from './security/browser-policy.mjs'
 /** Shared boundaries; never return upstream exceptions or credentials to clients. */
 export class RequestError extends Error {
   constructor(message: string, readonly status: number) { super(message) }
@@ -80,6 +81,7 @@ export function secureResponse(response: Response, request: Request, origins = '
   headers.set('X-Frame-Options', 'DENY')
   headers.set('Referrer-Policy', 'no-referrer')
   headers.set('Cache-Control', 'no-store')
+  headers.set('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY)
   headers.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox")
   if (new URL(request.url).protocol === 'https:') headers.set('Strict-Transport-Security', 'max-age=31536000')
   return new Response(response.body, { status: response.status, headers })
