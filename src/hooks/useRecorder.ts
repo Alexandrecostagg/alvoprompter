@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { startRecordingSession, type RecordingSession } from '../lib/recordingSession'
 import { createRecordingPipeline, supportsRecordingFilters, type RecordingPipeline } from '../lib/recordingPipeline'
+import { monitorRecordingCamera } from '../lib/recordingHealth'
 import { setRecordingAudioMode } from '../lib/recordingAudio'
+import { BROKEN_VIDEO_MESSAGE, inspectMp4 } from '../lib/video/integrity'
 
 type RecorderStatus = 'idle' | 'requesting' | 'ready' | 'recording' | 'finishing' | 'error'
 
 export function useRecorder() {
   const [status, setStatus] = useState<RecorderStatus>('idle')
+  const [warning, setWarning] = useState<string | null>(null)
+  const stopHealthRef = useRef<(() => void) | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null)
@@ -33,7 +37,11 @@ export function useRecorder() {
     if (previous && previous !== el) previous.srcObject = null
     videoElRef.current = el
     // Preview the camera directly: timer updates and encoder effects must not reset playback.
-    if (el && el.srcObject !== cameraStreamRef.current) el.srcObject = cameraStreamRef.current
+    if (el && el.srcObject !== cameraStreamRef.current) {
+      el.srcObject = cameraStreamRef.current
+      if (cameraStreamRef.current) void el.play().catch(() => undefined)
+    }
+    pipelineRef.current?.setSource(el)
   }, [])
 
   const teardownPipeline = useCallback(() => {
@@ -44,6 +52,8 @@ export function useRecorder() {
 
   const releaseCapture = useCallback(() => {
     const hadCamera = Boolean(cameraStreamRef.current)
+    stopHealthRef.current?.()
+    stopHealthRef.current = null
     teardownPipeline()
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop())
     cameraStreamRef.current = null
@@ -59,11 +69,11 @@ export function useRecorder() {
     const css = filterRef.current
     if (pipelineRef.current) {
       pipelineRef.current.setFilter(css)
-    } else if (css && !filterFailedRef.current) {
+    } else if (css && videoElRef.current && !filterFailedRef.current) {
       // Never replace a MediaRecorder input track while a recording is active.
       if (recorderRef.current) return
       try {
-        pipelineRef.current = createRecordingPipeline(camera, css)
+        pipelineRef.current = createRecordingPipeline(camera, css, videoElRef.current!)
         streamRef.current = pipelineRef.current.stream
       } catch {
         // An optional effect must never prevent saving the original camera/audio.
@@ -102,8 +112,12 @@ export function useRecorder() {
         }
         cameraStreamRef.current = stream
         streamRef.current = stream
+        if (videoElRef.current && videoElRef.current.srcObject !== stream) {
+          videoElRef.current.srcObject = stream
+          void videoElRef.current.play().catch(() => undefined)
+        }
+        if (generation !== cameraGeneration.current) return
         applyFilter()
-        if (videoElRef.current && videoElRef.current.srcObject !== stream) videoElRef.current.srcObject = stream
         setStatus('ready')
       } catch (err) {
         if (generation !== cameraGeneration.current) return
@@ -130,6 +144,13 @@ export function useRecorder() {
       const session = startRecordingSession(streamRef.current)
       recorderRef.current = session
       setError(null)
+      setWarning(null)
+      stopHealthRef.current = monitorRecordingCamera(cameraStreamRef.current!, () => videoElRef.current, () => {
+        setWarning('A câmera parou de enviar imagens. A gravação foi encerrada para preservar o trecho capturado. Confira a prévia antes de compartilhar e prepare uma nova tomada.')
+        clearTimer()
+        setStatus('finishing')
+        session.stop()
+      })
       setVideoBlob(null)
       setVideoUrl(null)
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
@@ -137,9 +158,14 @@ export function useRecorder() {
       setElapsed(0)
       timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000)
       setStatus('recording')
-      void session.result.then((blob) => {
+      void session.result.then(async (blob) => {
         if (!mountedRef.current || recorderRef.current !== session) return
         releaseCapture()
+        try {
+          const integrity = await inspectMp4(blob)
+          if (integrity?.problem && mountedRef.current) setWarning(BROKEN_VIDEO_MESSAGE)
+        } catch { /* A metadata probe must not discard a recorded file. */ }
+        if (!mountedRef.current || recorderRef.current !== session) return
         setVideoBlob(blob)
         const url = URL.createObjectURL(blob)
         urlRef.current = url
@@ -162,6 +188,8 @@ export function useRecorder() {
   }, [applyFilter, clearTimer, releaseCapture])
 
   const stop = useCallback(() => {
+    stopHealthRef.current?.()
+    stopHealthRef.current = null
     clearTimer()
     const session = recorderRef.current
     if (session) {
@@ -176,6 +204,8 @@ export function useRecorder() {
     cameraGeneration.current++
     pendingEnableRef.current = null
     const session = recorderRef.current
+    stopHealthRef.current?.()
+    stopHealthRef.current = null
     if (session) { clearTimer(); session.stop() }
     const release = () => {
       releaseCapture()
@@ -206,6 +236,7 @@ export function useRecorder() {
   return {
     status,
     error,
+    warning,
     filterUnavailable,
     videoUrl,
     videoBlob,

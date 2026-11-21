@@ -83,5 +83,7 @@
         </array>
       </dict>
     </array>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>O AlvoPrompter salva os vídeos que você escolher na biblioteca de Fotos.</string>
   </dict>
 </plist>

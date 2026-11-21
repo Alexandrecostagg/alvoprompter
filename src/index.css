@@ -410,13 +410,46 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .prompter-result-overlay button, .prompter-result-overlay a { min-height:44px; }
 .prompter-result-overlay a { display:inline-flex; align-items:center; justify-content:center; }
 
-/* Consent is a top-layer native dialog, including above camera/editor overlays. */
-.ai-consent-dialog { margin:auto; width:min(92vw, 520px); max-height:85dvh; overflow:auto; border:1px solid var(--border); border-radius:24px; padding:24px; background:var(--panel, #fff); color:var(--ink, #172035); box-shadow:0 24px 80px #0005; }
-.ai-consent-dialog::backdrop { background:#0009; }
-.ai-consent-dialog h2 { font-size:1.3rem; font-weight:800; line-height:1.3; }
-.ai-consent-dialog p { margin:16px 0; font-size:.925rem; line-height:1.55; }
-.ai-consent-dialog a { text-decoration:underline; color:var(--brand-strong, #6333cf); }
-.ai-consent-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; }
-.ai-consent-actions button { min-height:48px; padding:10px 16px; border:1px solid var(--border); border-radius:12px; font-weight:700; flex:1; }
-.ai-consent-actions .ai-consent-allow { color:white; background:var(--brand-gradient, #6333cf); }
-.ai-consent-dialog :focus-visible { outline:3px solid var(--brand-strong, #6333cf); outline-offset:3px; }
+/* Native top-layer menu; remains mounted so exit transitions can finish. */
+.tools-dialog {
+  top: auto;
+  margin: 0;
+  width: 100%;
+  max-width: none;
+  max-height: calc(100dvh - 7rem);
+  overflow-y: auto;
+  color: var(--text);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity .2s ease, transform .2s ease, display .2s allow-discrete, overlay .2s allow-discrete;
+}
+.tools-dialog[open] { opacity: 1; transform: none; }
+.tools-dialog::backdrop {
+  background: rgb(2 6 23 / .4);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity .2s ease, display .2s allow-discrete, overlay .2s allow-discrete;
+}
+.tools-dialog[open]::backdrop { opacity: 1; }
+@starting-style {
+  .tools-dialog[open] { opacity: 0; transform: translateY(12px); }
+  .tools-dialog[open]::backdrop { opacity: 0; }
+}
+@media (min-width: 1024px) { .tools-dialog { top: 5rem; width: 24rem; } }
+@media (prefers-reduced-motion: reduce) {
+  .tools-dialog, .tools-dialog::backdrop { transition: none; transform: none; }
+}
+
+/* Recording setup: distinct categories and generous touch controls. */
+.settings-sheet { height: min(92dvh, 100%); color: var(--text); }
+.settings-content > section[hidden] { display: none; }
+.settings-row { border-bottom: 1px solid var(--border); }
+.settings-row > span { font-weight: 600; }
+.settings-help { margin: .5rem 0 1rem; color: var(--muted); font-size: .875rem; line-height: 1.6; }
+.settings-notice { margin-bottom: 1rem; padding: .875rem; border-radius: .875rem; background: var(--accent-soft); color: var(--text); font-size: .875rem; line-height: 1.6; }
+.settings-content input[type=range] { min-height: 44px; accent-color: var(--accent); cursor: pointer; }
+.settings-content select { width: 100%; min-height: 48px; color: var(--text); }
+.prompter-settings-overlay :is(button, input, select):focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+@media (min-width: 640px) { .settings-sheet { height: 100%; } }
+.settings-row:has([role=switch]) { flex-direction: row; align-items: center; justify-content: space-between; }
+.settings-row:has([role=switch]) > div { width: auto; flex-shrink: 0; }

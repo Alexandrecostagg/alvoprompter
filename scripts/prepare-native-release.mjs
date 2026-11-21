@@ -37,6 +37,7 @@ if (existsSync('ios/App/App.xcodeproj/project.pbxproj')) {
   writeFileSync(path, project.writeSync())
   plist.writeFileSync('ios/App/App/App.entitlements', { 'com.apple.developer.applesignin': ['Default'] })
   const infoPath = 'ios/App/App/Info.plist', info = plist.readFileSync(infoPath)
+  info.NSPhotoLibraryAddUsageDescription = 'O AlvoPrompter salva os vídeos que você escolher na biblioteca de Fotos.'
   const reversed = firebase.ios.REVERSED_CLIENT_ID
   info.CFBundleURLTypes ??= []
   if (reversed && !info.CFBundleURLTypes.some(value => value.CFBundleURLSchemes?.includes(reversed))) info.CFBundleURLTypes.push({ CFBundleURLSchemes: [reversed] })

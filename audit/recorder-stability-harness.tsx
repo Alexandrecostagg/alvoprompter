@@ -8,7 +8,7 @@ let requests = 0, captures = 0, previewAssignments = 0, requestDelay = 0
 let failFilterCapture = false
 const audioSession = { type: 'auto' }
 Object.defineProperty(navigator, 'audioSession', { value: audioSession, configurable: true })
-const sessions: { stream: MediaStream; close: () => void }[] = []
+const sessions: { stream: MediaStream; freeze: () => void; close: () => void }[] = []
 const captureStream = HTMLCanvasElement.prototype.captureStream
 HTMLCanvasElement.prototype.captureStream = function (fps) { captures++; if (failFilterCapture) throw new Error('Filtro indisponível'); return captureStream.call(this, fps) }
 navigator.mediaDevices.getUserMedia = async () => {
@@ -27,12 +27,12 @@ navigator.mediaDevices.getUserMedia = async () => {
   const destination = audio.createMediaStreamDestination(); oscillator.connect(gain).connect(destination); oscillator.start()
   destination.stream.getAudioTracks().forEach((track) => stream.addTrack(track))
   let closed = false
-  sessions.push({ stream, close: () => { if (closed) return; closed = true; clearInterval(animation); stream.getTracks().forEach((track) => track.stop()); void audio.close() } })
+  sessions.push({ stream, freeze: () => clearInterval(animation), close: () => { if (closed) return; closed = true; clearInterval(animation); stream.getTracks().forEach((track) => track.stop()); void audio.close() } })
   await delay(requestDelay)
   return stream
 }
-async function waitFor(check: () => boolean) {
-  for (let attempt = 0; attempt < 100; attempt++) { if (check()) return; await delay(50) }
+async function waitFor(check: () => boolean, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt++) { if (check()) return; await delay(50) }
   throw new Error('Tempo de espera excedido')
 }
 async function inspectRecording(blob: Blob) {
@@ -43,7 +43,7 @@ async function inspectRecording(blob: Blob) {
     const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360
     const ctx = canvas.getContext('2d')!
     const positions: number[] = []
-    for (const time of [.5, 1.5, 2.5, 3.5]) {
+    for (const time of (blob.size && video.duration > 30 ? [1, 12, 20, 32] : [.5, 1.5, 2.5, 3.5])) {
       video.currentTime = time
       await waitFor(() => !video.seeking && Math.abs(video.currentTime - time) < .1)
       ctx.drawImage(video, 0, 0, 640, 360)
@@ -90,7 +90,7 @@ export function Harness() {
         latest.current.start()
         await waitFor(() => latest.current.isRecording)
         const renders = setInterval(() => setTick((value) => value + 1), 40)
-        try { await delay(4200) } finally { clearInterval(renders) }
+        try { await delay(failFilterCapture ? 4200 : 35000) } finally { clearInterval(renders) }
         if (!latest.current.isRecording) throw new Error('A gravação parou antes do comando')
         const input = sessions.at(-1)!.stream
         if (input.getTracks().some((track) => track.readyState !== 'live')) throw new Error('Câmera ou microfone interrompido')
@@ -106,6 +106,18 @@ export function Harness() {
         lines.push(`PASS ${failFilterCapture ? 'filtro incompatível: fallback sem filtro' : filter ? 'com filtro' : 'sem filtro'}: vídeo contínuo, microfone encerrado antes da reprodução. ${JSON.stringify(recording)}`)
         latest.current.disable(); sessions.at(-1)!.close()
       }
+      // Reproduce a live microphone with a camera that stops delivering frames.
+      failFilterCapture = false
+      latest.current.setFilter(null)
+      await latest.current.enable(); await delay(250)
+      latest.current.start(); await waitFor(() => latest.current.isRecording)
+      await delay(1500)
+      sessions.at(-1)!.freeze()
+      await waitFor(() => !latest.current.isRecording, 180)
+      await waitFor(() => Boolean(latest.current.warning && latest.current.videoBlob))
+      if (!latest.current.videoBlob?.size) throw new Error('Interrupção descartou o trecho capturado')
+      lines.push('PASS câmera congelada com microfone ativo: encerramento automático, trecho preservado e aviso visível.')
+      await latest.current.disable(); sessions.at(-1)!.close()
       requestDelay = 200
       const pending = latest.current.enable()
       latest.current.disable()
@@ -116,7 +128,7 @@ export function Harness() {
     } catch (error) { setReport(`${lines.join('\n')}\nFAIL: ${(error as Error).message}`) }
     finally { latest.current.disable(); sessions.forEach((session) => session.close()); requestDelay = 0; setBusy(false) }
   }
-  return <main><h1>Estabilidade da gravação</h1><p>Atualizações forçadas: {tick} · estado: {rec.status} · contador: {rec.elapsed}s</p><p>{rec.error}</p><video aria-label="Prévia sintética" ref={attach} autoPlay playsInline muted style={{ filter: css || undefined }} /><div><button disabled={busy} onClick={() => void run()}>Executar testes de estabilidade</button></div><pre role="status">{report}</pre></main>
+  return <main><h1>Estabilidade da gravação</h1><p>Atualizações forçadas: {tick} · estado: {rec.status} · contador: {rec.elapsed}s</p><p>{rec.error}</p><p role="alert">{rec.warning}</p><video aria-label="Prévia sintética" ref={attach} autoPlay playsInline muted style={{ filter: css || undefined }} /><div><button disabled={busy} onClick={() => void run()}>Executar testes de estabilidade</button></div><pre role="status">{report}</pre></main>
 }
 const root = createRoot(document.getElementById('root')!)
 root.render(<Harness />)

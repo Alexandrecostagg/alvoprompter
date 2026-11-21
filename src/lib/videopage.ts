@@ -1,5 +1,6 @@
 import { apiBase } from './cloudflare'
 import { savedSyncPass } from './syncWorker'
+import { Capacitor } from '@capacitor/core'
 
 export interface VideoPage {
   id: string
@@ -72,7 +73,8 @@ export async function fetchVideoPage(id: string): Promise<VideoPage> {
 }
 
 export function videoPageShareUrl(id: string): string {
-  return `${location.origin}${location.pathname}?v=${encodeURIComponent(id)}`
+  const base = Capacitor.isNativePlatform() ? 'https://app.alvoprompter.com.br/' : `${location.origin}${location.pathname}`
+  return `${base}?v=${encodeURIComponent(id)}`
 }
 
 export function videoPageQueryId(): string | null {

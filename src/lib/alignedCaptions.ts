@@ -1,3 +1,4 @@
+import { yieldToMain } from './scheduler'
 import type { TimedWord } from './videoProjects'
 import type { SrtSegment } from './srt'
 import { formatSrtTime } from './srt'
@@ -46,14 +47,44 @@ export function captionsSrt(segments: SrtSegment[], ranges: RenderRange[], intro
   }
   return cues.map((cue, i) => `${i + 1}\n${formatSrtTime(cue.start)} --> ${formatSrtTime(cue.end)}\n${cue.text}\n`).join('\n')
 }
-export function encodeMonoWav(samples: Float32Array, sampleRate = 16000): Blob {
-  const bytes = new ArrayBuffer(44 + samples.length * 2), view = new DataView(bytes)
+function wavBuffer(length: number, sampleRate: number): ArrayBuffer {
+  const bytes = new ArrayBuffer(44 + length * 2), view = new DataView(bytes)
   const text = (offset: number, value: string) => { for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i)) }
   text(0, 'RIFF'); view.setUint32(4, bytes.byteLength - 8, true); text(8, 'WAVE'); text(12, 'fmt ')
   view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
   view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
-  text(36, 'data'); view.setUint32(40, samples.length * 2, true)
-  samples.forEach((value, i) => { const sample = Math.max(-1, Math.min(1, Number.isFinite(value) ? value : 0)); view.setInt16(44 + i * 2, sample < 0 ? sample * 32768 : sample * 32767, true) })
+  text(36, 'data'); view.setUint32(40, length * 2, true)
+  return bytes
+}
+function writeSamples(view: DataView, samples: Float32Array, start: number, end: number) {
+  for (let i = start; i < end; i++) {
+    const value = samples[i]
+    const sample = Math.max(-1, Math.min(1, Number.isFinite(value) ? value : 0))
+    view.setInt16(44 + i * 2, sample < 0 ? sample * 32768 : sample * 32767, true)
+  }
+}
+export function encodeMonoWav(samples: Float32Array, sampleRate = 16000): Blob {
+  const bytes = wavBuffer(samples.length, sampleRate)
+  writeSamples(new DataView(bytes), samples, 0, samples.length)
+  return new Blob([bytes], { type: 'audio/wav' })
+}
+/** Bound CPU batches and allow the cancel button to run during long takes. */
+export async function encodeMonoWavAsync(samples: Float32Array, signal: AbortSignal, sampleRate = 16000): Promise<Blob> {
+  signal.throwIfAborted()
+  await yieldToMain()
+  signal.throwIfAborted()
+  const bytes = wavBuffer(samples.length, sampleRate), view = new DataView(bytes)
+  let deadline = performance.now() + 8
+  for (let start = 0; start < samples.length; start += 8192) {
+    signal.throwIfAborted()
+    writeSamples(view, samples, start, Math.min(start + 8192, samples.length))
+    if (performance.now() >= deadline) {
+      await yieldToMain()
+      signal.throwIfAborted()
+      deadline = performance.now() + 8
+    }
+  }
+  signal.throwIfAborted()
   return new Blob([bytes], { type: 'audio/wav' })
 }
 export async function extractTranscriptionAudio(blob: Blob, signal: AbortSignal): Promise<Blob> {
@@ -66,5 +97,5 @@ export async function extractTranscriptionAudio(blob: Blob, signal: AbortSignal)
   const source = renderer.createBufferSource(); source.buffer = audio; source.connect(renderer.destination); source.start()
   const mono = await renderer.startRendering()
   signal.throwIfAborted()
-  return encodeMonoWav(mono.getChannelData(0))
+  return encodeMonoWavAsync(mono.getChannelData(0), signal)
 }

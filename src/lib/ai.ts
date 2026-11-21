@@ -1,4 +1,3 @@
-import { requestAiConsent } from './aiConsent'
 import { apiBase } from './cloudflare'
 import { readChatStream } from './chatStream'
 
@@ -16,9 +15,9 @@ interface StreamOptions {
 }
 
 export async function chatStream(messages: ChatMessage[], opts: StreamOptions = {}): Promise<string> {
-  await requestAiConsent('chat', opts.signal)
   opts.signal?.throwIfAborted()
   const token = await (await import('./auth')).getOptionalIdToken()
+  opts.signal?.throwIfAborted()
   const response = await fetch(`${apiBase()}/chat`, {
     method: 'POST',
     headers: {

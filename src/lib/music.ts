@@ -88,6 +88,13 @@ export const MUSIC_LIBRARY: MusicTrack[] = [
       [55, 59, 62, 67, 74],
     ],
   },
+  { id: 'ambient', name: 'Ambiente Sereno', emoji: '🌿', description: 'Acordes lentos e suaves para reflexão e mensagens.', bpm: 60, osc: 'sine', filter: 900, detune: 2, groove: 'soft', chords: [F, C, A, G] },
+  { id: 'inspiring', name: 'Inspirador', emoji: '✨', description: 'Progressão crescente para histórias de superação.', bpm: 88, osc: 'triangle', filter: 2000, detune: 3, groove: 'backbeat', chords: [C, F, A, G] },
+  { id: 'documentary', name: 'Documentário', emoji: '🎬', description: 'Tons discretos para relatos e narrativas.', bpm: 68, osc: 'sine', filter: 1400, detune: 0, groove: 'soft', chords: [A, E, F, G] },
+  { id: 'corporate', name: 'Apresentação', emoji: '💼', description: 'Ritmo leve para aulas, negócios e demonstrações.', bpm: 100, osc: 'triangle', filter: 1900, detune: 2, groove: 'backbeat', chords: [C, G, F, G] },
+  { id: 'celebrate', name: 'Celebração', emoji: '🎉', description: 'Batida viva para novidades e conquistas.', bpm: 124, osc: 'square', filter: 2400, detune: 4, groove: 'four', chords: [F, C, G, A] },
+  { id: 'meditation', name: 'Contemplação', emoji: '🕊️', description: 'Harmonia calma para oração e conteúdo devocional.', bpm: 54, osc: 'sine', filter: 800, detune: 0, groove: 'soft', chords: [C, E, A, F] },
+  { id: 'minimal', name: 'Minimalista', emoji: '🔹', description: 'Base discreta que deixa a voz em destaque.', bpm: 84, osc: 'triangle', filter: 1000, detune: 1, groove: 'soft', chords: [A, F, C, G] },
 ]
 
 export const GENERATED_MUSIC_SECONDS = 30

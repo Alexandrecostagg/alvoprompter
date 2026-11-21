@@ -13,7 +13,7 @@ import { prepareRecordedPlayback } from '../../lib/recordingAudio'
 import { beautyFilterCss } from '../../lib/beauty'
 import { buildSrt, type CaptionUtterance } from '../../lib/srt'
 import { SRT_LANGUAGES, translateSrt } from '../../lib/translate'
-import { isShareCancelled, shareVideo } from '../../lib/share'
+import { isShareCancelled, saveVideo, shareVideo } from '../../lib/share'
 import { recordSeconds, trackEvent } from '../../lib/stats'
 import SettingsPanel from './SettingsPanel'
 import AspectGuide from './AspectGuide'
@@ -245,20 +245,20 @@ export default function PrompterView() {
     }
   }, [engine.state, settings.mode, startEngine, voice.error, voice.supported, iosCamera])
 
-  const handleShareRecording = async () => {
+  const handleShareRecording = async (saveOnly = false) => {
     if (!recorder.videoBlob || shareBusy) return
     setShareBusy(true)
     setShareMsg(null)
     try {
       const ext = recorder.videoBlob.type.includes('mp4') ? 'mp4' : 'webm'
-      const outcome = await shareVideo({
+      const outcome = await (saveOnly ? saveVideo : shareVideo)({
         blob: recorder.videoBlob,
         fileName: `alvoprompter-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${ext}`,
         title: currentScript?.title || 'Vídeo do AlvoPrompter',
         text: currentScript?.title,
       })
       setShareMsg(outcome === 'shared'
-        ? 'Compartilhamento aberto — escolha Instagram, YouTube, TikTok ou outro app.'
+        ? saveOnly ? 'No menu do iPhone, escolha Salvar Vídeo ou Salvar em Arquivos para concluir.' : 'Compartilhamento aberto — escolha Instagram, YouTube, TikTok ou outro app.'
         : 'O vídeo foi baixado. Abra a rede social para publicar.')
       trackEvent('video_shared')
     } catch (err) {
@@ -762,11 +762,11 @@ export default function PrompterView() {
           </button>
           <button
             onClick={() => setShowSettings(true)}
-            className="grid h-11 w-11 place-items-center rounded-2xl border text-lg font-bold"
-            style={{ borderColor: 'rgba(255,255,255,.32)', color: '#fff', background: 'rgba(255,255,255,.12)' }}
-            aria-label="Abrir ajustes do prompter"
+            className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-3 text-sm font-bold"
+            style={{ borderColor: 'rgba(196,181,253,.7)', color: '#fff', background: 'rgba(124,58,237,.48)' }}
+            aria-label="Abrir ajustes de gravação" aria-haspopup="dialog" aria-expanded={showSettings} aria-controls="recording-settings"
           >
-            ⚙
+            <span aria-hidden="true" className="text-lg">⚙</span> Ajustes
           </button>
         </div>
       </div>
@@ -780,7 +780,7 @@ export default function PrompterView() {
 
       {settings.mode === 'voice' && (iosCamera || !voice.supported || voice.error) ? (
         <div className="relative z-10 border-b px-3 py-2 text-center text-xs" style={{ borderColor: 'var(--border)', background: iosCamera ? 'rgba(148,163,184,.10)' : 'rgba(251,191,36,.12)', color: iosCamera ? '#cbd5e1' : 'var(--warn)' }} role="status">
-          {iosCamera ? 'Rolagem automática com a câmera ligada. Ajuste a velocidade em ⚙.' : voice.error
+          {iosCamera ? 'Rolagem automática com a câmera ligada. Toque em Ajustes → Leitura para mudar a velocidade.' : voice.error
             ? `${voice.error} A rolagem automática foi ativada.`
             : 'Rolagem por voz indisponível neste aparelho. A velocidade automática será usada.'}
         </div>
@@ -887,7 +887,7 @@ export default function PrompterView() {
       </div>
 
       {showSettings && (
-        <SettingsPanel settings={settings} filterUnavailable={recorder.filterUnavailable} isRecording={recorder.isRecording || rehearsalAudio.active} wordCount={words.length} onClose={() => setShowSettings(false)} />
+        <SettingsPanel cameraUsesAutomaticScroll={iosCamera} settings={settings} filterUnavailable={recorder.filterUnavailable} isRecording={recorder.isRecording || rehearsalAudio.active} wordCount={words.length} onClose={() => setShowSettings(false)} />
       )}
 
       {showResult && (
@@ -897,7 +897,7 @@ export default function PrompterView() {
             style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 id="recording-result-title" className="font-semibold text-white on-dark">{recorder.isFinishing ? 'Salvando gravação…' : recorder.error ? 'Precisamos ajustar a gravação' : recorder.videoUrl ? 'Gravação concluída' : 'Leitura concluída'}</h3>
+              <h3 id="recording-result-title" className="font-semibold text-white on-dark">{recorder.isFinishing ? 'Salvando gravação…' : recorder.error ? 'Precisamos ajustar a gravação' : recorder.warning ? 'Gravação interrompida' : recorder.videoUrl ? 'Gravação concluída' : 'Leitura concluída'}</h3>
               {!recorder.isFinishing && <button onClick={closeResult} className="min-h-11 shrink-0 rounded-xl border px-3 text-sm" style={{ borderColor: 'var(--border)' }}>Fechar</button>}
             </div>
             {recorder.isFinishing ? <p role="status" className="py-6 text-sm">Aguarde enquanto o aparelho finaliza o vídeo.</p> : recorder.error ? <div role="alert" className="space-y-4">
@@ -915,6 +915,7 @@ export default function PrompterView() {
                 <button className="min-h-11 rounded-xl border px-4" onClick={() => setView('editor')}>Editar roteiro</button>
               </div>
             </div>}
+            {recorder.warning && <p role="alert" className="mb-4 rounded-xl border p-3 text-sm" style={{ borderColor: 'var(--warn)' }}>{recorder.warning}</p>}
             {recorder.videoUrl && !recorder.isFinishing && !recorder.error && <>
 
             {recorder.videoBlob?.size ? <div role="status" className="mb-4 rounded-xl border p-3 text-sm" style={{ borderColor: recordingSaveError ? 'var(--danger)' : 'var(--border)' }}>
@@ -1063,14 +1064,12 @@ export default function PrompterView() {
               >
                 {shareBusy ? 'Preparando…' : '↗ Compartilhar'}
               </button>
-              <a
-                href={recorder.videoUrl}
-                download={`alvoprompter-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${recorder.videoBlob?.type.includes('mp4') ? 'mp4' : 'webm'}`}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-black"
+              <button
+                onClick={() => void handleShareRecording(true)}
+                disabled={!recorder.videoBlob || shareBusy}
+                className="min-h-11 rounded-lg px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
                 style={{ background: 'var(--accent)' }}
-              >
-                Baixar vídeo
-              </a>
+              >{shareBusy ? 'Abrindo salvamento…' : 'Salvar vídeo'}</button>
             </div>
             </>}
           </div>

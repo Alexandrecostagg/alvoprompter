@@ -9,7 +9,7 @@ import { generateAvatar, transcribeAudio } from '../../lib/cloudflare'
 import { MUSIC_LIBRARY, generateMusicTrack, type MusicTrack } from '../../lib/music'
 import { trackEvent } from '../../lib/stats'
 import { createVideoPage, videoPageShareUrl } from '../../lib/videopage'
-import { isShareCancelled, shareVideo, shareVideoFiles } from '../../lib/share'
+import { isShareCancelled, saveVideo, shareUrl, shareVideo, shareVideoFiles } from '../../lib/share'
 import { readVideoInfo } from '../../lib/video/metadata'
 import {
   CAPTION_THEMES,
@@ -26,6 +26,11 @@ import { useVideoProjectSave } from '../../hooks/useVideoProjectSave'
 import { getVideoVersion, listVideoVersions, saveVideoVersion, updateVideoProject, type TimedWord, type VideoEdit, type VideoVersionSummary } from '../../lib/videoProjects'
 import { prepareRecordedPlayback } from '../../lib/recordingAudio'
 import CutPreview from './CutPreview'
+import MotionPreview from './MotionPreview'
+import { exportDimensions } from '../../lib/video/exportPlan'
+import { BROKEN_VIDEO_MESSAGE, inspectMp4 } from '../../lib/video/integrity'
+import { previousVideoStyle, rememberVideoStyle } from '../../lib/video/style'
+import { savedSyncPass, saveSyncPass } from '../../lib/syncWorker'
 import { applyTimeCut, cutHistoryReducer, emptyCutHistory, intersectRanges, normalizeRanges, removeRange } from '../../lib/editRanges'
 import { SOCIAL_DESTINATIONS, socialDestination, socialFileName, storyRanges, storyFileName, exportWarnings, type SocialDestinationId, type ExportFileInfo, type ExportAspect } from '../../lib/socialExport'
 
@@ -55,6 +60,7 @@ function Editor() {
   const setView = useAppStore((s) => s.setView)
 
   const saved = recording?.project?.edit
+  const [suggestedStyle, setSuggestedStyle] = useState(() => !saved && recording?.project ? previousVideoStyle(recording.project.scope) : null)
   const [transcribing, setTranscribing] = useState(false)
   const [transcriptionMessage, setTranscriptionMessage] = useState<string | null>(null)
   const transcriptionRef = useRef<AbortController | null>(null)
@@ -103,9 +109,11 @@ function Editor() {
   const [music, setMusic] = useState<AudioBuffer | null>(null)
   const [musicVolume, setMusicVolume] = useState(saved?.musicVolume ?? 0.3)
   const [musicTrackId, setMusicTrackId] = useState<string | null>(saved?.musicTrackId ?? null)
+  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null)
+  const previewGeneration = useRef(0)
   const [musicBusy, setMusicBusy] = useState<string | null>(null)
   const musicCacheRef = useRef<Map<string, AudioBuffer>>(new Map())
-  const musicPreviewRef = useRef<{ ctx: AudioContext; src: AudioBufferSourceNode } | null>(null)
+  const musicPreviewRef = useRef<{ ctx: AudioContext; src?: AudioBufferSourceNode } | null>(null)
   const ownedLogoUrl = useRef<string | null>(null)
   useEffect(() => () => { if (ownedLogoUrl.current) URL.revokeObjectURL(ownedLogoUrl.current) }, [])
   const logoFileRef = useRef<HTMLInputElement>(null)
@@ -125,14 +133,33 @@ function Editor() {
 
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [processStage, setProcessStage] = useState('Salvando sua edição…')
+  const [processElapsed, setProcessElapsed] = useState(0)
+  const [hasFinalized, setHasFinalized] = useState(false)
+  useEffect(() => {
+    if (!processing) return
+    const start = Date.now(); setProcessElapsed(0)
+    const timer = setInterval(() => setProcessElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [processing])
   const [error, setError] = useState<string | null>(null)
   const [outUrl, setOutUrl] = useState<string | null>(null)
   const [outBlob, setOutBlob] = useState<Blob | null>(null)
+  const finalPreviewRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!outUrl || processing) return
+    const output = finalPreviewRef.current
+    output?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    output?.focus({ preventScroll: true })
+  }, [outUrl, processing])
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
   const [pageReview, setPageReview] = useState(false)
   const [pageBusy, setPageBusy] = useState(false)
   const [pageMsg, setPageMsg] = useState<string | null>(null)
+  const [pageUrl, setPageUrl] = useState<string | null>(null)
+  const [syncPassInput, setSyncPassInput] = useState('')
+  const [needsSyncPass, setNeedsSyncPass] = useState(false)
   const [reframe, setReframe] = useState(saved?.reframe ?? false)
   const [eyeContact, setEyeContact] = useState(saved?.eyeContact ?? false)
   const facePathRef = useRef<FaceSample[] | null>(null)
@@ -182,7 +209,7 @@ function Editor() {
       initialized = true
       dispatchCuts(saved ? { type: 'hydrate', history: saved.cuts } : { type: 'reset', ranges: [{ start: 0, end: v.duration }] })
       setRangeStart('0')
-      setRangeEnd(String(v.duration))
+      setRangeEnd(String(Number(v.duration.toFixed(2))))
       setMeta({ w: v.videoWidth, h: v.videoHeight, dur: v.duration || 0 })
       if (saved) setSegments(saved.segments)
       else if (recording.utterances?.length) {
@@ -264,7 +291,7 @@ function Editor() {
     return () => { live = false }
   }, [recording, versionRevision])
   useEffect(() => {
-    setOutUrl(null); setOutBlob(null); setOutputInfo(null); setPageReview(false); setShareMsg(null)
+    setOutUrl(null); setOutBlob(null); setOutputInfo(null); setPageReview(false); setPageUrl(null); setPageMsg(null); setShareMsg(null)
     storyPartsRef.current.forEach(part => URL.revokeObjectURL(part.url)); setStoryParts([])
   }, [renderEdit, exportQuality, storySeconds])
 
@@ -421,9 +448,14 @@ function Editor() {
   }
 
   const stopMusicPreview = () => {
-    musicPreviewRef.current?.src.stop()
-    void musicPreviewRef.current?.ctx.close()
+    previewGeneration.current++
+    const preview = musicPreviewRef.current
     musicPreviewRef.current = null
+    if (preview) {
+      if (preview.src) { preview.src.onended = null; try { preview.src.stop() } catch { /* Already ended. */ } }
+      void preview.ctx.close().catch(() => undefined)
+    }
+    setPreviewTrackId(null)
   }
 
   const loadTrack = async (track: MusicTrack) => {
@@ -433,6 +465,7 @@ function Editor() {
       try {
         buf = await generateMusicTrack(track)
         musicCacheRef.current.set(track.id, buf)
+        while (musicCacheRef.current.size > 2) musicCacheRef.current.delete(musicCacheRef.current.keys().next().value!)
       } finally {
         setMusicBusy(null)
       }
@@ -454,23 +487,26 @@ function Editor() {
   }
 
   const handlePreviewTrack = async (track: MusicTrack) => {
-    if (musicBusy) return
+    if (previewTrackId === track.id) { stopMusicPreview(); return }
+    stopMusicPreview()
+    const generation = previewGeneration.current
+    const ac = new AudioContext()
+    musicPreviewRef.current = { ctx: ac }
+    setPreviewTrackId(track.id)
+    const resumed = ac.resume()
     try {
       const buf = await loadTrack(track)
-      if (!buf) return
-      stopMusicPreview()
-      const ac = new AudioContext()
+      await resumed
+      if (!buf || generation !== previewGeneration.current) return
       const src = ac.createBufferSource()
       src.buffer = buf
-      src.loop = true
-      const gain = ac.createGain()
-      gain.gain.value = 0.5
-      src.connect(gain)
-      gain.connect(ac.destination)
-      src.start()
+      const gain = ac.createGain(); gain.gain.value = 0.5
+      src.connect(gain).connect(ac.destination)
       musicPreviewRef.current = { ctx: ac, src }
+      src.onended = () => { if (generation === previewGeneration.current) stopMusicPreview() }
+      src.start(0, 0, Math.min(15, buf.duration))
     } catch {
-      setError('Não foi possível gerar a trilha de fundo.')
+      if (generation === previewGeneration.current) { stopMusicPreview(); setError('Não foi possível ouvir a trilha. Tente novamente.') }
     }
   }
 
@@ -511,9 +547,10 @@ function Editor() {
     if (!facePathRef.current) {
       try {
         facePathRef.current = await computeFacePath(recording.blob, 1, signal, (done, total) =>
-          setProgress(0.4 * (done / total)),
+          setProcessStage(`Analisando enquadramento · ${done} de ${total} imagens…`),
         )
-      } catch {
+      } catch (error) {
+        if (signal?.aborted) throw error
         setReframe(false)
         return null
       }
@@ -532,9 +569,7 @@ function Editor() {
     setShareMsg(null)
     setProgress(0)
     const target = ASPECT_OPTIONS.find((a) => a.value === aspect)!
-    const scale = exportQuality === 'compact' ? Math.min(1, 1280 / Math.max(target.w ?? meta.w, target.h ?? meta.h)) : 1
-    const targetW = Math.max(2, Math.round((target.w ?? meta.w) * scale / 2) * 2)
-    const targetH = Math.max(2, Math.round((target.h ?? meta.h) * scale / 2) * 2)
+    const { width: targetW, height: targetH } = exportDimensions(meta, target, exportQuality === 'compact')
     const makeStories = destination === 'stories' && storySeconds > 0
     if (makeStories) {
       try { storyRanges(selectedDuration + (introEnabled && introText.trim() ? introSeconds : 0) + (outroEnabled && outroText.trim() ? outroSeconds : 0), storySeconds, .15) }
@@ -552,17 +587,26 @@ function Editor() {
 
     const controller = new AbortController()
     abortRef.current = controller
+    setProcessStage('Salvando sua edição…')
     setProcessing(true)
     try {
       await projectSave.flush()
+      if (controller.signal.aborted) throw new DOMException('Exportação cancelada.', 'AbortError')
+      const sourceIntegrity = await inspectMp4(recording.blob, controller.signal)
+      if (sourceIntegrity?.problem) throw new Error(BROKEN_VIDEO_MESSAGE)
       if (recording.project) await updateVideoProject(recording.project.id, recording.project.scope, { exportState: 'rendering' })
+      setProcessStage(reframe ? 'Analisando o enquadramento…' : 'Aplicando as alterações…')
       const facePath = await ensureFacePath(controller.signal)
       const cropAt =
         facePath && aspect !== 'original'
           ? (t: number) => cropCenteredOnFace(facePath, t, meta.w, meta.h, targetW, targetH, eyeContact)
           : undefined
+      setProgress(0)
+      setProcessStage('Aplicando as alterações ao vídeo…')
       const blob = await renderVideo({
         sourceBlob: recording.blob,
+        sourceInfo: { width: meta.w, height: meta.h, duration: meta.dur },
+        preserveOriginal: exportQuality === 'hd',
         targetWidth: targetW,
         targetHeight: targetH,
         crop,
@@ -591,25 +635,32 @@ function Editor() {
             }
           : undefined,
         brandGradient: [brandFrom, brandTo],
-        videoBitsPerSecond: exportQuality === 'compact' ? 2_500_000 : 8_000_000,
-        onProgress: (p) => setProgress(makeStories ? 0.45 * p : 0.4 + 0.6 * p),
+        videoBitsPerSecond: exportQuality === 'compact' ? 2_500_000 : Math.min(8_000_000, Math.max(2_500_000, targetW * targetH * 4)),
+        onProgress: (p) => setProgress((makeStories ? 0.45 : 0.95) * p),
         signal: controller.signal,
       })
+      setProcessStage('Conferindo e salvando o vídeo final…')
+      const integrity = await inspectMp4(blob, controller.signal)
+      if (integrity?.problem) throw new Error('O arquivo final ficou com imagem interrompida. Sua edição foi mantida; tente novamente.')
       const url = URL.createObjectURL(blob)
+      setHasFinalized(true)
       if (outUrl) URL.revokeObjectURL(outUrl)
       setOutUrl(url)
       setOutBlob(blob)
       setOutputInfo({ width: targetW, height: targetH, duration: totalRangesDuration(ranges), bytes: blob.size, type: blob.type, destination, checked: false })
-      setProgress(makeStories ? .45 : 1)
+      setProgress(makeStories ? .45 : .97)
       if (recording.project && edit) {
         try { await saveVideoVersion(recording.project.id, recording.project.scope, blob, edit); setVersionRevision(r => r + 1) }
         catch { setError('Vídeo gerado, mas não foi possível guardar a versão. Baixe o arquivo antes de sair.') }
       }
+      if (recording.project && edit) rememberVideoStyle(recording.project.scope, edit)
+      if (!makeStories) setProgress(1)
       trackEvent('video_exported')
       if (makeStories) {
         const info = await readVideoInfo(blob, controller.signal)
         const parts = storyRanges(info.duration, storySeconds, .15)
         for (let index = 0; index < parts.length; index++) {
+          setProcessStage(`Preparando Story ${index + 1} de ${parts.length}…`)
           const range = parts[index]!
           const part = await renderVideo({ sourceBlob: blob, targetWidth: info.width, targetHeight: info.height, crop: { sx: 0, sy: 0, sw: info.width, sh: info.height }, keepRanges: [range], captions: [], theme: CAPTION_THEMES.find(t => t.key === 'none')!, videoBitsPerSecond: exportQuality === 'compact' ? 2_500_000 : 8_000_000, signal: controller.signal, onProgress: p => setProgress(0.45 + 0.55 * (index + p) / parts.length) })
           const name = storyFileName(index, parts.length, part.type)
@@ -632,6 +683,7 @@ function Editor() {
 
   const handleCreateVideoPage = async () => {
     if (!outBlob || pageBusy) return
+    if (!savedSyncPass()) { setNeedsSyncPass(true); return }
     setPageBusy(true)
     setPageReview(false)
     setPageMsg(null)
@@ -646,7 +698,8 @@ function Editor() {
         title,
       })
       trackEvent('video_page_created')
-      setPageMsg(`Página criada! Compartilhe este link: ${videoPageShareUrl(page.id)}`)
+      setPageUrl(videoPageShareUrl(page.id))
+      setPageMsg('Link criado. Copie ou compartilhe o endereço abaixo.')
     } catch (err) {
       setPageMsg((err as Error).message)
     } finally {
@@ -674,6 +727,16 @@ function Editor() {
     } finally {
       setShareBusy(false)
     }
+  }
+
+  const handleSaveVideo = async (blob: Blob, fileName: string) => {
+    if (shareBusy) return
+    setShareBusy(true); setShareMsg(null)
+    try {
+      const outcome = await saveVideo({ blob, fileName })
+      setShareMsg(outcome === 'downloaded' ? 'Download iniciado. Confira os arquivos do navegador.' : 'Menu de salvamento aberto. Escolha Salvar Vídeo ou Salvar em Arquivos para concluir no iPhone.')
+    } catch (error) { if (!isShareCancelled(error)) setError((error as Error).message) }
+    finally { setShareBusy(false) }
   }
 
   const handleShorts = async () => {
@@ -735,7 +798,7 @@ function Editor() {
           motion,
           chroma: chromaOpt,
           brandGradient: [brandFrom, brandTo],
-          onProgress: (p) => setProgress(0.4 + 0.6 * ((idx + p) / clips.length)),
+          onProgress: (p) => setProgress((idx + p) / clips.length),
           signal: controller.signal,
         })
         if (recording.project && edit) await saveVideoVersion(recording.project.id, recording.project.scope, blob, { ...edit, aspect: '9:16', cuts: { past: [], present: [range], future: [] } })
@@ -808,6 +871,21 @@ function Editor() {
         {projectSave.error && <button onClick={projectSave.retry} className="ml-3 min-h-11 underline">Tentar salvar novamente</button>}
         {recording.project?.exportState === 'rendering' && <p>A exportação anterior foi interrompida. Sua edição foi recuperada; gere o vídeo novamente.</p>}
       </div>
+      {suggestedStyle && <section aria-label="Estilo anterior" className="mb-4 rounded-xl border p-4" style={{ borderColor: 'var(--accent)' }}>
+        <p className="font-semibold">Usar o estilo do vídeo anterior?</p>
+        <p className="my-2 text-sm">Reutilize formato, estilo das legendas, movimento, cores e trilha da galeria. Cortes e textos continuam sendo deste vídeo. A preferência fica neste aparelho, separada por conta e espaço.</p>
+        <button className="min-h-11 rounded-lg border px-3 font-semibold" disabled={processing || Boolean(musicBusy)} onClick={() => {
+          const style = suggestedStyle
+          setAspect(style.aspect); setDestination('custom'); setExportQuality(style.exportQuality ?? 'hd')
+          setBurnCaptions(style.burnCaptions); setHighlightWords(style.highlightWords); setThemeKey(style.themeKey)
+          setMotion(style.motion); setMusicVolume(style.musicVolume); setBrandFrom(style.brandFrom); setBrandTo(style.brandTo)
+          const track = MUSIC_LIBRARY.find(t => t.id === style.musicTrackId)
+          if (track) void handleUseTrack(track)
+          else { stopMusicPreview(); setMusic(null); setMusicBlob(null); setMusicTrackId(null) }
+          setSuggestedStyle(null)
+        }}>Usar estilo anterior</button>
+        <button className="ml-2 min-h-11 rounded-lg border px-3" onClick={() => setSuggestedStyle(null)}>Configurar este vídeo</button>
+      </section>}
       <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-2">
         <div className="flex flex-col lg:sticky lg:top-6 lg:self-start">
           <div
@@ -833,7 +911,7 @@ function Editor() {
               {SOCIAL_DESTINATIONS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
             </select>
             <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-              {aspect === 'original' ? 'Preserva o formato da gravação.' : `${aspect}${exportQuality === 'compact' ? ' · resolução reduzida para um arquivo menor.' : ` · ${ASPECT_OPTIONS.find(a => a.value === aspect)?.w} × ${ASPECT_OPTIONS.find(a => a.value === aspect)?.h}.`}`} MP4 quando disponível neste aparelho.
+              {aspect === 'original' ? 'Preserva o formato da gravação.' : `${aspect}${meta ? ` · ${exportDimensions(meta, ASPECT_OPTIONS.find(a => a.value === aspect)!, exportQuality === 'compact').width} × ${exportDimensions(meta, ASPECT_OPTIONS.find(a => a.value === aspect)!, exportQuality === 'compact').height}` : ''}.`} MP4 quando disponível neste aparelho.
               {aspect !== 'original' && ' O formato pode recortar as bordas. Confira o enquadramento na prévia final.'}
             </p>
             <label className="mt-3 block text-xs font-semibold" htmlFor="export-quality">Tamanho do arquivo</label>
@@ -858,7 +936,7 @@ function Editor() {
           {processing ? (
             <div>
               <div className="flex items-center justify-between text-xs" style={{ color: 'var(--muted)' }}>
-                <span>Preparando seu vídeo… mantenha o app aberto.</span>
+                <span>{processStage} · {Math.round(progress * 100)}%<br />{processElapsed} s decorridos · mantenha o app aberto.</span>
                 <button
                   onClick={() => abortRef.current?.abort()}
                   className="min-h-11 rounded-md border px-3 py-2"
@@ -881,10 +959,11 @@ function Editor() {
               className="w-full rounded-lg py-3 text-sm font-semibold text-white disabled:opacity-40"
               style={{ background: 'var(--brand-gradient)' }}
             >
-              {destination === 'stories' && storySeconds > 0 ? 'Preparar Stories em partes' : `Preparar vídeo${destination === 'custom' ? '' : ` para ${socialDestination(destination).label}`}`}
+              {destination === 'stories' && storySeconds > 0 ? 'Aplicar alterações e finalizar Stories' : outBlob ? 'Gerar novamente' : 'Aplicar alterações e finalizar'}
             </button>
           )}
 
+          {!processing && !outBlob && <p role="status" className="text-xs">{hasFinalized ? 'Você alterou a edição. Aplique as alterações para atualizar o vídeo final.' : 'As escolhas ficam salvas como rascunho. Toque em Aplicar alterações e finalizar para gerar o vídeo com todas elas.'} Com efeitos ou cortes, o preparo pode levar o tempo do vídeo ({Math.ceil(selectedDuration)} s) ou mais.</p>}
           {destination === 'stories' && storyParts.length > 0 && <section aria-label="Stories preparados" className="rounded-xl border p-3" style={{ borderColor: 'var(--border)' }}>
             <h2 className="font-semibold">Seus Stories em ordem</h2>
             <p className="my-2 text-xs">Assista às partes antes de publicar. Salve no Fotos/arquivos pelo menu do aparelho e selecione na ordem indicada no Instagram.</p>
@@ -900,9 +979,9 @@ function Editor() {
             </article>)}</div>
           </section>}
           {outUrl && (
-            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--ok)', background: 'var(--panel)' }}>
+            <div ref={finalPreviewRef} tabIndex={-1} role="region" aria-label="Edição finalizada" className="scroll-mt-4 rounded-xl border p-3" style={{ borderColor: 'var(--ok)', background: 'var(--panel)' }}>
               <p className="mb-2 text-xs font-medium" style={{ color: 'var(--ok)' }}>
-                Vídeo preparado{outputInfo ? ` para ${socialDestination(outputInfo.destination).label}` : ''} · assista antes de compartilhar
+                ✓ Edição finalizada · alterações aplicadas{outputInfo ? ` para ${socialDestination(outputInfo.destination).label}` : ''} · assista antes de compartilhar
               </p>
               <video aria-label="Prévia final do vídeo" src={outUrl} onPlay={prepareRecordedPlayback} onLoadedMetadata={e => {
                 const video = e.currentTarget
@@ -920,7 +999,14 @@ function Editor() {
                 catch { setShareMsg('Selecione e copie o texto acima. Este aparelho não permitiu a cópia automática.') }
               }}>Copiar texto</button>
               {shareMsg && <p className="mb-2 text-xs" style={{ color: 'var(--muted)' }}>{shareMsg}</p>}
-              {pageMsg && <p className="mb-2 break-all text-xs" style={{ color: pageMsg.startsWith('Página criada') ? 'var(--ok)' : 'var(--danger)' }}>{pageMsg}</p>}
+              {pageMsg && <p role="status" className="mb-2 break-all text-xs" style={{ color: pageUrl ? 'var(--ok)' : 'var(--danger)' }}>{pageMsg}</p>}
+              {pageUrl && <div className="mb-3 rounded-lg border p-3">
+                <label className="block text-xs font-semibold" htmlFor="public-video-url">Link público do vídeo</label>
+                <input id="public-video-url" readOnly value={pageUrl} className="my-2 w-full rounded border p-2 text-xs" onFocus={e => e.target.select()} />
+                <a href={pageUrl} target="_blank" rel="noopener noreferrer" className="mr-3 inline-block min-h-11 underline">Abrir link</a>
+                <button className="min-h-11 rounded-lg border px-3" onClick={async () => { try { await navigator.clipboard.writeText(pageUrl); setPageMsg('Link copiado. Cole na conversa em que deseja enviar.') } catch { setPageMsg('Selecione o endereço acima e use Copiar.') } }}>Copiar link</button>
+                <button className="ml-2 min-h-11 rounded-lg border px-3" onClick={() => void shareUrl(currentScript?.title ?? 'Meu vídeo', pageUrl).catch(error => { if (!isShareCancelled(error)) setPageMsg('Não foi possível abrir o compartilhamento. Use Copiar link.') })}>Compartilhar link</button>
+              </div>}
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => void handleShare()}
@@ -931,38 +1017,35 @@ function Editor() {
                   {shareBusy ? 'Preparando…' : '↗ Compartilhar vídeo'}
                 </button>
                 <button
-                  onClick={() => setPageReview(true)}
+                  onClick={() => { setPageReview(true); setNeedsSyncPass(!savedSyncPass()) }}
                   disabled={!outBlob || pageBusy}
                   className="min-h-11 flex-1 rounded-lg border px-4 py-2 text-center text-sm font-medium disabled:opacity-50"
                   style={{ borderColor: 'var(--accent-2)', color: 'var(--brand-strong)' }}
                 >
                   {pageBusy ? 'Enviando…' : 'Criar link público'}
                 </button>
-                <a
-                  href={outUrl}
-                  download={socialFileName(outputInfo?.destination ?? 'custom', outBlob?.type ?? 'video/webm')}
-                  className="min-h-11 rounded-lg border px-4 py-2 text-center text-sm"
+                <button
+                  onClick={() => outBlob && void handleSaveVideo(outBlob, socialFileName(outputInfo?.destination ?? 'custom', outBlob.type))}
+                  disabled={!outBlob || shareBusy || processing}
+                  className="min-h-11 rounded-lg border px-4 py-2 text-center text-sm disabled:opacity-50"
                   style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
-                >
-                  Baixar vídeo editado
-                </a>
-                <a
-                  href={recording.url}
-                  download={`alvoprompter-gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}`}
-                  className="min-h-11 rounded-lg border px-4 py-2 text-sm"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
-                >
-                  Original
-                </a>
+                >{shareBusy ? 'Abrindo salvamento…' : 'Salvar vídeo editado'}</button>
+                <button onClick={() => void handleSaveVideo(recording.blob, `alvoprompter-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}`)} disabled={shareBusy || processing} className="min-h-11 rounded-lg border px-4 py-2 text-sm">Salvar original</button>
               </div>
               {pageReview && <div role="group" aria-label="Confirmar link público" className="mt-3 rounded-lg border p-3 text-sm">
                 <p>O vídeo será enviado para a nuvem. Qualquer pessoa com o link poderá assistir. Baixar ou compartilhar pelo aparelho não cria um link público.</p>
-                <div className="mt-2 flex flex-wrap gap-2"><button className="min-h-11 rounded-lg border px-3 font-semibold" onClick={() => void handleCreateVideoPage()}>Enviar e criar link público</button><button className="min-h-11 rounded-lg border px-3" onClick={() => setPageReview(false)}>Cancelar link público</button></div>
+                {needsSyncPass && <div className="my-3 rounded-lg border p-3">
+                  <label htmlFor="video-sync-pass" className="block font-semibold">Definir frase-chave da nuvem</label>
+                  <p className="my-2 text-xs">É uma chave privada para localizar seus arquivos de sincronização, diferente da senha de login. Se já usa sincronização, informe a mesma frase. Se é a primeira vez, crie uma frase com pelo menos 12 caracteres e guarde-a. Ela também pode ser definida em Conta → Equipe e sincronização. Não aparece no link público.</p>
+                  <input id="video-sync-pass" type="password" autoComplete="off" value={syncPassInput} minLength={12} onChange={e => setSyncPassInput(e.target.value)} className="w-full rounded border p-2" />
+                  <button disabled={syncPassInput.trim().length < 12} className="mt-2 min-h-11 rounded-lg border px-3 disabled:opacity-40" onClick={() => { saveSyncPass(syncPassInput); setSyncPassInput(''); setNeedsSyncPass(false); setPageMsg('Frase-chave definida nesta sessão. Agora você pode enviar e criar o link.') }}>Definir frase-chave</button>
+                </div>}
+                <div className="mt-2 flex flex-wrap gap-2"><button disabled={needsSyncPass || pageBusy} className="min-h-11 rounded-lg border px-3 font-semibold disabled:opacity-40" onClick={() => void handleCreateVideoPage()}>Enviar e criar link público</button><button className="min-h-11 rounded-lg border px-3" onClick={() => setPageReview(false)}>Cancelar link público</button></div>
               </div>}
             </div>
           )}
 
-          <button onClick={() => void shareVideo({ blob: recording.blob, fileName: `gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}` }).catch(error => { if (!isShareCancelled(error)) setError((error as Error).message) })} className="min-h-11 rounded-xl border px-4 py-3 text-center text-sm">Salvar original no aparelho / compartilhar</button>
+          <button disabled={shareBusy || processing} onClick={() => void shareVideo({ blob: recording.blob, fileName: `gravacao-original.${recording.blob.type.includes('mp4') ? 'mp4' : 'webm'}` }).catch(error => { if (!isShareCancelled(error)) setError((error as Error).message) })} className="min-h-11 rounded-xl border px-4 py-3 text-center text-sm">Salvar original no aparelho / compartilhar</button>
           {versions.length > 0 && <details><summary>Versões exportadas ({versions.length})</summary><div className="space-y-2">{versions.map((version, index) => <button key={version.id} className="min-h-11 w-full rounded-xl border px-3 text-left text-sm" onClick={() => { void getVideoVersion(version.id, version.scope).then(savedVersion => { if (!savedVersion) throw new Error(); const oldTarget = ASPECT_OPTIONS.find(a => a.value === savedVersion.edit.aspect)!; setOutputInfo({width: oldTarget.w ?? meta?.w ?? 0, height: oldTarget.h ?? meta?.h ?? 0, duration: totalRangesDuration(savedVersion.edit.cuts.present), bytes: savedVersion.blob.size, type: savedVersion.blob.type, destination: socialDestination(savedVersion.edit.socialDestination).id, checked: false}); setOutBlob(savedVersion.blob); setOutUrl(URL.createObjectURL(savedVersion.blob)) }).catch(() => setError('Não foi possível abrir essa versão. Tente novamente.')) }}>Assistir {version.label ?? `versão ${versions.length - index}`} · {new Date(version.createdAt).toLocaleString('pt-BR')}</button>)}</div></details>}
           </div>
         </div>
@@ -971,7 +1054,7 @@ function Editor() {
           <nav aria-label="Etapas da edição" className="editor-steps">
             {[['cuts', '1. Cortes'], ['captions', '2. Legendas'], ['style', '3. Visual e áudio']].map(([id, title]) => <button key={id} aria-pressed={editorTab === id} onClick={() => setEditorTab(id!)}>{title}</button>)}
           </nav>
-          <fieldset disabled={processing || !assetsReady || Boolean(musicBusy) || logoBusy} className="editor-panels contents" data-step={editorTab}>
+          <fieldset disabled={processing || !assetsReady || logoBusy} className="editor-panels contents" data-step={editorTab}>
           <details hidden={editorTab !== 'style'} open><summary>Formato de exportação</summary>
             <div className="flex rounded-lg border p-0.5" style={{ borderColor: 'var(--border)' }}>
               {ASPECT_OPTIONS.map((opt) => (
@@ -1242,6 +1325,7 @@ function Editor() {
                   </>
                 )}
               </div>
+              <p className="text-xs">{MUSIC_LIBRARY.length} trilhas disponíveis · Ouvir toca uma amostra de até 15 segundos. Toque em Parar quando quiser.</p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {MUSIC_LIBRARY.map((track) => (
                   <div
@@ -1249,7 +1333,7 @@ function Editor() {
                     className="rounded-xl border p-2.5"
                     style={{
                       borderColor: musicTrackId === track.id ? 'var(--accent)' : 'var(--border)',
-                      background: musicTrackId === track.id ? 'rgba(99,102,241,0.12)' : 'rgba(0,0,0,0.2)',
+                      background: musicTrackId === track.id ? 'rgba(99,102,241,0.12)' : 'var(--panel)',
                     }}
                   >
                     <div className="flex items-center gap-2">
@@ -1268,15 +1352,17 @@ function Editor() {
                     <div className="mt-2 flex gap-2">
                       <button
                         onClick={() => void handlePreviewTrack(track)}
-                        disabled={musicBusy === track.id}
-                        className="flex-1 rounded-lg border px-2 py-1 text-[11px]"
+                        disabled={Boolean(musicBusy) && previewTrackId !== track.id}
+                        aria-label={`${previewTrackId === track.id ? 'Parar' : 'Ouvir'} ${track.name}`}
+                        aria-pressed={previewTrackId === track.id}
+                        className="min-h-11 flex-1 rounded-lg border px-2 py-1 text-[11px]"
                         style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
                       >
-                        {musicBusy === track.id ? 'Gerando...' : '▶ Ouvir'}
+                        {previewTrackId === track.id ? '■ Parar' : musicBusy === track.id ? 'Gerando…' : '▶ Ouvir'}
                       </button>
                       <button
                         onClick={() => void handleUseTrack(track)}
-                        disabled={musicBusy === track.id || musicTrackId === track.id}
+                        disabled={Boolean(musicBusy) || musicTrackId === track.id}
                         className="flex-1 rounded-lg border px-2 py-1 text-[11px]"
                         style={{
                           borderColor: musicTrackId === track.id ? 'var(--accent)' : 'var(--border)',
@@ -1428,6 +1514,7 @@ function Editor() {
 
           <details hidden={editorTab !== 'style'}><summary>Fundo e movimento</summary>
             <div className="space-y-3">
+              {editorTab === 'style' && !processing && meta && <MotionPreview url={recording.url} motion={motion} aspect={aspect === 'original' ? meta.w / meta.h : (ASPECT_OPTIONS.find(a => a.value === aspect)?.w ?? meta.w) / (ASPECT_OPTIONS.find(a => a.value === aspect)?.h ?? meta.h)} chroma={chromaEnabled ? { color: chromaColor, similarity: chromaSimilarity, smoothness: chromaSmoothness, bgColor: chromaBg } : undefined} />}
               <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <input
                   type="checkbox"
@@ -1796,6 +1883,10 @@ function Editor() {
             </details>
           )}
           </fieldset>
+          <div className="rounded-xl border p-4" style={{ borderColor: 'var(--accent)', background: 'var(--panel)' }}>
+            <p className="mb-3 text-sm">{outBlob ? 'Edição finalizada. Assista à prévia final e salve o vídeo.' : 'Terminou os ajustes? Aplique suas escolhas para criar o vídeo final.'}</p>
+            <button disabled={processing || !meta || !assetsReady || transcribing || Boolean(musicBusy) || logoBusy} onClick={() => void handleProcess()} className="min-h-11 w-full rounded-xl px-4 py-3 font-semibold text-white disabled:opacity-40" style={{ background: 'var(--brand-gradient)' }}>{processing ? `${processStage} ${Math.round(progress * 100)}%` : 'Aplicar alterações e finalizar'}</button>
+          </div>
         </div>
       </div>
     </div>

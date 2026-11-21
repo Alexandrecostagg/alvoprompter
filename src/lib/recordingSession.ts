@@ -21,7 +21,8 @@ function startMediaSession(stream: MediaStream, types: string[]): RecordingSessi
   // still fail when paired with the camera's actual resolution on iPhone.
   const mime = types
     .find((type) => MediaRecorder.isTypeSupported(type))
-  const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+  const videoOptions = types[0].startsWith('video/') ? { videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 128_000 } : {}
+  const recorder = new MediaRecorder(stream, { ...videoOptions, ...(mime ? { mimeType: mime } : {}) })
   const chunks: Blob[] = []
   let timeout: ReturnType<typeof setTimeout> | undefined
   let stopping = false

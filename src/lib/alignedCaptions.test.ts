@@ -39,3 +39,19 @@ describe('audio-aligned captions', () => {
     expect(view.getInt16(44, true)).toBe(-32768); expect(view.getInt16(52, true)).toBe(32767); expect(view.getInt16(54, true)).toBe(0)
   })
 })
+
+it('async encoding preserves every PCM byte and lets other work run', async () => {
+  const { encodeMonoWavAsync } = await import('./alignedCaptions')
+  const samples = Float32Array.from({ length: 100000 }, (_, i) => [NaN, -2, -.25, 0, .25, 2][i % 6])
+  let serviced = false
+  setTimeout(() => { serviced = true }, 0)
+  const result = await encodeMonoWavAsync(samples, new AbortController().signal)
+  expect(serviced).toBe(true)
+  expect(await result.arrayBuffer()).toEqual(await encodeMonoWav(samples).arrayBuffer())
+})
+it('cancels audio encoding when input is handled between batches', async () => {
+  const { encodeMonoWavAsync } = await import('./alignedCaptions')
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), 0)
+  await expect(encodeMonoWavAsync(new Float32Array(1000000), controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+})

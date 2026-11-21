@@ -1,0 +1,4 @@
+interface:
+  display_name: "Modernização web Alvorecer"
+  short_description: "Revise componentes, desempenho e segurança web"
+  default_prompt: "Use $alvorecer-web-modernizacao para avaliar os quatro blocos neste sistema, implementar as melhorias pertinentes e validar o resultado."

@@ -22,25 +22,36 @@ export function safeShareFileName(fileName: string): string {
 }
 
 export function dataUrlToBlob(dataUrl: string): Blob {
-  const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/s)
-  if (!match) throw new Error('O vídeo salvo não está em um formato válido.')
-
-  const mime = match[1] || 'application/octet-stream'
-  const raw = match[3] || ''
-  const binary = match[2] ? atob(raw) : decodeURIComponent(raw)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
+  // A codec list may contain commas; match the base64 marker before splitting.
+  const base64 = dataUrl.match(/^data:(.*?);base64,([\s\S]*)$/)
+  const plain = base64 ? null : dataUrl.match(/^data:([^,]*),(.*)$/s)
+  if (!base64 && !plain) throw new Error('O vídeo salvo não está em um formato válido.')
+  const mime = (base64?.[1] ?? plain?.[1] ?? '').split(';')[0] || 'application/octet-stream'
+  try {
+    const binary = base64 ? atob(base64[2]) : decodeURIComponent(plain![2])
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    return new Blob([bytes], { type: mime })
+  } catch { throw new Error('O vídeo salvo não está em um formato válido.') }
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
+  if (!blob.size) return Promise.reject(new Error('O arquivo está vazio. Grave novamente antes de compartilhar.'))
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
-      const value = String(reader.result ?? '')
-      resolve(value.slice(value.indexOf(',') + 1))
+      // MediaRecorder can include a comma in the MIME codecs parameter:
+      // video/mp4;codecs=avc1.42001f,mp4a.40.2. It is NOT the data separator.
+      const value = typeof reader.result === 'string' ? reader.result : ''
+      const marker = ';base64,'
+      const offset = value.indexOf(marker)
+      if (offset < 0 || !value.slice(offset + marker.length)) {
+        reject(new Error('Não foi possível preparar o arquivo para compartilhar. Tente novamente.'))
+        return
+      }
+      resolve(value.slice(offset + marker.length))
     }
-    reader.onerror = () => reject(new Error('Não consegui preparar o vídeo para compartilhar.'))
+    reader.onerror = reader.onabort = () => reject(new Error('Não consegui preparar o vídeo para compartilhar.'))
     reader.readAsDataURL(blob)
   })
 }
@@ -109,6 +120,23 @@ export async function shareVideo(options: ShareVideoOptions): Promise<ShareOutco
 
   downloadBlob(options.blob, fileName)
   return 'downloaded'
+}
+
+/** WKWebView does not reliably handle blob download anchors. Use its file sheet. */
+export async function saveVideo(options: ShareVideoOptions): Promise<ShareOutcome> {
+  if (!options.blob.size) throw new Error('O arquivo está vazio. Prepare o vídeo novamente.')
+  if (Capacitor.isNativePlatform()) {
+    await shareNativeVideo(options)
+    return 'shared'
+  }
+  downloadBlob(options.blob, safeShareFileName(options.fileName))
+  return 'downloaded'
+}
+
+export async function shareUrl(title: string, url: string): Promise<void> {
+  if (Capacitor.isNativePlatform()) await Share.share({ title, url, dialogTitle: 'Compartilhar link do vídeo' })
+  else if (navigator.share) await navigator.share({ title, url })
+  else await navigator.clipboard.writeText(url)
 }
 
 export async function shareVideoFiles(files: ShareVideoOptions[]): Promise<ShareOutcome> {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAppStore } from './store/useAppStore'
 import type { View } from './lib/types'
 import BrandMark from './components/BrandMark'
@@ -6,13 +6,18 @@ import SyncControl from './components/SyncControl'
 import type { PlanId } from './lib/plans'
 import { observeUser, type User } from './lib/auth'
 import { initializeMetaPixel } from './lib/metaPixel'
+import { preloadable } from './lib/preloadable'
 
-const ScriptLibrary = lazy(() => import('./components/library/ScriptLibrary'))
-const ScriptEditor = lazy(() => import('./components/editor/ScriptEditor'))
-const PrompterView = lazy(() => import('./components/prompter/PrompterView'))
+const ScriptLibraryModule = preloadable(() => import('./components/library/ScriptLibrary'))
+const ScriptLibrary = lazy(ScriptLibraryModule.load)
+const ScriptEditorModule = preloadable(() => import('./components/editor/ScriptEditor'))
+const ScriptEditor = lazy(ScriptEditorModule.load)
+const PrompterViewModule = preloadable(() => import('./components/prompter/PrompterView'))
+const PrompterView = lazy(PrompterViewModule.load)
 const VideoEditor = lazy(() => import('./components/editor/VideoEditor'))
 const ControlRoom = lazy(() => import('./components/control/ControlRoom'))
-const SchedulingHub = lazy(() => import('./components/scheduling/SchedulingHub'))
+const SchedulingHubModule = preloadable(() => import('./components/scheduling/SchedulingHub'))
+const SchedulingHub = lazy(SchedulingHubModule.load)
 const WorkspacesPanel = lazy(() => import('./components/workspace/CloudWorkspacesPanel'))
 const AiTwin = lazy(() => import('./components/aiTwin/AiTwin'))
 const VideoPageView = lazy(() => import('./components/video/VideoPageView'))
@@ -64,9 +69,9 @@ function LoadingView() {
   )
 }
 
-function DesktopNavButton({ active, disabled, onClick, children }: { active?: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
+function DesktopNavButton({ active, disabled, onClick, onIntent, children }: { active?: boolean; disabled?: boolean; onClick: () => void; onIntent?: () => void; children: ReactNode }) {
   return (
-    <button onClick={onClick} disabled={disabled} className="min-h-10 rounded-xl px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-35" style={{ color: active ? 'var(--brand-strong)' : 'var(--muted)', background: active ? 'var(--accent-soft)' : 'transparent' }}>
+    <button onClick={onClick} onPointerEnter={onIntent} onFocus={onIntent} disabled={disabled} className="min-h-10 rounded-xl px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-35" style={{ color: active ? 'var(--brand-strong)' : 'var(--muted)', background: active ? 'var(--accent-soft)' : 'transparent' }}>
       {children}
     </button>
   )
@@ -111,6 +116,7 @@ export default function App() {
   const selectScript = useAppStore((state) => state.selectScript)
   const { theme, toggleTheme } = useTheme()
   const [moreOpen, setMoreOpen] = useState(false)
+  const moreDialog = useRef<HTMLDialogElement>(null)
   const [accountOpen, setAccountOpen] = useState(false)
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
@@ -152,7 +158,14 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const open = () => setAccountOpen(true)
+    const open = () => {
+      if (moreDialog.current?.open) {
+        moreDialog.current.close()
+        setMoreOpen(false)
+        // Let the native dialog restore focus before AccountPanel moves it.
+        requestAnimationFrame(() => setAccountOpen(true))
+      } else setAccountOpen(true)
+    }
     window.addEventListener('alvoprompter:account', open)
     return () => window.removeEventListener('alvoprompter:account', open)
   }, [])
@@ -162,21 +175,13 @@ export default function App() {
   }, [requestedPlan])
 
   useEffect(() => {
-    if (!moreOpen) return
-    const previous = document.activeElement as HTMLElement | null
-    const dialog = document.querySelector<HTMLElement>('[aria-label="Mais ferramentas"]')
-    const controls = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)') ?? []).filter((node) => node.getClientRects().length)
-    controls()[0]?.focus()
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMoreOpen(false)
-      if (event.key !== 'Tab') return
-      const items = controls(), first = items[0], last = items.at(-1)
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey); previous?.focus() }
+    const dialog = moreDialog.current
+    if (!dialog) return
+    if (moreOpen && !dialog.open) dialog.showModal()
+    else if (!moreOpen && dialog.open) dialog.close()
   }, [moreOpen])
+
+  useEffect(() => { setMoreOpen(false) }, [view])
 
   const navigate = (next: View) => {
     setMoreOpen(false)
@@ -242,10 +247,10 @@ export default function App() {
       <header className="hidden min-h-16 items-center justify-between border-b px-6 lg:flex" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
         <button onClick={() => navigate('library')} aria-label="Ir para meus roteiros"><BrandMark /></button>
         <nav className="flex items-center gap-1" aria-label="Navegação principal">
-          <DesktopNavButton active={view === 'library'} onClick={() => navigate('library')}>Início</DesktopNavButton>
-          <DesktopNavButton active={view === 'editor'} disabled={!currentScript} onClick={() => navigate('editor')}>Editor</DesktopNavButton>
-          <DesktopNavButton onClick={openPrompterFlow}>Gravar</DesktopNavButton>
-          <DesktopNavButton active={view === 'scheduling'} onClick={() => navigate('scheduling')}>Agenda</DesktopNavButton>
+          <DesktopNavButton active={view === 'library'} onIntent={ScriptLibraryModule.preload} onClick={() => navigate('library')}>Início</DesktopNavButton>
+          <DesktopNavButton active={view === 'editor'} disabled={!currentScript} onIntent={ScriptEditorModule.preload} onClick={() => navigate('editor')}>Editor</DesktopNavButton>
+          <DesktopNavButton onIntent={currentScript?.content.trim() ? PrompterViewModule.preload : ScriptEditorModule.preload} onClick={openPrompterFlow}>Gravar</DesktopNavButton>
+          <DesktopNavButton active={view === 'scheduling'} onIntent={SchedulingHubModule.preload} onClick={() => navigate('scheduling')}>Agenda</DesktopNavButton>
           <DesktopNavButton active={moreActive} onClick={() => setMoreOpen(true)}>Mais</DesktopNavButton>
         </nav>
         <div className="flex items-center gap-2">
@@ -267,10 +272,9 @@ export default function App() {
         </Suspense>
       </main>
 
-      {moreOpen ? (
-        <>
-          <button className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm" onClick={() => setMoreOpen(false)} aria-label="Fechar menu" />
-          <section className="fixed inset-x-0 bottom-[calc(4.9rem+env(safe-area-inset-bottom))] z-50 rounded-t-[2rem] border p-4 pb-5 shadow-2xl lg:inset-x-auto lg:right-6 lg:bottom-auto lg:top-20 lg:w-96 lg:rounded-3xl" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }} role="dialog" aria-modal="true" aria-label="Mais ferramentas">
+      <dialog ref={moreDialog} onCancel={() => setMoreOpen(false)} onClose={() => setMoreOpen(false)}
+          onClick={(event) => { if (event.target === event.currentTarget) setMoreOpen(false) }}
+          className="tools-dialog fixed inset-x-0 bottom-[calc(4.9rem+env(safe-area-inset-bottom))] z-50 rounded-t-[2rem] border p-4 pb-5 shadow-2xl lg:inset-x-auto lg:right-6 lg:bottom-auto lg:top-20 lg:w-96 lg:rounded-3xl" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }} aria-label="Mais ferramentas">
             <span className="mx-auto mb-3 block h-1 w-12 rounded-full" style={{ background: 'var(--border)' }} aria-hidden="true" />
             <div className="mb-3 flex items-center justify-between">
               <div><p className="font-bold">Mais ferramentas</p><p className="text-xs" style={{ color: 'var(--muted)' }}>Produção, equipe e preferências</p></div>
@@ -287,9 +291,7 @@ export default function App() {
               <button onClick={toggleTheme} className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold" style={{ background: 'var(--bg)', color: 'var(--text)' }}><Icon name="theme" />{theme === 'light' ? 'Modo escuro' : 'Modo claro'}</button>
               <SyncControl />
             </div>
-          </section>
-        </>
-      ) : null}
+      </dialog>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t px-2 pb-[env(safe-area-inset-bottom)] pt-1 lg:hidden" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 96%, transparent)', boxShadow: '0 -12px 30px rgba(15,23,42,.08)' }} aria-label="Navegação principal">
         <MobileNavButton icon="scripts" label="Início" active={view === 'library'} onClick={() => navigate('library')} />

@@ -1,5 +1,5 @@
 import { useModalFocus } from '../../hooks/useModalFocus'
-import { useRef, useState } from 'react'
+import { Children, cloneElement, isValidElement, useId, useRef, useState, type ReactElement } from 'react'
 import type { PrompterSettings } from '../../lib/types'
 import { BEAUTY_OPTIONS } from '../../lib/beauty'
 import { searchBroll, type BrollClip } from '../../lib/broll'
@@ -32,38 +32,43 @@ interface SettingsPanelProps {
   isRecording?: boolean
   filterUnavailable?: boolean
   onClose: () => void
+  cameraUsesAutomaticScroll?: boolean
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId()
   return (
-    <label className="flex flex-col items-stretch gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-      <span className="text-sm" style={{ color: 'var(--text)' }}>
+    <div role="group" aria-labelledby={id} className="settings-row flex flex-col items-stretch gap-3 py-4">
+      <span id={id} className="text-sm" style={{ color: 'var(--text)' }}>
         {label}
       </span>
-      <div className="flex items-center justify-end gap-2">{children}</div>
-    </label>
+      <div className="flex w-full items-center gap-2">{Children.map(children, child => isValidElement(child) ? cloneElement(child as ReactElement<{ 'aria-labelledby'?: string }>, { 'aria-labelledby': id }) : child)}</div>
+    </div>
   )
 }
 
 function Toggle({
   checked,
   onChange,
+  'aria-labelledby': labelledBy,
 }: {
   checked: boolean
   onChange: (value: boolean) => void
+  'aria-labelledby'?: string
 }) {
   return (
     <button
       type="button"
       role="switch"
+      aria-labelledby={labelledBy}
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="relative h-7 w-12 rounded-full transition-colors"
+      className="relative h-11 w-16 shrink-0 rounded-full transition-colors"
       style={{ background: checked ? 'var(--accent)' : 'var(--border)' }}
     >
       <span
-        className="absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all"
-        style={{ left: checked ? 'calc(100% - 26px)' : '2px' }}
+        className="absolute top-2 h-7 w-7 rounded-full bg-white transition-all"
+        style={{ left: checked ? 'calc(100% - 34px)' : '6px' }}
       />
     </button>
   )
@@ -79,7 +84,7 @@ function Segmented<T extends string>({
   onChange: (value: T) => void
 }) {
   return (
-    <div className="flex max-w-full overflow-x-auto rounded-xl border p-0.5" style={{ borderColor: 'var(--border)' }}>
+    <div className={`w-full gap-1 rounded-xl border p-1 ${options.length === 4 ? 'grid grid-cols-2' : 'flex flex-wrap'}`} style={{ borderColor: 'var(--border)' }}>
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -87,10 +92,10 @@ function Segmented<T extends string>({
           aria-pressed={value === opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className="min-h-11 shrink-0 rounded-lg px-3 py-1 text-xs font-medium transition-colors"
+          className="min-h-11 min-w-0 grow rounded-lg px-3 py-2 text-sm font-semibold transition-colors"
           style={{
-            background: value === opt.value ? 'var(--accent)' : 'transparent',
-            color: value === opt.value ? 'black' : 'var(--text)',
+            background: value === opt.value ? 'var(--accent-soft)' : 'transparent',
+            color: value === opt.value ? 'var(--brand-strong)' : 'var(--text)', boxShadow: value === opt.value ? 'inset 0 0 0 1px var(--brand-strong)' : undefined,
           }}
         >
           {opt.label}
@@ -100,7 +105,19 @@ function Segmented<T extends string>({
   )
 }
 
-export default function SettingsPanel({ settings, wordCount, isRecording = false, filterUnavailable = false, onClose }: SettingsPanelProps) {
+function TouchSlider({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
+  const change = (delta: number) => onChange(Math.max(min, Math.min(max, Math.round((value + delta) * 100) / 100)))
+  return <div className="flex w-full items-center gap-3">
+    <button type="button" aria-label={`Diminuir ${label}`} disabled={value <= min} onClick={() => change(-step)} className="h-11 w-11 shrink-0 rounded-xl border text-xl font-bold disabled:opacity-35" style={{borderColor:'var(--border)'}}>−</button>
+    <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onChange={event => onChange(Number(event.target.value))} className="min-w-0 flex-1" />
+    <button type="button" aria-label={`Aumentar ${label}`} disabled={value >= max} onClick={() => change(step)} className="h-11 w-11 shrink-0 rounded-xl border text-xl font-bold disabled:opacity-35" style={{borderColor:'var(--border)'}}>+</button>
+  </div>
+}
+
+export default function SettingsPanel({ settings, wordCount, isRecording = false, filterUnavailable = false, cameraUsesAutomaticScroll = false, onClose }: SettingsPanelProps) {
+  const [category, setCategory] = useState<'camera' | 'reading' | 'text' | 'background'>('camera')
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const categories = [{ id:'camera', label:'Câmera' }, { id:'reading', label:'Leitura' }, { id:'text', label:'Texto' }, { id:'background', label:'Fundo' }] as const
   const modalRef = useRef<HTMLDivElement>(null)
   useModalFocus(modalRef, true, onClose)
   const updateSettings = useAppStore((s) => s.updateSettings)
@@ -140,68 +157,170 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
   }
 
   return (
-    <div ref={modalRef} className="prompter-settings-overlay fixed inset-0 z-40 flex items-end sm:justify-end" role="dialog" aria-modal="true" aria-label="Ajustes do prompter">
+    <div ref={modalRef} className="prompter-settings-overlay fixed inset-0 z-40 flex items-end sm:justify-end" role="dialog" aria-modal="true" id="recording-settings" aria-label="Ajustes de gravação">
       <button tabIndex={-1} aria-label="Fechar configurações" onClick={onClose} className="absolute inset-0 bg-black/60" />
-      <div className="relative z-10 flex max-h-full w-full flex-col rounded-t-[2rem] border sm:h-full sm:max-w-sm sm:rounded-none sm:border-l" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
+      <div className="relative z-10 flex settings-sheet w-full flex-col rounded-t-[2rem] border sm:h-full sm:max-w-lg sm:rounded-none sm:border-l" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
         <span className="mx-auto mt-3 block h-1 w-12 rounded-full sm:hidden" style={{ background: 'var(--border)' }} aria-hidden="true" />
         <div className="flex shrink-0 items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: 'var(--border)' }}>
-          <div><h2 className="font-semibold text-white">Ajustes do prompter</h2><p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>Veja o resultado enquanto configura.</p></div>
+          <div><h2 className="text-xl font-bold" style={{ color: 'var(--text)' }}>Prepare sua gravação</h2><p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>As alterações são salvas na hora.</p></div>
           <button
-            data-dialog-autofocus
             onClick={onClose}
-            className="min-h-10 rounded-xl border px-3 text-sm font-semibold"
+            className="min-h-11 rounded-xl border px-4 text-sm font-semibold"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
           >
             Concluir
           </button>
         </div>
 
-        <div className="prompter-settings-preview mx-5 mt-4 shrink-0 rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: settings.bgColor }} aria-label="Prévia do texto do prompter">
-          <p className="break-words whitespace-normal text-center" style={{ color: settings.fontColor, fontFamily: settings.fontFamily, fontSize: Math.min(settings.fontSize, 28), lineHeight: settings.lineHeight, letterSpacing: settings.letterSpacing, transform: settings.mirror ? 'scaleX(-1)' : undefined }}>Seu texto, no seu ritmo.</p>
+        <div className="grid shrink-0 grid-cols-4 gap-1 border-b px-4 py-3" role="tablist" aria-label="Categorias de ajustes" style={{ borderColor: 'var(--border)' }}>
+          {categories.map((item, index) => <button key={item.id} id={`settings-tab-${item.id}`} type="button" role="tab"
+            data-dialog-autofocus={index === 0 ? '' : undefined} aria-selected={category === item.id} aria-controls={`settings-${item.id}`} tabIndex={category === item.id ? 0 : -1}
+            onClick={() => { setCategory(item.id); scrollRef.current?.scrollTo({top:0}) }}
+            onKeyDown={(event) => {
+              let next = index
+              if (event.key === 'ArrowRight') next = (index + 1) % categories.length
+              else if (event.key === 'ArrowLeft') next = (index + categories.length - 1) % categories.length
+              else if (event.key === 'Home') next = 0
+              else if (event.key === 'End') next = categories.length - 1
+              else return
+              event.preventDefault(); setCategory(categories[next].id); scrollRef.current?.scrollTo({top:0})
+              document.getElementById(`settings-tab-${categories[next].id}`)?.focus()
+            }}
+            className="min-h-12 rounded-xl px-1 text-sm font-bold transition-colors"
+            style={{ color: category === item.id ? 'var(--brand-strong)' : 'var(--muted)', background: category === item.id ? 'var(--accent-soft)' : 'transparent', boxShadow: category === item.id ? 'inset 0 -3px var(--brand-strong)' : undefined }}>
+            {item.label}
+          </button>)}
         </div>
-
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-          <section>
+        {(category === 'text' || category === 'reading') && <div className="prompter-settings-preview mx-5 mt-4 shrink-0 rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: settings.bgColor }} aria-label="Prévia do texto do prompter">
+          <p className="break-words whitespace-normal text-center" style={{ color: settings.fontColor, fontFamily: settings.fontFamily, fontSize: Math.max(16, Math.min(settings.fontSize / 2, 48)), lineHeight: settings.lineHeight, letterSpacing: settings.letterSpacing, transform: settings.mirror ? 'scaleX(-1)' : undefined }}>Seu texto, no seu ritmo.</p>
+        </div>}
+        <div ref={scrollRef} className="settings-content min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <section id="settings-camera" role="tabpanel" aria-labelledby="settings-tab-camera" hidden={category !== 'camera'} tabIndex={0}>
+            {isRecording && <p className="settings-notice">A gravação está em andamento. Pare a tomada para alterar câmera, enquadramento ou filtro.</p>}
+            <fieldset disabled={isRecording} className="min-w-0 disabled:opacity-60">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
+              Câmera
+            </h3>
+            <Row label="Câmera + gravação">
+              <Toggle checked={settings.cameraOn} onChange={(cameraOn) => updateSettings({ cameraOn })} />
+            </Row>
+            <Row label="Continuar gravando quando o texto terminar">
+              <Toggle
+                checked={settings.openMic}
+                onChange={(openMic) => updateSettings({ openMic })}
+              />
+            </Row>
+            <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
+              Ligado: a câmera e o microfone continuam gravando até você tocar em “Parar”.
+              Desligado: a gravação termina automaticamente junto com o roteiro.
+            </p>
+            {settings.cameraOn && (
+              <Row label="Posição da câmera">
+                <Segmented
+                  value={settings.cameraPosition}
+                  options={[
+                    { value: 'bottom', label: 'Baixo' },
+                    { value: 'top', label: 'Topo' },
+                    { value: 'side', label: 'Lado' },
+                    { value: 'fullscreen', label: 'Tela cheia' },
+                  ]}
+                  onChange={(cameraPosition) => updateSettings({ cameraPosition })}
+                />
+              </Row>
+            )}
+            {settings.cameraPosition === 'fullscreen' && (
+              <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
+                A câmera vira o vídeo em tela cheia e o texto rola por cima. O
+                texto ganha uma sombra para continuar legível.
+              </p>
+            )}
+            {settings.cameraPosition === 'side' && (
+              <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
+                Câmera em um painel lateral ao lado do texto — útil com um vídeo de fundo (B-roll)
+                para criar o efeito tela dividida.
+              </p>
+            )}
+            <Row label="Guia de enquadramento">
+              <Segmented
+                value={settings.aspectGuide}
+                options={[
+                  { value: 'none', label: 'Nenhum' },
+                  { value: '9:16', label: '9:16' },
+                  { value: '4:5', label: '4:5 · Feed' },
+                  { value: '1:1', label: '1:1' },
+                  { value: '16:9', label: '16:9' },
+                ]}
+                onChange={(aspectGuide) => updateSettings({ aspectGuide })}
+              />
+            </Row>
+            {settings.cameraOn && (
+              <>
+                <fieldset disabled={isRecording || filterUnavailable} className="min-w-0 disabled:opacity-60">
+                <Row label="Filtro de beleza">
+                  <Segmented
+                    value={filterUnavailable ? 'none' : settings.beauty}
+                    options={BEAUTY_OPTIONS}
+                    onChange={(beauty) => updateSettings({ beauty })}
+                  />
+                </Row>
+                {!filterUnavailable && settings.beauty !== 'none' && (
+                  <>
+                    <Row label={`Intensidade: ${settings.beautyIntensity}%`}>
+                      <TouchSlider label="intensidade do filtro" min={0} max={100} step={5} value={settings.beautyIntensity} onChange={value => updateSettings({ beautyIntensity: value })} />
+                    </Row>
+                    <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
+                      Suaviza a pele, equilibra a luz e realça os detalhes do rosto. O filtro fica
+                      gravado no vídeo final, não só na prévia.
+                    </p>
+                  </>
+                )}
+                </fieldset>
+                {filterUnavailable && <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Os filtros não estão disponíveis para gravação neste aparelho. Câmera e áudio funcionam sem filtro.</p>}
+                {isRecording ? <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Finalize a gravação para mudar o filtro de beleza.</p> : null}
+                <Row label="Ponto de contato visual">
+                  <Toggle
+                    checked={settings.eyeContactDot}
+                    onChange={(eyeContactDot) => updateSettings({ eyeContactDot })}
+                  />
+                </Row>
+                <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
+                  Mostra um pequeno ponto perto da lente para ajudar você a manter o olhar na câmera.
+                  É apenas um guia na tela e não aparece no vídeo gravado.
+                </p>
+              </>
+            )}
+            <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
+              A guia de enquadramento mostra a área visível em cada formato de publicação.
+            </p>
+            </fieldset>
+          </section>
+          <section id="settings-reading" role="tabpanel" aria-labelledby="settings-tab-reading" hidden={category !== 'reading'} tabIndex={0}>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
               Rolagem
             </h3>
-            <Row label="Modo">
+            <p className="settings-help">Escolha como o texto acompanha sua apresentação.</p>
+            {settings.mode === 'voice' && cameraUsesAutomaticScroll && <p className="settings-notice">No iPhone, com a câmera ligada, o texto usa a velocidade automática. Ajuste abaixo.</p>}
+            <Row label="Como o texto avança">
               <Segmented
                 value={settings.mode}
                 options={[
                   { value: 'voice', label: 'Voz' },
-                  { value: 'fixed', label: 'Fixa' },
-                  { value: 'timed', label: 'Tempo' },
+                  { value: 'fixed', label: 'Automática' },
+                  { value: 'timed', label: 'Por tempo' },
                   { value: 'manual', label: 'Manual' },
                 ]}
                 onChange={(mode) => updateSettings({ mode })}
               />
             </Row>
-            {settings.mode === 'fixed' && (
-              <Row label={`Velocidade: ${settings.wpm} wpm`}>
-                <input
-                  type="range"
-                  min={60}
-                  max={300}
-                  step={1}
-                  value={settings.wpm}
-                  onChange={(e) => updateSettings({ wpm: Number(e.target.value) })}
-                  className="w-36"
-                />
+            {(settings.mode === 'fixed' || (settings.mode === 'voice' && cameraUsesAutomaticScroll)) && (
+              <Row label={`Velocidade: ${settings.wpm} palavras/min`}>
+                <TouchSlider label="velocidade" min={60} max={300} step={1} value={settings.wpm} onChange={value => updateSettings({ wpm: value })} />
               </Row>
             )}
             {settings.mode === 'timed' && (
               <>
                 <Row label={`Terminar em: ${settings.targetMinutes} min`}>
-                  <input
-                    type="range"
-                    min={1}
-                    max={15}
-                    step={0.5}
-                    value={settings.targetMinutes}
-                    onChange={(e) => updateSettings({ targetMinutes: Number(e.target.value) })}
-                    className="w-36"
-                  />
+                  <TouchSlider label="tempo de leitura" min={1} max={15} step={0.5} value={settings.targetMinutes} onChange={value => updateSettings({ targetMinutes: value })} />
                 </Row>
                 <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
                   Velocidade calculada: ≈{' '}
@@ -210,18 +329,10 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
                 </p>
               </>
             )}
-            {settings.mode === 'voice' && (
+            {settings.mode === 'voice' && !cameraUsesAutomaticScroll && (
               <>
                 <Row label={`Sensibilidade: ${Math.round(settings.voiceSensitivity * 100)}%`}>
-                  <input
-                    type="range"
-                    min={0.4}
-                    max={0.9}
-                    step={0.05}
-                    value={settings.voiceSensitivity}
-                    onChange={(e) => updateSettings({ voiceSensitivity: Number(e.target.value) })}
-                    className="w-36"
-                  />
+                  <TouchSlider label="sensibilidade da voz" min={0.4} max={0.9} step={0.05} value={settings.voiceSensitivity} onChange={value => updateSettings({ voiceSensitivity: value })} />
                 </Row>
                 <Row label="Idioma da voz">
                   <select
@@ -244,72 +355,69 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
                 </p>
               </>
             )}
-            <Row label="Continuar gravando quando o texto terminar">
-              <Toggle
-                checked={settings.openMic}
-                onChange={(openMic) => updateSettings({ openMic })}
-              />
-            </Row>
-            <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-              Ligado: a câmera e o microfone continuam gravando até você tocar em “Parar”.
-              Desligado: a gravação termina automaticamente junto com o roteiro.
-            </p>
           </section>
 
-          <section>
+          <section id="settings-text" role="tabpanel" aria-labelledby="settings-tab-text" hidden={category !== 'text'} tabIndex={0}>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
               Texto
             </h3>
-            <Row label={`Tamanho: ${settings.fontSize}px`}>
-              <input
-                type="range"
-                min={24}
-                max={120}
-                step={2}
-                value={settings.fontSize}
-                onChange={(e) => updateSettings({ fontSize: Number(e.target.value) })}
-                className="w-36"
-              />
+            <Row label={`Tamanho das letras: ${settings.fontSize}px`}>
+              <TouchSlider label="tamanho das letras" min={24} max={120} step={2} value={settings.fontSize} onChange={value => updateSettings({ fontSize: value })} />
             </Row>
-            <Row label="Espaçamento de linha">
-              <input
-                type="range"
-                min={1.2}
-                max={2.4}
-                step={0.05}
-                value={settings.lineHeight}
-                onChange={(e) => updateSettings({ lineHeight: Number(e.target.value) })}
-                className="w-36"
-              />
+            <Row label={`Espaço entre linhas: ${settings.lineHeight.toFixed(2)}`}>
+              <TouchSlider label="espaço entre linhas" min={1.2} max={2.4} step={0.05} value={settings.lineHeight} onChange={value => updateSettings({ lineHeight: value })} />
             </Row>
-            <Row label="Espaçamento de letras">
-              <input
-                type="range"
-                min={0}
-                max={8}
-                step={0.5}
-                value={settings.letterSpacing}
-                onChange={(e) => updateSettings({ letterSpacing: Number(e.target.value) })}
-                className="w-36"
-              />
+            <Row label={`Espaço entre letras: ${settings.letterSpacing}px`}>
+              <TouchSlider label="espaço entre letras" min={0} max={8} step={0.5} value={settings.letterSpacing} onChange={value => updateSettings({ letterSpacing: value })} />
             </Row>
             <Row label="Cor do texto">
               <input
                 type="color"
                 value={settings.fontColor}
                 onChange={(e) => updateSettings({ fontColor: e.target.value })}
-                className="h-8 w-12 cursor-pointer rounded border-0 bg-transparent"
+                className="h-11 w-16 cursor-pointer rounded border-0 bg-transparent"
               />
             </Row>
+            <Row label="Fonte">
+              <select
+                value={settings.fontFamily}
+                onChange={(e) => updateSettings({ fontFamily: e.target.value })}
+                className="rounded-lg border bg-transparent px-2 py-1.5 text-sm text-white"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                {FONT_OPTIONS.map((f) => (
+                  <option key={f.value} value={f.value} style={{ background: 'var(--panel)' }}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <Row label="Destacar palavra atual">
+              <Toggle
+                checked={settings.highlightWords}
+                onChange={(highlightWords) => updateSettings({ highlightWords })}
+              />
+            </Row>
+            <Row label="Espelhar texto (vidro de teleprompter)">
+              <Toggle checked={settings.mirror} onChange={(mirror) => updateSettings({ mirror })} />
+            </Row>
+            <Row label="Texto da direita p/ esquerda (RTL)">
+              <Toggle checked={settings.rtl} onChange={(rtl) => updateSettings({ rtl })} />
+            </Row>
+          </section>
+
+          <section id="settings-background" role="tabpanel" aria-labelledby="settings-tab-background" hidden={category !== 'background'} tabIndex={0}>
+            <h3 className="mb-2 font-semibold">Fundo da leitura</h3>
+            <p className="settings-help">Personalize o fundo atrás do texto. Essas imagens não entram na gravação da câmera.</p>
             <Row label="Cor de fundo">
               <input
                 type="color"
                 value={settings.bgColor}
                 onChange={(e) => updateSettings({ bgColor: e.target.value })}
-                className="h-8 w-12 cursor-pointer rounded border-0 bg-transparent"
+                className="h-11 w-16 cursor-pointer rounded border-0 bg-transparent"
               />
             </Row>
-            <div className="flex flex-col items-stretch gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="settings-row flex flex-col items-stretch gap-3 py-4">
               <span className="text-sm" style={{ color: 'var(--text)' }}>
                 Imagem de fundo
               </span>
@@ -476,132 +584,12 @@ export default function SettingsPanel({ settings, wordCount, isRecording = false
                 O vídeo fica atrás do texto, em loop e sem som. Entre na sua conta para buscar clipes do Pexels.
               </p>
             </div>
-            <Row label="Fonte">
-              <select
-                value={settings.fontFamily}
-                onChange={(e) => updateSettings({ fontFamily: e.target.value })}
-                className="rounded-lg border bg-transparent px-2 py-1.5 text-sm text-white"
-                style={{ borderColor: 'var(--border)' }}
-              >
-                {FONT_OPTIONS.map((f) => (
-                  <option key={f.value} value={f.value} style={{ background: 'var(--panel)' }}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </Row>
-            <Row label="Destacar palavra atual">
-              <Toggle
-                checked={settings.highlightWords}
-                onChange={(highlightWords) => updateSettings({ highlightWords })}
-              />
-            </Row>
-            <Row label="Espelhar texto (vidro de teleprompter)">
-              <Toggle checked={settings.mirror} onChange={(mirror) => updateSettings({ mirror })} />
-            </Row>
-            <Row label="Texto da direita p/ esquerda (RTL)">
-              <Toggle checked={settings.rtl} onChange={(rtl) => updateSettings({ rtl })} />
-            </Row>
-          </section>
-
-          <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent-2)' }}>
-              Câmera
-            </h3>
-            <Row label="Câmera + gravação">
-              <Toggle checked={settings.cameraOn} onChange={(cameraOn) => updateSettings({ cameraOn })} />
-            </Row>
-            {settings.cameraOn && (
-              <Row label="Posição da câmera">
-                <Segmented
-                  value={settings.cameraPosition}
-                  options={[
-                    { value: 'bottom', label: 'Baixo' },
-                    { value: 'top', label: 'Topo' },
-                    { value: 'side', label: 'Lado' },
-                    { value: 'fullscreen', label: 'Tela cheia' },
-                  ]}
-                  onChange={(cameraPosition) => updateSettings({ cameraPosition })}
-                />
-              </Row>
-            )}
-            {settings.cameraPosition === 'fullscreen' && (
-              <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                A câmera vira o vídeo em tela cheia e o texto rola por cima. O
-                texto ganha uma sombra para continuar legível.
-              </p>
-            )}
-            {settings.cameraPosition === 'side' && (
-              <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                Câmera em um painel lateral ao lado do texto — útil com um vídeo de fundo (B-roll)
-                para criar o efeito tela dividida.
-              </p>
-            )}
-            <Row label="Guia de enquadramento">
-              <Segmented
-                value={settings.aspectGuide}
-                options={[
-                  { value: 'none', label: 'Nenhum' },
-                  { value: '9:16', label: '9:16' },
-                  { value: '4:5', label: '4:5 · Feed' },
-                  { value: '1:1', label: '1:1' },
-                  { value: '16:9', label: '16:9' },
-                ]}
-                onChange={(aspectGuide) => updateSettings({ aspectGuide })}
-              />
-            </Row>
-            {settings.cameraOn && (
-              <>
-                <fieldset disabled={isRecording || filterUnavailable} className="min-w-0 disabled:opacity-60">
-                <Row label="Filtro de beleza">
-                  <Segmented
-                    value={filterUnavailable ? 'none' : settings.beauty}
-                    options={BEAUTY_OPTIONS}
-                    onChange={(beauty) => updateSettings({ beauty })}
-                  />
-                </Row>
-                {!filterUnavailable && settings.beauty !== 'none' && (
-                  <>
-                    <Row label={`Intensidade: ${settings.beautyIntensity}%`}>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={5}
-                        value={settings.beautyIntensity}
-                        onChange={(e) => updateSettings({ beautyIntensity: Number(e.target.value) })}
-                        className="w-36"
-                      />
-                    </Row>
-                    <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                      Suaviza a pele, equilibra a luz e realça os detalhes do rosto. O filtro fica
-                      gravado no vídeo final, não só na prévia.
-                    </p>
-                  </>
-                )}
-                </fieldset>
-                {filterUnavailable && <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Os filtros não estão disponíveis para gravação neste aparelho. Câmera e áudio funcionam sem filtro.</p>}
-                {isRecording ? <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>Finalize a gravação para mudar o filtro de beleza.</p> : null}
-                <Row label="Ponto de contato visual">
-                  <Toggle
-                    checked={settings.eyeContactDot}
-                    onChange={(eyeContactDot) => updateSettings({ eyeContactDot })}
-                  />
-                </Row>
-                <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                  Mostra um pequeno ponto perto da lente para ajudar você a manter o olhar na câmera.
-                  É apenas um guia na tela e não aparece no vídeo gravado.
-                </p>
-              </>
-            )}
-            <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-              A guia de enquadramento mostra a área visível em cada formato de publicação.
-            </p>
           </section>
 
           <button
-            onClick={resetSettings}
-            className="w-full rounded-lg border py-2 text-sm"
+            disabled={isRecording}
+            onClick={() => { if (window.confirm('Restaurar todos os ajustes de gravação?')) resetSettings() }}
+            className="mt-5 min-h-11 w-full rounded-xl border px-3 text-sm disabled:opacity-50"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
           >
             Restaurar padrões

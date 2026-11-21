@@ -13,6 +13,12 @@ describe('social sharing', () => {
     expect(await blob.text()).toBe('alvo')
   })
 
+  it('restores saved MP4 data URLs with a comma in the codec list', async () => {
+    const blob = dataUrlToBlob('data:video/mp4;codecs=avc1.42001f,mp4a.40.2;base64,YWx2bw==')
+    expect(blob.type).toBe('video/mp4')
+    expect(await blob.text()).toBe('alvo')
+  })
+
   it('rejects invalid saved media', () => {
     expect(() => dataUrlToBlob('invalid')).toThrow('formato válido')
   })

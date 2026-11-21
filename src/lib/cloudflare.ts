@@ -1,5 +1,3 @@
-import { requestAiConsent } from './aiConsent'
-
 /**
  * Cliente do Worker Cloudflare (transcrição Whisper, TTS/dublagem e tradução).
  * Por padrão usa o Worker publicado do AlvoPrompter. Para desenvolvimento
@@ -28,6 +26,7 @@ export function apiBase(): string {
 
 async function fetchJson(path: string, init: RequestInit): Promise<unknown> {
   const token = await optionalAuthToken()
+  init.signal?.throwIfAborted()
   const res = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
@@ -43,7 +42,6 @@ async function fetchJson(path: string, init: RequestInit): Promise<unknown> {
 }
 
 export async function transcribeAudio(blob: Blob, lang: string, signal?: AbortSignal): Promise<WhisperResult> {
-  await requestAiConsent('transcribe', signal)
   signal?.throwIfAborted()
   const form = new FormData()
   form.append('audio', blob, blob.type.includes('wav') ? 'audio.wav' : blob.type.includes('mp4') ? 'audio.mp4' : 'audio.webm')
@@ -55,7 +53,6 @@ export async function transcribeAudio(blob: Blob, lang: string, signal?: AbortSi
 }
 
 export async function speakWithTts(text: string, lang = 'pt'): Promise<Blob> {
-  await requestAiConsent('tts')
   const token = await optionalAuthToken()
   const res = await fetch(`${apiBase()}/tts`, {
     method: 'POST',
@@ -70,7 +67,6 @@ export async function speakWithTts(text: string, lang = 'pt'): Promise<Blob> {
 }
 
 export async function translateCloud(text: string, targetLang: string, sourceLang = 'pt'): Promise<string> {
-  await requestAiConsent('translate')
   const payload = (await fetchJson('/translate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -89,7 +85,6 @@ export async function fetchRemoteText(url: string): Promise<{ text: string; titl
 }
 
 export async function generateAvatar(prompt: string): Promise<Blob> {
-  await requestAiConsent('avatar')
   const token = await optionalAuthToken()
   const res = await fetch(`${apiBase()}/avatar`, {
     method: 'POST',

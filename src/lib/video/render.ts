@@ -1,3 +1,5 @@
+import { canReuseOriginal, type SourceVideoInfo } from './exportPlan'
+
 export type CaptionThemeKey = 'cinema' | 'social' | 'box' | 'none'
 
 export interface CaptionTheme {
@@ -106,6 +108,10 @@ export interface RenderRange {
 
 export interface RenderConfig {
   sourceBlob: Blob
+  sourceInfo?: SourceVideoInfo
+  preserveOriginal?: boolean
+  /** Visible source prevents WebKit from suspending a detached video decoder. */
+  sourceVideo?: HTMLVideoElement
   targetWidth: number
   targetHeight: number
   crop: VideoCrop
@@ -165,10 +171,12 @@ export function applyMotion(base: VideoCrop, motion: MotionPreset, f: number, sr
       scale = 1.25 - 0.25 * f
       break
     case 'pan-left':
-      dx = -base.sw * 0.25 * f
+      scale = 1.25
+      dx = -base.sw * 0.1 * f
       break
     case 'pan-right':
-      dx = base.sw * 0.25 * f
+      scale = 1.25
+      dx = base.sw * 0.1 * f
       break
   }
   let sw = base.sw / scale
@@ -404,11 +412,20 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
   if (!cfg.sourceBlob.size || !cfg.keepRanges.length) throw new Error('Selecione um vídeo e ao menos um trecho para exportar.')
   if (cfg.keepRanges.some((r) => !Number.isFinite(r.start) || !Number.isFinite(r.end) || r.start < 0 || r.end <= r.start)) throw new Error('Os cortes do vídeo são inválidos.')
   if (cfg.signal?.aborted) throw new DOMException('Exportação cancelada.', 'AbortError')
+  if (cfg.sourceInfo && canReuseOriginal(cfg, cfg.sourceInfo)) {
+    cfg.onProgress?.(1)
+    return cfg.sourceBlob
+  }
   const actx = new AudioContext()
   // Resume during the export click, before metadata loading consumes user activation.
   const audioReady = actx.resume()
   const url = URL.createObjectURL(cfg.sourceBlob)
-  const video = document.createElement('video')
+  const video = cfg.sourceVideo ?? document.createElement('video')
+  if (!cfg.sourceVideo) {
+    video.setAttribute('aria-label', 'Vídeo em processamento')
+    Object.assign(video.style, { position: 'fixed', right: '16px', bottom: 'max(16px, env(safe-area-inset-bottom))', width: '112px', maxHeight: '160px', objectFit: 'contain', zIndex: '100', borderRadius: '12px', background: '#000', pointerEvents: 'none' })
+    document.body.append(video)
+  }
   video.preload = 'auto'
   video.playsInline = true
   video.src = url
@@ -418,6 +435,9 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
   let stopRange = () => {}
   let abort = () => {}
   let done = false
+  let finishing = false
+  let lastFrameAt = Date.now()
+  let lastProgressAt = 0
   let watchdog: ReturnType<typeof setInterval> | undefined
   let interrupt = () => {}
   const cleanup = () => {
@@ -431,6 +451,7 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
     video.pause()
     video.removeAttribute('src')
     video.load()
+    if (!cfg.sourceVideo) video.remove()
     URL.revokeObjectURL(url)
     out?.getTracks().forEach((track) => track.stop())
     try { musicNode?.stop() } catch { /* Music may not have started. */ }
@@ -486,6 +507,8 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
       interrupt = () => { if (document.hidden) fail(new Error('A exportação foi interrompida porque o app ficou em segundo plano. Sua edição foi mantida; tente novamente com o app aberto.')) }
       document.addEventListener('visibilitychange', interrupt)
       watchdog = setInterval(() => {
+        if (done) return
+        if (!finishing && Date.now() - lastFrameAt > 15_000) { fail(new Error('O vídeo parou de enviar imagens durante o preparo. Sua edição foi mantida. Tente novamente; o original continua na biblioteca.')); return }
         if (video.currentTime !== previousTime) { previousTime = video.currentTime; lastActivity = Date.now() }
         else if (Date.now() - lastActivity > 20_000) fail(new Error('A exportação parou de responder. Sua edição foi mantida; tente novamente.'))
       }, 2000)
@@ -612,7 +635,7 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
 
     const playNext = () => {
       if (done) return
-      if (rangeIdx >= cfg.keepRanges.length) { recorder.stop(); return }
+      if (rangeIdx >= cfg.keepRanges.length) { finishing = true; lastActivity = Date.now(); recorder.stop(); return }
       if (cfg.signal?.aborted) { abort(); return }
       const range = cfg.keepRanges[rangeIdx]!
       let finished = false
@@ -631,10 +654,14 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
       }
       const onFrame = () => {
         if (done || finished) return
+        lastFrameAt = Date.now()
         const pos = Math.max(0, Math.min(video.currentTime, range.end) - range.start)
         try { draw(Math.min(1, pos / (range.end - range.start))) }
         catch { fail(new Error('Não foi possível aplicar os efeitos. Ajuste a edição e tente novamente.')); return }
-        cfg.onProgress?.(Math.min(1, (completed + pos) / total))
+        if (Date.now() - lastProgressAt >= 250 || video.ended || video.currentTime >= range.end) {
+          lastProgressAt = Date.now()
+          cfg.onProgress?.(Math.min(1, (completed + pos) / total))
+        }
         if (video.currentTime >= range.end || video.ended) finishRange()
         else if (typeof video.requestVideoFrameCallback === 'function') frame = video.requestVideoFrameCallback(onFrame)
         else animation = requestAnimationFrame(onFrame)
@@ -648,6 +675,7 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
           await video.play()
           if (done) return
           if (recorder.state === 'paused') recorder.resume()
+          lastFrameAt = Date.now()
           onFrame()
         } catch { fail(new Error('Não foi possível reproduzir o vídeo com áudio. Toque em exportar novamente.')) }
       }
@@ -666,7 +694,9 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
         video.currentTime = range.start
       }
     }
-    recorder.start(500)
+    // WebKit finalizes MP4 more reliably without periodic fragmented chunks.
+    if (recorder.mimeType.includes('mp4')) recorder.start()
+    else recorder.start(500)
     recorder.pause()
     musicNode?.start()
     playNext()
