@@ -2,7 +2,7 @@
 
 O titular confirmou que o build 32 congela a imagem também no original e pediu uma reescrita, com teste anterior à entrega. Esta rodada também organiza Vídeos/Ensaios/Roteiros e separa os controles de texto e vídeo, com gesto para reler.
 
-**Estado: original e exportação nativa aprovados no iPhone para os cenários descritos abaixo. Versão 1.6.7 (33) em preparação para TestFlight.**
+**Estado: original e exportação nativa aprovados no iPhone para os cenários descritos abaixo. Versão 1.6.7 (33) enviada, processada e disponibilizada no grupo interno Equipe AlvoPrompter do TestFlight.**
 
 ## Implementação
 
@@ -99,3 +99,9 @@ As duas chamadas ao mesmo renderVideo usado pelo editor concluíram no iPhone re
 O teste compartilhado no Mac com dois cortes, caminho de reenquadramento, pan, música WAV repetida, logo PNG, chroma, abertura/encerramento e destaque de palavras terminou em 3,92 s: 150 quadros/5 s, áudio até 5,056 s e maior lacuna 0,0334 s. Cancelamento nativo solicitado durante a montagem retornou “Exportação cancelada”, sem substituir o original.
 
 Escopo desta aprovação: exportação nativa em primeiro plano, com os arquivos e efeitos exercitados. Não equivale a comprovar todos os modelos de iPhone, todas as durações ou todas as combinações. Safari web no iPhone continua sem validação física nesta rodada. Artefatos privados permanecem ignorados em artifacts/capture-rebuild-2026-11-23/physical/.
+
+## Publicação desta revisão
+
+Commit funcional e44f949e4092ebd43e98dee6920a3eb7a4a38710 enviado a origin/main. CI remoto concluído com sucesso: https://github.com/Alexandrecostagg/alvoprompter/actions/runs/45199597978 . Web publicada em https://2f51cd77.alvoprompter.pages.dev e conferida em https://app.alvoprompter.com.br: HTTP 200, assets iguais ao build de produção, CSP e nosniff presentes. API e base de dados não receberam alterações nesta rodada.
+
+Archive de produção 1.6.7 (33), com.alvoprompt.app, gerado e assinatura verificada. Plugins de captura/exportação vinculados; código e flags QA excluídos; recursos nativos iguais ao build capacitor conferido. Xcode confirmou “Upload succeeded / EXPORT SUCCEEDED” em 23/11/2026 às 12:03 (America/Belem). Processamento concluído na Apple e build 33 associado manualmente ao grupo interno Equipe AlvoPrompter, que contém o tester do titular. A lista da versão 1.6.7 confirmou o grupo na linha da compilação 33. Comprovante privado salvo em artifacts/release-1.6.7-33/testflight-build-33.png. Não houve publicação na App Store pública.
