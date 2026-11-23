@@ -18,6 +18,11 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		BB50550C524448A2AAD48D73 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B93BA6BD413470D836CCE16 /* GoogleService-Info.plist */; };
+		4682197EC09A4528B02D39A1 /* CaptureBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEF5035F0D340EF970AB12F /* CaptureBridgeViewController.swift */; };
+		D82F8F74DFD4405F8493CA71 /* NativeCameraPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE088615FA145729C84CFFF /* NativeCameraPlugin.swift */; };
+		19B4AE8B3CED4EE98BC719DC /* CaptureValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A4441A426004737AE4379A9 /* CaptureValidation.swift */; };
+		D76A281A3E5A42669E660111 /* NativeVideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380D9242C5464920AD06BED8 /* NativeVideoRenderer.swift */; };
+		90951F0B7A944AF389C64E2D /* NativeVideoExportPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01A34F70C5B14028848E2D99 /* NativeVideoExportPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +39,11 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		3B93BA6BD413470D836CCE16 /* GoogleService-Info.plist */ = {isa = PBXFileReference; name = "GoogleService-Info.plist"; path = "GoogleService-Info.plist"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = text.plist.xml; includeInIndex = 0; };
+		CBEF5035F0D340EF970AB12F /* CaptureBridgeViewController.swift */ = {isa = PBXFileReference; name = "CaptureBridgeViewController.swift"; path = "CaptureBridgeViewController.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		FCE088615FA145729C84CFFF /* NativeCameraPlugin.swift */ = {isa = PBXFileReference; name = "NativeCameraPlugin.swift"; path = "NativeCameraPlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		2A4441A426004737AE4379A9 /* CaptureValidation.swift */ = {isa = PBXFileReference; name = "CaptureValidation.swift"; path = "CaptureValidation.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		380D9242C5464920AD06BED8 /* NativeVideoRenderer.swift */ = {isa = PBXFileReference; name = "NativeVideoRenderer.swift"; path = "NativeVideoRenderer.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		01A34F70C5B14028848E2D99 /* NativeVideoExportPlugin.swift */ = {isa = PBXFileReference; name = "NativeVideoExportPlugin.swift"; path = "NativeVideoExportPlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,6 +89,11 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				3B93BA6BD413470D836CCE16 /* GoogleService-Info.plist */,
+				CBEF5035F0D340EF970AB12F /* CaptureBridgeViewController.swift */,
+				FCE088615FA145729C84CFFF /* NativeCameraPlugin.swift */,
+				2A4441A426004737AE4379A9 /* CaptureValidation.swift */,
+				380D9242C5464920AD06BED8 /* NativeVideoRenderer.swift */,
+				01A34F70C5B14028848E2D99 /* NativeVideoExportPlugin.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -173,6 +188,11 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				4682197EC09A4528B02D39A1 /* CaptureBridgeViewController.swift in Sources */,
+				D82F8F74DFD4405F8493CA71 /* NativeCameraPlugin.swift in Sources */,
+				19B4AE8B3CED4EE98BC719DC /* CaptureValidation.swift in Sources */,
+				D76A281A3E5A42669E660111 /* NativeVideoRenderer.swift in Sources */,
+				90951F0B7A944AF389C64E2D /* NativeVideoExportPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -313,7 +333,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 33;
 				DEVELOPMENT_TEAM = LCN99JS59U;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -321,7 +341,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6.6;
+				MARKETING_VERSION = 1.6.7;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.alvoprompt.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -337,7 +357,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 33;
 				DEVELOPMENT_TEAM = LCN99JS59U;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -345,7 +365,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6.6;
+				MARKETING_VERSION = 1.6.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alvoprompt.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

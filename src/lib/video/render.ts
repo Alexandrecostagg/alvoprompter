@@ -1,4 +1,5 @@
 import { canReuseOriginal, type SourceVideoInfo } from './exportPlan'
+import { Capacitor } from '@capacitor/core'
 
 export type CaptionThemeKey = 'cinema' | 'social' | 'box' | 'none'
 
@@ -108,6 +109,7 @@ export interface RenderRange {
 
 export interface RenderConfig {
   sourceBlob: Blob
+  nativeSource?: { id: string; scope: string }
   sourceInfo?: SourceVideoInfo
   preserveOriginal?: boolean
   /** Visible source prevents WebKit from suspending a detached video decoder. */
@@ -416,6 +418,10 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
     cfg.onProgress?.(1)
     return cfg.sourceBlob
   }
+  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
+    const { renderNativeVideo } = await import('./nativeRender')
+    return renderNativeVideo(cfg)
+  }
   const actx = new AudioContext()
   // Resume during the export click, before metadata loading consumes user activation.
   const audioReady = actx.resume()
@@ -428,6 +434,7 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
   }
   video.preload = 'auto'
   video.playsInline = true
+  video.disablePictureInPicture = true
   video.src = url
   let out: MediaStream | undefined
   let musicNode: AudioBufferSourceNode | undefined
@@ -458,7 +465,14 @@ export async function renderVideo(cfg: RenderConfig): Promise<Blob> {
     if (actx.state !== 'closed') void actx.close()
   }
   try {
-    await audioReady
+    await new Promise<void>((resolve, reject) => {
+      const cancel = () => finish(new DOMException('Exportação cancelada.', 'AbortError'))
+      const finish = (error?: unknown) => { clearTimeout(timeout); cfg.signal?.removeEventListener('abort', cancel); if (error) reject(error); else resolve() }
+      const timeout = setTimeout(() => finish(new Error('O áudio não iniciou. Sua edição foi mantida; toque em aplicar novamente.')), 10_000)
+      cfg.signal?.addEventListener('abort', cancel, { once: true })
+      if (cfg.signal?.aborted) cancel()
+      else void audioReady.then(() => finish(), finish)
+    })
     await new Promise<void>((resolve, reject) => {
       const finish = (error?: Error) => {
         clearTimeout(timeout)

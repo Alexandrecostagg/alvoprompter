@@ -264,8 +264,8 @@ export function useVoiceTrack({
     }
   }, [handleResult, mode, startAudioLevel])
 
-  const reset = useCallback(() => {
-    pointerRef.current = 0
+  const reset = useCallback((wordIndex = 0) => {
+    pointerRef.current = Math.max(0, Math.min(cbRef.current.words.length - 1, Math.round(wordIndex)))
   }, [])
 
   useEffect(() => {

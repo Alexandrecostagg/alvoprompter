@@ -3,7 +3,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Capacitor } from '@capacitor/core'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import { useAppStore } from '../../store/useAppStore'
+import { capturedProject } from '../../lib/capture/context'
+import { mediaScope } from '../../lib/videoProjects'
 import { splitWords } from '../../lib/text'
+import { useTextScrub } from '../../hooks/useTextScrub'
 import { usePrompterEngine } from '../../hooks/usePrompterEngine'
 import { useVoiceTrack, type VoiceTrackingMode } from '../../hooks/useVoiceTrack'
 import { useGamepad } from '../../hooks/useGamepad'
@@ -210,6 +213,12 @@ export default function PrompterView() {
   })
 
   const recorder = useRecorder()
+  const textScrub = useTextScrub({
+    fraction: () => engine.fraction.current,
+    offsets: () => offsetsRef.current,
+    pause: () => { pausedByVoiceRef.current = false; engine.pause(); voice.stop() },
+    seek: engine.seekToFraction,
+  })
   const closeResult = () => {
     // A failed camera must not be enabled again just because its dialog closed.
     // Keep rehearsal available; the user can explicitly turn the camera back on.
@@ -299,7 +308,7 @@ export default function PrompterView() {
     setShowResult(true)
   }, [recorder.status, pauseEngine, stopVoice, stopTranscription])
 
-  const startTake = () => {
+  const startTake = async () => {
     if (rehearsalAudio.active || rehearsalAudio.unsaved) return
     setPendingLeave(null)
     // Reset done/paused progress before starting the encoder, so the automatic
@@ -310,7 +319,7 @@ export default function PrompterView() {
     voice.stop()
     voice.reset()
     transcription.stop()
-    if (!recorder.start()) { setShowResult(true); return }
+    if (!await recorder.start()) { setShowResult(true); return }
     recStartRef.current = performance.now()
     captionRef.current = []
     setSrtText(null)
@@ -433,19 +442,24 @@ export default function PrompterView() {
   const storedTakeRef = useRef<Blob | null>(null)
   useEffect(() => {
     if (!recorder.videoBlob?.size || recorder.isFinishing || storedTakeRef.current === recorder.videoBlob) return
+    const project = recorder.capturedMovie ? capturedProject(recorder.capturedMovie) : undefined
+    const state = useAppStore.getState()
+    if (project && project.scope !== mediaScope(state.mediaOwner, state.cloudWorkspace?.id ?? null)) return
     storedTakeRef.current = recorder.videoBlob
-    useAppStore.getState().setRecording({ blob: recorder.videoBlob, url: '', srt: buildSrt(captionRef.current), utterances: captionRef.current.slice(), resumeFraction: engine.fraction.current })
-  }, [recorder.videoBlob, recorder.isFinishing, engine.fraction])
+    if (project) { project.srt = buildSrt(captionRef.current); project.utterances = captionRef.current.slice(); project.resumeFraction = engine.fraction.current }
+    state.setRecording({ project, blob: recorder.videoBlob, url: '', srt: buildSrt(captionRef.current), utterances: captionRef.current.slice(), resumeFraction: engine.fraction.current })
+  }, [recorder.videoBlob, recorder.capturedMovie, recorder.isFinishing, engine.fraction])
 
   const saveAndLeave = async (view: View = 'library') => {
     engine.pause()
     try { await rehearsalAudio.finish(); await rehearsal.save() } catch { return }
     if (recorder.isRecording) { setPendingLeave(view); stopRecording(); return }
     if (recorder.isFinishing || (recorder.videoBlob && recordingSaveStatus !== 'saved')) { setPendingLeave(view); setShowResult(true); return }
+    if (view === 'library') useAppStore.getState().setLibrarySection(recorder.videoBlob || recorder.error ? 'videos' : 'rehearsals')
     setView(view)
   }
   useEffect(() => {
-    if (pendingLeave && !recorder.isFinishing && recorder.videoBlob && recordingSaveStatus === 'saved' && useAppStore.getState().recording?.blob === recorder.videoBlob) setView(pendingLeave)
+    if (pendingLeave && !recorder.isFinishing && recorder.videoBlob && recordingSaveStatus === 'saved' && useAppStore.getState().recording?.blob === recorder.videoBlob) { if (pendingLeave === 'library') useAppStore.getState().setLibrarySection('videos'); setView(pendingLeave) }
   }, [pendingLeave, recorder.isFinishing, recorder.videoBlob, recordingSaveStatus, setView])
 
   const { supported: transSupported, start: transStart, stop: transStop } = transcription
@@ -465,20 +479,21 @@ export default function PrompterView() {
     if (engine.state === 'running') {
       pausedByVoiceRef.current = false
       engine.pause()
+      voice.stop()
       return
     }
     if (engine.state === 'done') {
       engine.stop()
       return
     }
-    voice.reset()
+    voice.reset(Math.round(engine.fraction.current * Math.max(0, words.length - 1)))
     const fallbackToAutomatic = rehearsalAudio.active || (settings.mode === 'voice' && (iosCamera || !voice.supported))
     pausedByVoiceRef.current = false
     voiceFallbackRef.current = fallbackToAutomatic
     setVoiceFallback(fallbackToAutomatic)
     engine.start(fallbackToAutomatic ? 'fixed' : undefined)
     if (!rehearsalAudio.active && settings.mode === 'voice' && voice.supported && !iosCamera) voice.start()
-  }, [engine, voice, settings.mode, iosCamera, rehearsalAudio.active])
+  }, [engine, voice, settings.mode, iosCamera, rehearsalAudio.active, words.length])
 
   const refs = useRef({ handlePrimary, showSettings, settings, updateSettings, setView: saveAndLeave })
   refs.current = { handlePrimary, showSettings, settings, updateSettings, setView: saveAndLeave }
@@ -582,14 +597,12 @@ export default function PrompterView() {
       className="relative w-full overflow-hidden"
       style={{ height: '38%' }}
     >
-      <video
-        ref={recorder.attachVideo}
-        autoPlay
-        playsInline
-        muted
+      {recorder.isNative ? <div ref={recorder.attachPreview} aria-label="Prévia da câmera" className="h-full w-full" /> : <video
+        ref={recorder.attachPreview}
+        autoPlay playsInline muted
         className="h-full w-full object-cover"
-        style={{ transform: 'scaleX(-1)', filter: beautyCss || undefined }}
-      />
+        style={{ transform: 'scaleX(-1)' }}
+      />}
       {recorder.status === 'requesting' && (
         <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
           Solicitando câmera...
@@ -609,14 +622,12 @@ export default function PrompterView() {
 
   const cameraFullscreen = settings.cameraOn && isFullscreenCam && (
     <div className="absolute inset-0 z-0">
-      <video
-        ref={recorder.attachVideo}
-        autoPlay
-        playsInline
-        muted
+      {recorder.isNative ? <div ref={recorder.attachPreview} aria-label="Prévia da câmera" className="h-full w-full" /> : <video
+        ref={recorder.attachPreview}
+        autoPlay playsInline muted
         className="h-full w-full object-cover"
-        style={{ transform: 'scaleX(-1)', filter: beautyCss || undefined }}
-      />
+        style={{ transform: 'scaleX(-1)' }}
+      />}
       {recorder.status === 'requesting' && (
         <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
           Solicitando câmera...
@@ -636,14 +647,12 @@ export default function PrompterView() {
 
   const cameraSide = settings.cameraOn && isSideCam && (
     <div className="relative h-full w-2/5 max-w-[40vw] shrink-0 overflow-hidden border-r" style={{ borderColor: 'rgba(255,255,255,.12)' }}>
-      <video
-        ref={recorder.attachVideo}
-        autoPlay
-        playsInline
-        muted
+      {recorder.isNative ? <div ref={recorder.attachPreview} aria-label="Prévia da câmera" className="h-full w-full" /> : <video
+        ref={recorder.attachPreview}
+        autoPlay playsInline muted
         className="h-full w-full object-cover"
-        style={{ transform: 'scaleX(-1)', filter: beautyCss || undefined }}
-      />
+        style={{ transform: 'scaleX(-1)' }}
+      />}
       {recorder.status === 'requesting' && (
         <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
           Solicitando câmera...
@@ -662,7 +671,7 @@ export default function PrompterView() {
   )
 
   const textViewport = (
-    <div ref={viewportRef} className="relative z-10 min-h-0 flex-1 overflow-hidden">
+    <div ref={viewportRef} {...textScrub} aria-label="Texto do teleprompter" aria-describedby="text-scrub-help" className="prompter-text-viewport relative z-10 min-h-0 flex-1 overflow-hidden" style={{ touchAction: 'none', userSelect: 'none', background: recorder.isNative && !isFullscreenCam ? settings.bgColor : undefined }}>
       <div
         className="pointer-events-none absolute left-0 right-0 top-1/2 z-10 h-px"
         style={{ background: 'rgba(255,255,255,0.25)' }}
@@ -710,7 +719,7 @@ export default function PrompterView() {
   )
 
   return (
-    <div data-theme="dark" className="prompter-screen relative flex h-[100dvh] min-h-0 flex-col overflow-hidden" style={{ color: 'var(--text)', background: settings.bgColor, paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}>
+    <div data-theme="dark" className="prompter-screen relative flex h-[100dvh] min-h-0 flex-col overflow-hidden" style={{ color: 'var(--text)', background: recorder.isNative ? 'transparent' : settings.bgColor, paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}>
       {settings.bgVideo && !isFullscreenCam ? (
         <>
           <video
@@ -748,7 +757,7 @@ export default function PrompterView() {
             }}
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />
-            {recorder.isRecording ? 'GRAVANDO' : rehearsalAudio.status === 'recording' ? 'GRAVANDO ÁUDIO' : statusLabel}
+            {recorder.isRecording ? (engine.state === 'running' ? 'GRAVANDO VÍDEO' : 'GRAVANDO · TEXTO PAUSADO') : rehearsalAudio.status === 'recording' ? 'GRAVANDO ÁUDIO' : statusLabel}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -827,15 +836,15 @@ export default function PrompterView() {
           </button>
           <button
             onClick={handlePrimary}
-            aria-label={engine.state === 'running' ? 'Pausar rolagem' : 'Iniciar rolagem'}
-            className="grid h-16 w-16 shrink-0 place-items-center rounded-full text-2xl font-bold transition-transform hover:scale-105"
+            aria-label={engine.state === 'running' ? 'Pausar texto' : 'Retomar texto'}
+            className="flex min-h-14 min-w-24 flex-col items-center justify-center gap-1 rounded-2xl px-3 py-2 font-semibold"
             style={{
               background: engine.state === 'running' ? 'var(--warn)' : 'var(--brand-gradient)',
               color: engine.state === 'running' ? '#151927' : '#fff',
               boxShadow: engine.state === 'running' ? 'none' : '0 8px 20px rgba(128,82,255,.45)',
             }}
           >
-            {engine.state === 'running' ? '❚❚' : '▶'}
+            <span aria-hidden="true">{engine.state === 'running' ? '❚❚' : '▶'}</span><span className="text-xs">{engine.state === 'running' ? 'Pausar texto' : 'Retomar texto'}</span>
           </button>
           {gamepadConnected && (
             <span className="hidden rounded-full border px-2 py-1 text-[11px] sm:inline" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
@@ -845,9 +854,9 @@ export default function PrompterView() {
           {!settings.cameraOn && <button disabled={rehearsalAudio.active || rehearsalAudio.unsaved} onClick={() => updateSettings({ cameraOn: true })} className="min-h-12 rounded-2xl border px-3 text-sm font-semibold" style={{ borderColor: 'var(--border)' }}>Ligar câmera</button>}
           {settings.cameraOn && (
             <button
-              onClick={() => { if (recorder.isRecording) stopRecording(); else startTake() }}
+              onClick={() => { if (recorder.isRecording) stopRecording(); else void startTake() }}
               disabled={rehearsalAudio.active || rehearsalAudio.unsaved || (recorder.status !== 'ready' && !recorder.isRecording)}
-              className="flex h-12 shrink-0 items-center gap-2 rounded-2xl border px-3 text-sm font-semibold"
+              className="flex min-h-14 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold"
               style={{
                 borderColor: recorder.isRecording ? 'var(--danger)' : 'var(--border)',
                 color: recorder.isRecording ? 'var(--danger)' : 'var(--text)',
@@ -856,18 +865,19 @@ export default function PrompterView() {
               {recorder.isRecording ? (
                 <>
                   <span className="h-2 w-2 animate-pulse rounded-full" style={{ background: 'var(--danger)' }} />
-                  Parar · {formatElapsed(recorder.elapsed)}
+                  <span>Parar gravação<span className="block tabular-nums">{formatElapsed(recorder.elapsed)}</span></span>
                 </>
               ) : (
                 <>
                   <span className="h-2 w-2 rounded-full" style={{ background: 'var(--danger)' }} />
-                  <span>Gravar</span>
+                  <span>Gravar vídeo</span>
                 </>
               )}
             </button>
           )}
         </div>
-        {!showResult && <div className="mx-auto mt-2 flex max-w-4xl flex-wrap justify-center gap-2">
+        {!showResult && <p id="text-scrub-help" className="mx-auto mt-2 max-w-4xl text-center text-xs" style={{ color: 'var(--muted)' }}>Arraste o texto para reler.{recorder.isRecording ? ' A câmera continua gravando.' : ' Toque em Retomar texto para seguir.'}</p>}
+        {!showResult && <details className="mx-auto mt-2 max-w-4xl text-center"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">Salvar e opções do ensaio</summary><div className="flex flex-wrap justify-center gap-2">
           <button disabled={recorder.isRecording || recorder.isFinishing || rehearsalAudio.status === 'requesting' || rehearsalAudio.status === 'saving'} className="min-h-11 rounded-xl border px-3 text-xs font-semibold" onClick={() => { void (async () => {
             if (rehearsalAudio.status === 'recording' || rehearsalAudio.unsaved) { engine.pause(); await rehearsalAudio.finish(); await rehearsal.save(); return }
             engine.pause(); voice.stop(); transcription.stop(); updateSettings({ cameraOn: false, mode: 'fixed' }); await recorder.disable()
@@ -875,7 +885,7 @@ export default function PrompterView() {
           })().catch(() => undefined) }}>{rehearsalAudio.status === 'recording' ? `Parar e salvar áudio · ${formatElapsed(rehearsalAudio.elapsed)}` : rehearsalAudio.status === 'saving' ? 'Salvando áudio…' : rehearsalAudio.unsaved ? 'Tentar salvar áudio' : rehearsalAudio.status === 'requesting' ? 'Abrindo microfone…' : 'Gravar áudio do ensaio'}</button>
           <button disabled={recorder.isFinishing || rehearsalAudio.status === 'saving' || rehearsalAudio.status === 'requesting'} className="min-h-11 rounded-xl border px-3 text-xs font-semibold" onClick={() => { engine.pause(); void (async () => { await rehearsalAudio.finish(); await rehearsal.save() })().catch(() => undefined) }}>Salvar ensaio</button>
           <button disabled={recorder.isFinishing} className="min-h-11 rounded-xl border px-3 text-xs font-semibold" onClick={() => void saveAndLeave()}>{recorder.isRecording ? 'Salvar tomada e sair' : 'Salvar e continuar depois'}</button>
-        </div>}
+        </div></details>}
         {!showResult && rehearsal.resume && engine.state === 'idle' && <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs"><span>Ensaio guardado · {Math.round(rehearsal.resume.fraction * 100)}%</span><button className="min-h-11 rounded-xl border px-3 font-semibold" onClick={() => { rehearsal.restore(); setProgressPct(Math.round(engine.fraction.current * 100)) }}>{rehearsal.resume.fraction >= 1 ? 'Recuperar ajustes do ensaio' : 'Continuar do ponto salvo'}</button></div>}
         {rehearsalAudio.message && <p role="status" className="mt-2 text-center text-xs">{rehearsalAudio.message}</p>}
         {rehearsal.message && <p role="status" className="mt-2 text-center text-xs">{rehearsal.message}</p>}

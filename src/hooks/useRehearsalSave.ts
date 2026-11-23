@@ -25,7 +25,7 @@ export function useRehearsalSave(script: Script | null, settings: PrompterSettin
     if (!now.script?.key || !now.script.content.trim() || mediaScope(store.mediaOwner, store.cloudWorkspace?.id ?? null) !== now.scope) return
     try {
       await saveRehearsal({ scope: now.scope, scriptKey: now.script.key, title: now.script.title, content: now.script.content, fraction: now.engine.fraction.current, settings: now.settings, updatedAt: Date.now() })
-      if (notify) setMessage('Ensaio salvo. Retome em Roteiros → Seus ensaios.')
+      if (notify) setMessage('Ensaio salvo. Retome em Biblioteca → Ensaios.')
     } catch (error) { if (notify) setMessage('Não foi possível salvar o ensaio. Libere espaço e tente novamente.'); throw error }
   }, [])
   useEffect(() => {

@@ -25,14 +25,15 @@ export default function Rehearsals() {
     store.selectScript(script)
     store.setView('prompter')
   }
-  if (!items.length && !audios.length && !error) return null
   return <section className="my-5 rounded-2xl border p-4" aria-label="Ensaios salvos" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
     <h2 className="text-lg font-semibold">Seus ensaios</h2>
     <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Roteiro, ajustes, ponto de leitura e áudios guardados neste aparelho. Salve uma cópia dos áudios que quiser levar para outro dispositivo.</p>
+    <p className="mt-2 text-sm">Ensaios de leitura guardam seu ponto no texto. Para editar um vídeo gravado, abra Biblioteca → Vídeos.</p>
+    {!items.length && !audios.length && !error && <p className="mt-4 text-sm">Nenhum ensaio salvo. Abra um roteiro e toque em Salvar ensaio para continuar a leitura depois.</p>}
     {error && <p role="alert">{error}</p>}
     <div className="mt-3 grid gap-3 sm:grid-cols-2">{items.map(item => <article key={item.scriptKey} className="rounded-xl border p-3" style={{ borderColor: 'var(--border)' }}>
       <h3 className="truncate font-semibold">{item.title}</h3><p className="my-2 text-sm">{item.fraction >= 1 ? 'Leitura concluída' : `${Math.round(item.fraction * 100)}% do roteiro`} · {new Date(item.updatedAt).toLocaleString('pt-BR')}</p>
-      <button className="min-h-11 rounded-xl border px-3 text-sm font-semibold" onClick={() => void open(item).catch(() => setError('Não foi possível recuperar o ensaio. Tente novamente.'))}>Abrir ensaio salvo</button>
+      <button className="min-h-11 rounded-xl border px-3 text-sm font-semibold" onClick={() => void open(item).catch(() => setError('Não foi possível recuperar o ensaio. Tente novamente.'))}>Continuar leitura / gravar vídeo</button>
     </article>)}</div>
     {audios.length > 0 && <div className="mt-4 grid gap-3 sm:grid-cols-2">{audios.map(item => <article key={item.id} className="min-w-0 rounded-xl border p-3" style={{ borderColor: 'var(--border)' }}>
       <h3 className="truncate font-semibold">{item.title} · áudio</h3>

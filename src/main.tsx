@@ -24,7 +24,9 @@ async function retireLegacyNativePwa(): Promise<void> {
 
 void retireLegacyNativePwa()
 
-createRoot(document.getElementById('root')!).render(
+if (import.meta.env.VITE_CAPTURE_QA === 'true') {
+  void import('../audit/NativeCaptureQA').then(({ default: CaptureQA }) => createRoot(document.getElementById('root')!).render(<ErrorBoundary><CaptureQA /></ErrorBoundary>))
+} else createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <NativeUpdateGate><App /></NativeUpdateGate>

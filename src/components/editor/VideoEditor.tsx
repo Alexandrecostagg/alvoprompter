@@ -58,6 +58,7 @@ function Editor() {
   const currentScript = useAppStore((s) => s.currentScript)
   const setRecording = useAppStore((s) => s.setRecording)
   const setView = useAppStore((s) => s.setView)
+  const backToLibrary = () => { useAppStore.getState().setLibrarySection('videos'); setView('library') }
 
   const saved = recording?.project?.edit
   const [suggestedStyle, setSuggestedStyle] = useState(() => !saved && recording?.project ? previousVideoStyle(recording.project.scope) : null)
@@ -367,7 +368,7 @@ function Editor() {
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center gap-4 px-4 py-8 sm:px-6">
         <p style={{ color: 'var(--muted)' }}>Nenhuma gravação para editar.</p>
         <button
-          onClick={() => setView('library')}
+          onClick={() => backToLibrary()}
           className="min-h-11 rounded-lg border px-4 py-2 text-sm"
           style={{ borderColor: 'var(--border)' }}
         >
@@ -605,6 +606,7 @@ function Editor() {
       setProcessStage('Aplicando as alterações ao vídeo…')
       const blob = await renderVideo({
         sourceBlob: recording.blob,
+        nativeSource: recording.project ? { id: recording.project.id, scope: recording.project.scope } : undefined,
         sourceInfo: { width: meta.w, height: meta.h, duration: meta.dur },
         preserveOriginal: exportQuality === 'hd',
         targetWidth: targetW,
@@ -841,7 +843,7 @@ function Editor() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { if (projectSave.status === 'error') { if (window.confirm('Há alterações não salvas. Baixe o original antes de sair. Sair mesmo assim?')) setView('library'); return }; void projectSave.flush().then(() => setView('library')).catch(() => setError('A edição ainda não foi salva. Tente novamente.')) }}
+            onClick={() => { if (projectSave.status === 'error') { if (window.confirm('Há alterações não salvas. Baixe o original antes de sair. Sair mesmo assim?')) backToLibrary(); return }; void projectSave.flush().then(() => backToLibrary()).catch(() => setError('A edição ainda não foi salva. Tente novamente.')) }}
             disabled={processing || transcribing || Boolean(musicBusy) || logoBusy}
             className="min-h-11 rounded-xl border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
@@ -850,13 +852,13 @@ function Editor() {
           </button>
           <div><p className="studio-eyebrow">SEU VÍDEO, DO SEU JEITO</p><h1 className="text-xl font-semibold">Finalizar vídeo</h1><p className="text-sm" style={{ color: 'var(--muted)' }}>{recording.project?.title ?? currentScript?.title ?? 'Minha gravação'}</p></div>
         </div>
-        <button disabled={processing || transcribing || !edit || projectSave.status === 'saving'} className="min-h-11 rounded-xl border px-4 text-sm font-semibold" onClick={() => void projectSave.flush().then(() => setView('library')).catch(() => setError('Não foi possível salvar. Mantenha a tela aberta e tente novamente.'))}>Salvar e continuar depois</button>
+        <button disabled={processing || transcribing || !edit || projectSave.status === 'saving'} className="min-h-11 rounded-xl border px-4 text-sm font-semibold" onClick={() => void projectSave.flush().then(() => backToLibrary()).catch(() => setError('Não foi possível salvar. Mantenha a tela aberta e tente novamente.'))}>Salvar e continuar depois</button>
         <button
           disabled={processing || transcribing || Boolean(musicBusy) || logoBusy}
           onClick={() => {
             if (!recording.project) return
             void projectSave.flush().then(() => updateVideoProject(recording.project!.id, recording.project!.scope, { deletedAt: Date.now() })).then(() => {
-              setRecording(null); setView('library')
+              setRecording(null); backToLibrary()
             }).catch(() => setError('Não foi possível mover a gravação para a lixeira. Tente novamente.'))
           }}
           className="min-h-11 rounded-xl border px-3 py-2 text-sm"
@@ -1886,6 +1888,8 @@ function Editor() {
           <div className="rounded-xl border p-4" style={{ borderColor: 'var(--accent)', background: 'var(--panel)' }}>
             <p className="mb-3 text-sm">{outBlob ? 'Edição finalizada. Assista à prévia final e salve o vídeo.' : 'Terminou os ajustes? Aplique suas escolhas para criar o vídeo final.'}</p>
             <button disabled={processing || !meta || !assetsReady || transcribing || Boolean(musicBusy) || logoBusy} onClick={() => void handleProcess()} className="min-h-11 w-full rounded-xl px-4 py-3 font-semibold text-white disabled:opacity-40" style={{ background: 'var(--brand-gradient)' }}>{processing ? `${processStage} ${Math.round(progress * 100)}%` : 'Aplicar alterações e finalizar'}</button>
+            {processing && <div className="mt-3 flex items-center justify-between gap-3"><p role="status" className="text-sm">{processElapsed} s decorridos · mantenha o app aberto.</p><button className="min-h-11 rounded-lg border px-4" onClick={() => abortRef.current?.abort()}>Cancelar</button></div>}
+            {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--danger)' }}>{error}</p>}
           </div>
         </div>
       </div>

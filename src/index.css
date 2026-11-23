@@ -453,3 +453,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 @media (min-width: 640px) { .settings-sheet { height: 100%; } }
 .settings-row:has([role=switch]) { flex-direction: row; align-items: center; justify-content: space-between; }
 .settings-row:has([role=switch]) > div { width: auto; flex-shrink: 0; }
+
+/* AVFoundation preview is below the transparent WKWebView, independent of text animation. */
+html[data-native-capture="true"], html[data-native-capture="true"] body, html[data-native-capture="true"] #root { background: transparent !important; }

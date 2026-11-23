@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import PrompterView from '../src/components/prompter/PrompterView'
+import ScriptLibrary from '../src/components/library/ScriptLibrary'
 import VideoEditor from '../src/components/editor/VideoEditor'
 import { useAppStore } from '../src/store/useAppStore'
 import { DEFAULT_SETTINGS } from '../src/lib/types'
@@ -16,6 +17,10 @@ if (query.has('iphone')) {
 const audioSession = { type: 'auto' }
 Object.defineProperty(navigator, 'audioSession', { value: audioSession, configurable: true })
 const streams: MediaStream[] = []
+const audioContexts: AudioContext[] = []
+const resumeSyntheticAudio = () => { audioContexts.filter(audio => audio.state !== 'closed').forEach(audio => { void audio.resume().catch(() => undefined) }) }
+document.addEventListener('pointerdown', resumeSyntheticAudio)
+document.addEventListener('click', resumeSyntheticAudio)
 if (query.has('unsupported-filter')) Reflect.deleteProperty(CanvasRenderingContext2D.prototype, 'filter')
 // Synthetic camera only: this harness never requests camera/microphone hardware.
 navigator.mediaDevices.getUserMedia = async () => {
@@ -27,13 +32,13 @@ navigator.mediaDevices.getUserMedia = async () => {
   draw()
   const timer = setInterval(draw, 33)
   const stream = canvas.captureStream(30)
-  const audio = new AudioContext(); void audio.resume()
+  const audio = new AudioContext(); audioContexts.push(audio); void audio.resume().catch(() => undefined)
   const source = audio.createOscillator(); const gain = audio.createGain(); gain.gain.value = .01
   const destination = audio.createMediaStreamDestination(); source.connect(gain).connect(destination); source.start()
   destination.stream.getAudioTracks().forEach(track => stream.addTrack(track))
   const track = stream.getVideoTracks()[0]
   const stop = track.stop.bind(track)
-  track.stop = () => { stop(); clearInterval(timer); void audio.close() }
+  track.stop = () => { stop(); clearInterval(timer); if (audio.state !== 'closed') void audio.close().catch(() => undefined) }
   streams.push(stream)
   return stream
 }
@@ -49,7 +54,7 @@ if (query.has('empty')) {
   }
   Object.defineProperty(window, 'MediaRecorder', { value: EmptyEncoder })
 }
-useAppStore.setState({ view: 'prompter', currentScript: { id: 991, title: 'Teste de gravação', content: 'Primeiro prepare seu roteiro. Depois olhe para a câmera e fale com calma.', createdAt: Date.now(), updatedAt: Date.now() }, settings: { ...DEFAULT_SETTINGS, cameraOn: !query.has('reading'), mode: query.has('voice') ? 'voice' : 'fixed', wpm: 300, fontSize: 48, beauty: query.has('unsupported-filter') ? 'glamour' : 'none' } })
+useAppStore.setState({ view: query.has('library') ? 'library' : 'prompter', librarySection: 'videos', currentScript: { id: 991, key: 'capture-flow-test', title: 'Teste de gravação', content: 'Primeiro prepare seu roteiro. Depois olhe para a câmera e fale com calma. '.repeat(query.has('long') ? 30 : 1), createdAt: Date.now(), updatedAt: Date.now() }, settings: { ...DEFAULT_SETTINGS, cameraOn: !query.has('reading'), mode: query.has('voice') ? 'voice' : 'fixed', wpm: query.has('long') ? 120 : 300, openMic: query.has('long'), fontSize: 48, beauty: query.has('unsupported-filter') ? 'glamour' : 'none' } })
 function Harness() {
   const view = useAppStore(s => s.view)
   useEffect(() => {
@@ -63,7 +68,7 @@ function Harness() {
     const timer = setInterval(() => setCapture(`microfones ativos: ${streams.flatMap(s => s.getAudioTracks()).filter(t => t.readyState === 'live').length}; sessão: ${audioSession.type}`), 100)
     return () => clearInterval(timer)
   }, [])
-  return <><output aria-label="Diagnóstico de captura" style={{position:'fixed',bottom:0,right:0,zIndex:100,fontSize:9,background:'#fff',color:'#000'}}>{capture}</output>{view === 'video-editor' ? <VideoEditor /> : view === 'editor' ? <p>Roteiro recuperado</p> : <PrompterView />}</>
+  return <><output aria-label="Diagnóstico de captura" style={{position:'fixed',bottom:0,right:0,zIndex:100,fontSize:9,background:'#fff',color:'#000'}}>{capture}</output>{view === 'video-editor' ? <VideoEditor /> : view === 'editor' ? <p>Roteiro recuperado</p> : view === 'library' ? <ScriptLibrary /> : <PrompterView />}</>
 }
 const root = import.meta.hot?.data.root ?? createRoot(document.getElementById('root')!)
 if (import.meta.hot) import.meta.hot.data.root = root

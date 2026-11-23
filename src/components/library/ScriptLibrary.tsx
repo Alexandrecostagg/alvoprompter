@@ -39,6 +39,8 @@ function relativeTime(ts: number): string {
 export default function ScriptLibrary() {
   const { scripts, currentScript, loading, loadError, removeScript, selectScript, setView, settings, openAiPanel } =
     useAppStore()
+  const librarySection = useAppStore(s => s.librarySection)
+  const setLibrarySection = useAppStore(s => s.setLibrarySection)
   const fileRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLInputElement>(null)
   const [showLinkImport, setShowLinkImport] = useState(false)
@@ -135,9 +137,15 @@ export default function ScriptLibrary() {
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8">
-      <div className="studio-greeting"><div><p className="studio-eyebrow">SEU ESTÚDIO DE CRIAÇÃO</p><h1>Vamos dar vida à sua ideia?</h1></div><span className="studio-workspace">{useAppStore.getState().cloudWorkspace?.name ?? 'Espaço pessoal'}</span></div>
-      <VideoProjects />
-      <Rehearsals />
+      <div className="studio-greeting"><div><p className="studio-eyebrow">SEU ESTÚDIO DE CRIAÇÃO</p><h1>Sua Biblioteca</h1></div><span className="studio-workspace">{useAppStore.getState().cloudWorkspace?.name ?? 'Espaço pessoal'}</span></div>
+      <nav aria-label="Conteúdo da Biblioteca" className="mb-5 grid grid-cols-3 gap-2 rounded-2xl border p-2" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+        {([{ id: 'videos', label: 'Vídeos', hint: 'Originais e edições' }, { id: 'rehearsals', label: 'Ensaios', hint: 'Leitura e áudios' }, { id: 'scripts', label: 'Roteiros', hint: 'Escrever e gravar' }] as const).map(section => <button key={section.id} aria-pressed={librarySection === section.id} onClick={() => setLibrarySection(section.id)} className="min-h-16 rounded-xl px-1 py-2" style={{ background: librarySection === section.id ? 'var(--accent-soft)' : 'transparent', color: librarySection === section.id ? 'var(--brand-strong)' : 'var(--text)' }}><strong className="block text-sm">{section.label}</strong><span className="mt-1 block text-[11px]">{section.hint}</span></button>)}
+      </nav>
+      <p className="mb-4 text-sm" style={{ color: 'var(--muted)' }}>Seus vídeos e ensaios ficam neste aparelho. Para levá-los a outro dispositivo, salve ou compartilhe uma cópia.</p>
+      {librarySection === 'videos' && <VideoProjects />}
+      {librarySection === 'rehearsals' && <Rehearsals />}
+      {librarySection === 'scripts' && <>
+
       {currentScript?.content.trim() ? (
         <button onClick={() => setView('editor')} className="mb-5 flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left" style={{ borderColor: 'var(--border)', background: 'var(--accent-soft)' }}>
           <span className="min-w-0"><span className="block text-xs font-semibold" style={{ color: 'var(--brand-strong)' }}>Continuar de onde parou</span><strong className="mt-1 block truncate text-sm">{currentScript.title || 'Sem título'}</strong></span>
@@ -260,6 +268,8 @@ export default function ScriptLibrary() {
           })}
         </ul>
       )}
+
+      </>}
 
       {showImportMenu && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/70 sm:items-center sm:justify-center sm:p-6">

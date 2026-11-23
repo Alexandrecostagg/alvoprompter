@@ -235,7 +235,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="sticky top-0 z-40 flex items-center justify-between border-b px-4 pb-2.5 pt-2.5 backdrop-blur-xl lg:hidden" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 90%, transparent)', paddingTop: 'max(.625rem, env(safe-area-inset-top))' }}>
-        <button onClick={() => navigate('library')} aria-label="Ir para meus roteiros"><BrandMark compact /></button>
+        <button onClick={() => navigate('library')} aria-label="Ir para a Biblioteca"><BrandMark compact /></button>
         <div className="flex items-center gap-2">
           <button onClick={() => setAccountOpen(true)} aria-label="Abrir conta e planos" className="grid h-11 w-11 place-items-center rounded-2xl border transition hover:shadow-sm" style={{ borderColor: 'var(--border)' }}>
             <UserAvatar name={user?.displayName} email={user?.email} size={30} />
@@ -245,9 +245,9 @@ export default function App() {
       </header>
 
       <header className="hidden min-h-16 items-center justify-between border-b px-6 lg:flex" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        <button onClick={() => navigate('library')} aria-label="Ir para meus roteiros"><BrandMark /></button>
+        <button onClick={() => navigate('library')} aria-label="Ir para a Biblioteca"><BrandMark /></button>
         <nav className="flex items-center gap-1" aria-label="Navegação principal">
-          <DesktopNavButton active={view === 'library'} onIntent={ScriptLibraryModule.preload} onClick={() => navigate('library')}>Início</DesktopNavButton>
+          <DesktopNavButton active={view === 'library'} onIntent={ScriptLibraryModule.preload} onClick={() => navigate('library')}>Biblioteca</DesktopNavButton>
           <DesktopNavButton active={view === 'editor'} disabled={!currentScript} onIntent={ScriptEditorModule.preload} onClick={() => navigate('editor')}>Editor</DesktopNavButton>
           <DesktopNavButton onIntent={currentScript?.content.trim() ? PrompterViewModule.preload : ScriptEditorModule.preload} onClick={openPrompterFlow}>Gravar</DesktopNavButton>
           <DesktopNavButton active={view === 'scheduling'} onIntent={SchedulingHubModule.preload} onClick={() => navigate('scheduling')}>Agenda</DesktopNavButton>
@@ -294,7 +294,7 @@ export default function App() {
       </dialog>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t px-2 pb-[env(safe-area-inset-bottom)] pt-1 lg:hidden" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--panel) 96%, transparent)', boxShadow: '0 -12px 30px rgba(15,23,42,.08)' }} aria-label="Navegação principal">
-        <MobileNavButton icon="scripts" label="Início" active={view === 'library'} onClick={() => navigate('library')} />
+        <MobileNavButton icon="scripts" label="Biblioteca" active={view === 'library'} onClick={() => navigate('library')} />
         <MobileNavButton icon="edit" label="Editor" active={view === 'editor'} disabled={!currentScript} onClick={() => navigate('editor')} />
         <MobileNavButton icon="record" label="Gravar" primary onClick={openPrompterFlow} />
         <MobileNavButton icon="calendar" label="Agenda" active={view === 'scheduling'} onClick={() => navigate('scheduling')} />

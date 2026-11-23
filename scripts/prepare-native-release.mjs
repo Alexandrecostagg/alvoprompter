@@ -19,6 +19,15 @@ if (existsSync('ios/App/App.xcodeproj/project.pbxproj')) {
   const target = project.getFirstTarget().uuid
   const groups = project.hash.project.objects.PBXGroup
   const appGroup = Object.keys(groups).find(key => typeof groups[key] === 'object' && (groups[key].name === 'App' || groups[key].path === 'App'))
+  for (const name of ['SceneDelegate.swift', 'CaptureBridgeViewController.swift', 'NativeCameraPlugin.swift', 'CaptureValidation.swift', 'NativeVideoRenderer.swift', 'NativeVideoExportPlugin.swift']) {
+    writeFileSync(`ios/App/App/${name}`, readFileSync(`native/ios/${name}`))
+    if (!project.hasFile(name)) {
+      const file = new (require('xcode/lib/pbxFile'))(name)
+      file.uuid = project.generateUuid(); file.fileRef = project.generateUuid(); file.target = target
+      project.addToPbxFileReferenceSection(file); project.addToPbxBuildFileSection(file)
+      project.addToPbxSourcesBuildPhase(file); project.addToPbxGroup(file, appGroup)
+    }
+  }
   if (!project.hasFile('GoogleService-Info.plist')) {
     const file = new (require('xcode/lib/pbxFile'))('GoogleService-Info.plist')
     file.uuid = project.generateUuid(); file.fileRef = project.generateUuid(); file.target = target

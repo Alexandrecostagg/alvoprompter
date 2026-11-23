@@ -21,10 +21,11 @@ navigator.mediaDevices.getUserMedia = async () => {
   const animation = setInterval(draw, 33)
   captures++
   const stream = captureStream.call(canvas, 30)
-  const audio = new AudioContext(); await audio.resume()
+  const audio = new AudioContext()
   const oscillator = audio.createOscillator(); oscillator.frequency.value = 440
   const gain = audio.createGain(); gain.gain.value = .01
   const destination = audio.createMediaStreamDestination(); oscillator.connect(gain).connect(destination); oscillator.start()
+  await Promise.race([audio.resume(), delay(3000).then(() => { if (audio.state !== 'running') throw new Error('Áudio sintético bloqueado pelo navegador. Inicie com um clique na página.') })])
   destination.stream.getAudioTracks().forEach((track) => stream.addTrack(track))
   let closed = false
   sessions.push({ stream, freeze: () => clearInterval(animation), close: () => { if (closed) return; closed = true; clearInterval(animation); stream.getTracks().forEach((track) => track.stop()); void audio.close() } })
@@ -43,7 +44,7 @@ async function inspectRecording(blob: Blob) {
     const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360
     const ctx = canvas.getContext('2d')!
     const positions: number[] = []
-    for (const time of (blob.size && video.duration > 30 ? [1, 12, 20, 32] : [.5, 1.5, 2.5, 3.5])) {
+    for (const time of (blob.size && video.duration > 100 ? [1, 16, 65, 118] : [.5, 1.5, 2.5, 3.5])) {
       video.currentTime = time
       await waitFor(() => !video.seeking && Math.abs(video.currentTime - time) < .1)
       ctx.drawImage(video, 0, 0, 640, 360)
@@ -79,22 +80,22 @@ export function Harness() {
     setBusy(true); setReport('Testando…')
     const lines: string[] = []
     try {
-      for (const filter of [null, 'brightness(1.05) contrast(1.03)', 'brightness(1.1)']) {
+      for (const filter of [null, 'brightness(1.05) contrast(1.03)']) {
         await latest.current.disable()
-        failFilterCapture = filter === 'brightness(1.1)'
+        failFilterCapture = Boolean(filter)
         setCss(filter); latest.current.setFilter(filter)
         const before = { requests, captures, previewAssignments }
         await Promise.all([latest.current.enable(), latest.current.enable()])
         await delay(250)
         if (audioSession.type !== 'play-and-record') throw new Error('Sessão de captura não foi preparada')
-        latest.current.start()
+        await latest.current.start()
         await waitFor(() => latest.current.isRecording)
         const renders = setInterval(() => setTick((value) => value + 1), 40)
-        try { await delay(failFilterCapture ? 4200 : 35000) } finally { clearInterval(renders) }
+        try { await delay(failFilterCapture ? 4200 : 120000) } finally { clearInterval(renders) }
         if (!latest.current.isRecording) throw new Error('A gravação parou antes do comando')
         const input = sessions.at(-1)!.stream
         if (input.getTracks().some((track) => track.readyState !== 'live')) throw new Error('Câmera ou microfone interrompido')
-        if (requests - before.requests !== 1 || captures - before.captures !== (filter ? 2 : 1) || previewAssignments - before.previewAssignments !== 1) throw new Error('Reabertura da câmera ou reconstrução do vídeo durante atualizações')
+        if (requests - before.requests !== 1 || captures - before.captures !== 1 || previewAssignments - before.previewAssignments !== 1) throw new Error('Reabertura da câmera ou reconstrução do vídeo durante atualizações')
         const previous = latest.current.videoBlob
         latest.current.stop()
         await waitFor(() => Boolean(latest.current.videoBlob && latest.current.videoBlob !== previous))
@@ -103,20 +104,19 @@ export function Harness() {
         if (latest.current.error) throw new Error(`Efeito opcional bloqueou gravação: ${latest.current.error}`)
         if (failFilterCapture && !latest.current.filterUnavailable) throw new Error('Filtro incompatível não foi sinalizado')
         const recording = await inspectRecording(latest.current.videoBlob!)
-        lines.push(`PASS ${failFilterCapture ? 'filtro incompatível: fallback sem filtro' : filter ? 'com filtro' : 'sem filtro'}: vídeo contínuo, microfone encerrado antes da reprodução. ${JSON.stringify(recording)}`)
-        latest.current.disable(); sessions.at(-1)!.close()
+        lines.push(`PASS ${filter ? 'preferência de efeito não reconstrói captura' : '120 segundos com atualizações de texto'}: vídeo contínuo, microfone encerrado antes da reprodução. ${JSON.stringify(recording)}`)
+        await latest.current.disable(); sessions.at(-1)!.close()
       }
-      // Reproduce a live microphone with a camera that stops delivering frames.
+      // A real track interruption must preserve the already recorded part.
       failFilterCapture = false
-      latest.current.setFilter(null)
       await latest.current.enable(); await delay(250)
-      latest.current.start(); await waitFor(() => latest.current.isRecording)
-      await delay(1500)
-      sessions.at(-1)!.freeze()
-      await waitFor(() => !latest.current.isRecording, 180)
+      await latest.current.start(); await waitFor(() => latest.current.isRecording)
+      await delay(1800)
+      const track = sessions.at(-1)!.stream.getVideoTracks()[0]!
+      track.stop(); track.dispatchEvent(new Event('ended'))
       await waitFor(() => Boolean(latest.current.warning && latest.current.videoBlob))
-      if (!latest.current.videoBlob?.size) throw new Error('Interrupção descartou o trecho capturado')
-      lines.push('PASS câmera congelada com microfone ativo: encerramento automático, trecho preservado e aviso visível.')
+      if (latest.current.isRecording) throw new Error('Interrupção manteve a gravação ativa')
+      lines.push('PASS interrupção da câmera: arquivo parcial preservado e aviso visível.')
       await latest.current.disable(); sessions.at(-1)!.close()
       requestDelay = 200
       const pending = latest.current.enable()

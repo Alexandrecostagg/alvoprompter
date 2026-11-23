@@ -35,6 +35,8 @@ interface AppState {
   recordingSaveStatus: 'saving' | 'saved' | 'error' | null
   recordingSaveError: string | null
   view: View
+  librarySection: 'videos' | 'rehearsals' | 'scripts'
+  setLibrarySection: (section: 'videos' | 'rehearsals' | 'scripts') => void
   saveStatus: 'saved' | 'pending' | 'saving' | 'error'
   saveError: string | null
   cloudWorkspace: SaaSWorkspace | null
@@ -80,6 +82,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (owner !== get().mediaOwner) { get().setRecording(null); set({ mediaOwner: owner, view: 'library' }) }
   },
   view: 'library',
+  librarySection: 'scripts',
+  setLibrarySection: (librarySection) => set({ librarySection }),
   saveStatus: 'saved',
   saveError: null,
   cloudWorkspace: null,

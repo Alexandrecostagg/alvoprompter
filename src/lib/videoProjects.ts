@@ -1,3 +1,4 @@
+import type { CaptureValidation } from './capture/types'
 import { db, newKey } from './db'
 import type { CaptionUtterance, SrtSegment } from './srt'
 import type { CutHistory } from './editRanges'
@@ -26,6 +27,7 @@ export interface VideoProject {
   createdAt: number; updatedAt: number; deletedAt?: number
   blob: Blob; utterances: CaptionUtterance[]; srt: string | null
   scriptContent?: string; resumeFraction?: number
+  captureWarning?: string; captureValidation?: CaptureValidation
   edit?: VideoEdit; exportState?: 'rendering' | 'ready' | 'cancelled' | 'failed'
 }
 export interface VideoVersion { id: string; projectId: string; scope: string; createdAt: number; blob: Blob; edit: VideoEdit; label?: string }

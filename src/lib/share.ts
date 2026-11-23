@@ -21,6 +21,14 @@ export function safeShareFileName(fileName: string): string {
   return normalized || `alvoprompter-${Date.now()}.webm`
 }
 
+/** Interrupted native takes may be recovered as MOV; keep the actual container extension. */
+function mediaFileName(options: ShareVideoOptions): string {
+  const name = safeShareFileName(options.fileName)
+  return options.blob.type.split(';')[0] === 'video/quicktime'
+    ? `${name.replace(/\.(?:mp4|webm|mov)$/i, '')}.mov`
+    : name
+}
+
 export function dataUrlToBlob(dataUrl: string): Blob {
   // A codec list may contain commas; match the base64 marker before splitting.
   const base64 = dataUrl.match(/^data:(.*?);base64,([\s\S]*)$/)
@@ -75,7 +83,7 @@ async function copyTextSilently(text?: string): Promise<void> {
 }
 
 async function shareNativeVideo(options: ShareVideoOptions): Promise<void> {
-  const fileName = safeShareFileName(options.fileName)
+  const fileName = mediaFileName(options)
   const path = `compartilhamentos/${Date.now()}-${fileName}`
   await Filesystem.writeFile({
     path,
@@ -93,7 +101,7 @@ async function shareNativeVideo(options: ShareVideoOptions): Promise<void> {
 }
 
 export async function shareVideo(options: ShareVideoOptions): Promise<ShareOutcome> {
-  const fileName = safeShareFileName(options.fileName)
+  const fileName = mediaFileName(options)
   if (Capacitor.isNativePlatform()) {
     await shareNativeVideo({ ...options, fileName })
     return 'shared'
@@ -129,7 +137,7 @@ export async function saveVideo(options: ShareVideoOptions): Promise<ShareOutcom
     await shareNativeVideo(options)
     return 'shared'
   }
-  downloadBlob(options.blob, safeShareFileName(options.fileName))
+  downloadBlob(options.blob, mediaFileName(options))
   return 'downloaded'
 }
 
@@ -145,14 +153,14 @@ export async function shareVideoFiles(files: ShareVideoOptions[]): Promise<Share
     const uris: string[] = []
     const group = Date.now()
     for (const file of files) {
-      const path = `compartilhamentos/${group}-${safeShareFileName(file.fileName)}`
+      const path = `compartilhamentos/${group}-${mediaFileName(file)}`
       await Filesystem.writeFile({ path, data: await blobToBase64(file.blob), directory: Directory.Cache, recursive: true })
       uris.push((await Filesystem.getUri({ path, directory: Directory.Cache })).uri)
     }
     await Share.share({ files: uris, title: 'Stories em ordem', dialogTitle: 'Salvar ou compartilhar as partes' })
     return 'shared'
   }
-  const data = { files: files.map(file => new File([file.blob], safeShareFileName(file.fileName), { type: file.blob.type })) }
+  const data = { files: files.map(file => new File([file.blob], mediaFileName(file), { type: file.blob.type })) }
   if (navigator.share && navigator.canShare?.(data)) { await navigator.share(data); return 'shared' }
   throw new Error('Este navegador não compartilha várias partes de uma vez. Salve cada parte pelos botões abaixo.')
 }

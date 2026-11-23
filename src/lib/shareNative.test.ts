@@ -46,3 +46,10 @@ it('rejects an empty file or malformed FileReader result before opening native s
   expect(Filesystem.writeFile).not.toHaveBeenCalled()
   expect(Share.share).not.toHaveBeenCalled()
 })
+
+it('saves a recovered native MOV using its real extension and unchanged media bytes', async () => {
+  output = 'data:video/quicktime;base64,YWx2bw=='
+  await saveVideo({ blob: new Blob(['alvo'], { type: 'video/quicktime' }), fileName: 'original.webm' })
+  expect(Filesystem.writeFile).toHaveBeenCalledWith(expect.objectContaining({ path: expect.stringMatching(/original\.mov$/), data: 'YWx2bw==' }))
+  expect(Share.share).toHaveBeenCalledWith(expect.objectContaining({ files: [expect.stringMatching(/original\.mov$/)] }))
+})

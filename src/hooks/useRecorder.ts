@@ -1,263 +1,63 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { startRecordingSession, type RecordingSession } from '../lib/recordingSession'
-import { createRecordingPipeline, supportsRecordingFilters, type RecordingPipeline } from '../lib/recordingPipeline'
-import { monitorRecordingCamera } from '../lib/recordingHealth'
-import { setRecordingAudioMode } from '../lib/recordingAudio'
-import { BROKEN_VIDEO_MESSAGE, inspectMp4 } from '../lib/video/integrity'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createCamera } from '../lib/capture/createCamera'
+import { captureContext, preserveCapturedMovie } from '../lib/capture/context'
+import type { CaptureController } from '../lib/capture/CaptureController'
 
-type RecorderStatus = 'idle' | 'requesting' | 'ready' | 'recording' | 'finishing' | 'error'
-
+/** React observes the capture owner; rendering the teleprompter never rebuilds it. */
 export function useRecorder() {
-  const [status, setStatus] = useState<RecorderStatus>('idle')
-  const [warning, setWarning] = useState<string | null>(null)
-  const stopHealthRef = useRef<(() => void) | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const owner = useRef<CaptureController | null>(null)
+  if (!owner.current) owner.current = createCamera()
+  const camera = owner.current
+  const snapshot = useSyncExternalStore(camera.subscribe, camera.getSnapshot)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
-  const [videoBlob, setVideoBlob] = useState<Blob | null>(null)
   const [elapsed, setElapsed] = useState(0)
-  const [filterUnavailable, setFilterUnavailable] = useState(() => !supportsRecordingFilters())
-
-  const streamRef = useRef<MediaStream | null>(null)
-  const cameraStreamRef = useRef<MediaStream | null>(null)
-  const recorderRef = useRef<RecordingSession | null>(null)
-  const videoElRef = useRef<HTMLVideoElement | null>(null)
-  const timerRef = useRef<number | null>(null)
-  const urlRef = useRef<string | null>(null)
-  const filterRef = useRef<string | null>(null)
-  const pipelineRef = useRef<RecordingPipeline | null>(null)
-  const appliedFilterRef = useRef<string | null>(null)
-  const pendingEnableRef = useRef<Promise<void> | null>(null)
-  const cameraGeneration = useRef(0)
-  const mountedRef = useRef(true)
-  const disablingRef = useRef<Promise<void> | null>(null)
-  const filterFailedRef = useRef(filterUnavailable)
-
-  const attachVideo = useCallback((el: HTMLVideoElement | null) => {
-    const previous = videoElRef.current
-    if (previous && previous !== el) previous.srcObject = null
-    videoElRef.current = el
-    // Preview the camera directly: timer updates and encoder effects must not reset playback.
-    if (el && el.srcObject !== cameraStreamRef.current) {
-      el.srcObject = cameraStreamRef.current
-      if (cameraStreamRef.current) void el.play().catch(() => undefined)
-    }
-    pipelineRef.current?.setSource(el)
-  }, [])
-
-  const teardownPipeline = useCallback(() => {
-    pipelineRef.current?.dispose()
-    pipelineRef.current = null
-    appliedFilterRef.current = null
-  }, [])
-
-  const releaseCapture = useCallback(() => {
-    const hadCamera = Boolean(cameraStreamRef.current)
-    stopHealthRef.current?.()
-    stopHealthRef.current = null
-    teardownPipeline()
-    cameraStreamRef.current?.getTracks().forEach((track) => track.stop())
-    cameraStreamRef.current = null
-    streamRef.current = null
-    if (videoElRef.current) videoElRef.current.srcObject = null
-    // Stop every input BEFORE switching category or mounting the result player.
-    if (hadCamera) setRecordingAudioMode('playback')
-  }, [teardownPipeline])
-
-  const applyFilter = useCallback(() => {
-    const camera = cameraStreamRef.current
-    if (!camera) return
-    const css = filterRef.current
-    if (pipelineRef.current) {
-      pipelineRef.current.setFilter(css)
-    } else if (css && videoElRef.current && !filterFailedRef.current) {
-      // Never replace a MediaRecorder input track while a recording is active.
-      if (recorderRef.current) return
-      try {
-        pipelineRef.current = createRecordingPipeline(camera, css, videoElRef.current!)
-        streamRef.current = pipelineRef.current.stream
-      } catch {
-        // An optional effect must never prevent saving the original camera/audio.
-        filterFailedRef.current = true
-        setFilterUnavailable(true)
-        streamRef.current = camera
-      }
-    }
-    appliedFilterRef.current = css
-  }, [])
-
-  const setFilter = useCallback((css: string | null) => {
-    if (filterRef.current === css && appliedFilterRef.current === css) return
-    filterRef.current = css
-    applyFilter()
-  }, [applyFilter])
-
-  const enable = useCallback((): Promise<void> => {
-    if (disablingRef.current) return disablingRef.current.then(() => enable())
-    if (pendingEnableRef.current) return pendingEnableRef.current
-    if (cameraStreamRef.current) return Promise.resolve()
-    const generation = ++cameraGeneration.current
-    setError(null)
-    setStatus('requesting')
-    const request = (async () => {
-      try {
-        setRecordingAudioMode('play-and-record')
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
-          audio: { echoCancellation: true, noiseSuppression: true },
-        })
-        if (generation !== cameraGeneration.current) {
-          stream.getTracks().forEach((track) => track.stop())
-          if (!cameraStreamRef.current && !pendingEnableRef.current) setRecordingAudioMode('playback')
-          return
-        }
-        cameraStreamRef.current = stream
-        streamRef.current = stream
-        if (videoElRef.current && videoElRef.current.srcObject !== stream) {
-          videoElRef.current.srcObject = stream
-          void videoElRef.current.play().catch(() => undefined)
-        }
-        if (generation !== cameraGeneration.current) return
-        applyFilter()
-        setStatus('ready')
-      } catch (err) {
-        if (generation !== cameraGeneration.current) return
-        setRecordingAudioMode('playback')
-        setStatus('error')
-        setError(err instanceof DOMException && err.name === 'NotAllowedError'
-          ? 'Permissão de câmera/microfone negada.' : 'Não foi possível acessar a câmera.')
-      }
-    })()
-    pendingEnableRef.current = request
-    void request.finally(() => { if (pendingEnableRef.current === request) pendingEnableRef.current = null })
-    return request
-  }, [applyFilter])
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current != null) window.clearInterval(timerRef.current)
-    timerRef.current = null
-  }, [])
-
-  const start = useCallback((): boolean => {
-    if (!streamRef.current || recorderRef.current || disablingRef.current) return false
-    try {
-      applyFilter()
-      const session = startRecordingSession(streamRef.current)
-      recorderRef.current = session
-      setError(null)
-      setWarning(null)
-      stopHealthRef.current = monitorRecordingCamera(cameraStreamRef.current!, () => videoElRef.current, () => {
-        setWarning('A câmera parou de enviar imagens. A gravação foi encerrada para preservar o trecho capturado. Confira a prévia antes de compartilhar e prepare uma nova tomada.')
-        clearTimer()
-        setStatus('finishing')
-        session.stop()
-      })
-      setVideoBlob(null)
-      setVideoUrl(null)
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
-      urlRef.current = null
-      setElapsed(0)
-      timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000)
-      setStatus('recording')
-      void session.result.then(async (blob) => {
-        if (!mountedRef.current || recorderRef.current !== session) return
-        releaseCapture()
-        try {
-          const integrity = await inspectMp4(blob)
-          if (integrity?.problem && mountedRef.current) setWarning(BROKEN_VIDEO_MESSAGE)
-        } catch { /* A metadata probe must not discard a recorded file. */ }
-        if (!mountedRef.current || recorderRef.current !== session) return
-        setVideoBlob(blob)
-        const url = URL.createObjectURL(blob)
-        urlRef.current = url
-        setVideoUrl(url)
-        setStatus('idle')
-      }, (error: Error) => {
-        if (!mountedRef.current || recorderRef.current !== session) return
-        releaseCapture()
-        setStatus('error')
-        setError(error.message)
-      }).finally(() => {
-        if (recorderRef.current === session) { recorderRef.current = null; clearTimer() }
-      })
-      return true
-    } catch (error) {
-      setStatus('error')
-      setError(error instanceof Error ? error.message : 'Não foi possível iniciar a gravação.')
-      return false
-    }
-  }, [applyFilter, clearTimer, releaseCapture])
-
-  const stop = useCallback(() => {
-    stopHealthRef.current?.()
-    stopHealthRef.current = null
-    clearTimer()
-    const session = recorderRef.current
-    if (session) {
-      setStatus('finishing')
-      session.stop()
-    }
-  }, [clearTimer])
-
-  const disable = useCallback((): Promise<void> => {
-    if (disablingRef.current) return disablingRef.current
-    if (pendingEnableRef.current && !cameraStreamRef.current) setRecordingAudioMode('playback')
-    cameraGeneration.current++
-    pendingEnableRef.current = null
-    const session = recorderRef.current
-    stopHealthRef.current?.()
-    stopHealthRef.current = null
-    if (session) { clearTimer(); session.stop() }
-    const release = () => {
-      releaseCapture()
-      if (mountedRef.current) setStatus((current) => current === 'error' ? current : 'idle')
-    }
-    if (!session) { release(); return Promise.resolve() }
-    const pending = session.result.catch(() => undefined).then(release).finally(() => {
-      if (disablingRef.current === pending) disablingRef.current = null
-    })
-    disablingRef.current = pending
-    return pending
-  }, [clearTimer, releaseCapture])
-
-  const retry = useCallback(async () => {
-    await disable()
-    if (mountedRef.current) await enable()
-  }, [disable, enable])
-
   useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      void disable()
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
-    }
-  }, [disable])
-
+    const blob = snapshot.movie?.blob
+    if (!blob) { setVideoUrl(null); return }
+    const url = URL.createObjectURL(blob)
+    setVideoUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [snapshot.movie?.blob])
+  useEffect(() => {
+    if (snapshot.phase !== 'recording' || !snapshot.startedAt) return
+    const startedAt = snapshot.startedAt
+    setElapsed(0)
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+    const timer = setInterval(tick, 250)
+    return () => clearInterval(timer)
+  }, [snapshot.phase, snapshot.startedAt])
+  useEffect(() => () => { void camera.close().then(async () => {
+    const movie = camera.getSnapshot().movie
+    if (movie) await preserveCapturedMovie(movie)
+  }).catch(error => console.error('A tomada não pôde ser guardada na biblioteca.', error)) }, [camera])
+  const retry = useCallback(async () => { await camera.close(); await camera.open() }, [camera])
+  const start = useCallback(() => camera.start(captureContext()), [camera])
+  const stop = useCallback(() => { void camera.stop() }, [camera])
   return {
-    status,
-    error,
-    warning,
-    filterUnavailable,
+    status: snapshot.phase === 'opening' ? 'requesting' as const : snapshot.phase === 'failed' ? 'error' as const : snapshot.phase,
+    error: snapshot.error,
+    warning: snapshot.warning,
+    isNative: camera.port.native,
+    filterUnavailable: true,
+    // Old callers may send a preference; the new capture deliberately records original pixels.
+    setFilter: (_css: string | null) => {},
+    capturedMovie: snapshot.movie,
+    videoBlob: snapshot.movie?.blob ?? null,
     videoUrl,
-    videoBlob,
     elapsed,
-    isFinishing: status === 'finishing',
-    retry,
-    isRecording: status === 'recording',
-    enable,
+    isFinishing: snapshot.phase === 'finishing' || snapshot.phase === 'starting',
+    isRecording: snapshot.phase === 'recording',
+    enable: camera.open,
     start,
     stop,
-    disable,
-    attachVideo,
-    setFilter,
+    disable: camera.close,
+    retry,
+    attachPreview: camera.attach,
+    attachVideo: camera.attach,
   }
 }
 
 export function formatElapsed(seconds: number): string {
   const total = Math.max(0, Math.round(seconds))
-  const m = Math.floor(total / 60)
-    .toString()
-    .padStart(2, '0')
-  const s = (total % 60).toString().padStart(2, '0')
-  return `${m}:${s}`
+  return `${Math.floor(total / 60).toString().padStart(2, '0')}:${(total % 60).toString().padStart(2, '0')}`
 }
