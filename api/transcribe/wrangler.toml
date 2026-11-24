@@ -21,6 +21,7 @@ id = "7f2df53777804be2aefce83dd26e3945"
 # Publicar: npx wrangler deploy
 # Origens autorizadas. Adicione o domínio público real antes do deploy.
 [vars]
+PASSKEY_ENABLED = "false"
 RELEASE = "1.6.5-security-20261026"
 # Enable only after merchant profile, products, API permissions and device tests.
 GOOGLE_PLAY_ENABLED = "false"
@@ -52,3 +53,11 @@ queue = "alvoprompt-billing-retry"
 max_batch_size = 10
 max_retries = 12
 retry_delay = 300
+
+[[durable_objects.bindings]]
+name = "PASSKEY_STATE"
+class_name = "PasskeyState"
+
+[[migrations]]
+tag = "passkeys-v1"
+new_sqlite_classes = ["PasskeyState"]

@@ -1,3 +1,5 @@
+import { firebasePasskeyRoute } from './security/firebase.mjs';
+export { PasskeyState } from './security/durable-store.mjs';
 import { adminEmailConfigured, reviewGrant, sendAdminEmail, type BillingMessage } from './adminAccess'
 import { transcribeWithTimestamps } from './transcription'
 import { publicAppPolicy } from './appPolicy'
@@ -28,6 +30,11 @@ import { generateSpeech, ttsHealth, type TtsEnv } from './tts'
 import { authorizeAiAction, refundAiAction, handleSaaSRequest, replayAsaasWebhookEvent, requireUser, type SaaSEnv, type AiCharge } from './saas'
 
 export interface Env extends ChatEnv, TtsEnv {
+  PASSKEY_ENABLED?: string;
+  PASSKEY_STATE?: DurableObjectNamespace;
+  PASSKEY_RP_ID?: string;
+  PASSKEY_ORIGINS?: string;
+  PASSKEY_FIREBASE_SERVICE_ACCOUNT?: string;
   AI: {
     run(model: string, input: unknown, options?: { returnRawResponse?: boolean }): Promise<unknown>
   }
@@ -865,6 +872,12 @@ export default {
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const finish = (response: Response) => secureResponse(response, request, env.CORS_ORIGIN)
     if (!allowedOrigin(request, env)) return finish(json({ error: 'Origem não autorizada.' }, 403))
+    if (new URL(request.url).pathname.startsWith('/auth/passkeys/')) {
+      return finish(await firebasePasskeyRoute(request, env, {
+        projectId: env.FIREBASE_PROJECT_ID,
+        credential: env.PASSKEY_FIREBASE_SERVICE_ACCOUNT,
+      }))
+    }
     if (request.method === 'OPTIONS') return finish(new Response(null, { headers: CORS_HEADERS }))
     const path = new URL(request.url).pathname
     let charge: AiCharge | undefined

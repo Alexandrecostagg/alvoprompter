@@ -1,0 +1,7 @@
+{
+  "verifier": "@simplewebauthn/server",
+  "version": "14.1.0",
+  "sha256": "860a934cbcc3de0dd4310fdae1799b206602cb7d8b0885d1e65d20824a842a71",
+  "bytes": 330577,
+  "source": "https://github.com/MasterKale/SimpleWebAuthn"
+}
